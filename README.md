@@ -155,7 +155,7 @@ An October 23 diagnostic evaluated this checkpoint on **two validation maps**, u
 
 The tactical heuristic reranks legal actions using visible economic and exploration features; it does not simulate future states. See the [machine-readable diagnostic report](outputs/evaluations/training_fixes_20261023_diagnostic.json) for checkpoint identity, configuration, and episode results.
 
-**These are noncanonical diagnostic results, not a full validation benchmark.** Two maps do not establish superiority over the frozen 16M reference, a reliable improvement from the heuristic, human-level play, or combat ability. This completed economy-only run is separate from the later failed combat jobs. Model weights under `runs/` are excluded from Git; the results report is tracked in this repository.
+**These are noncanonical diagnostic results, not a full validation benchmark.** Two maps do not establish superiority over the frozen 16M reference, a reliable improvement from the heuristic, human-level play, or combat ability. This completed economy-only run is separate from the later failed combat jobs. The final non-combat [ResNet checkpoint](runs/Tribes-v0__farmshare_resnet_5m__1__1792495859/farmshare_resnet_5m.cleanrl_model) (about 17 MB) and its required [action-interface metadata](runs/Tribes-v0__farmshare_resnet_5m__1__1792495859/farmshare_resnet_5m.cleanrl_model.action_interface.json) are included in this repository. Keep both files together when evaluating the model. Other training artifacts under `runs/` remain ignored. Checkpoint SHA-256: `da9894e0d6520f56f009c8d6551d4974bf42fe45419eb46a8a1d7071c5726f40`.
 
 ## Repository structure
 

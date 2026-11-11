@@ -1,0 +1,18 @@
+{
+  "action_catalog_fingerprint": "c849a4abf7b0bee073ccc56b63ae65917ea30e77068ad648c472130693dfe6e4",
+  "action_offset_table_hash": "c849a4abf7b0bee073ccc56b63ae65917ea30e77068ad648c472130693dfe6e4",
+  "action_space_n": "63913",
+  "actor_mode": "legal_features",
+  "canonicalizer_version": "flat-v1-structured",
+  "catalog_version": "flat-v1",
+  "global_action_space_n": "63913",
+  "legal_action_feature_dim": 47,
+  "legal_action_feature_version": "v1_4_parity_spatial_and_cost",
+  "map_height": "11",
+  "map_width": "11",
+  "max_legal_actions": "256",
+  "network_arch": "spatial_resnet",
+  "observation_dim": "6424",
+  "phase1_environment_version": "v5_human_information_parity",
+  "phase1_opening_version": "v2_guaranteed_two_unit"
+}
