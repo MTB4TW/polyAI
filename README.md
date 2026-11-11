@@ -141,6 +141,22 @@ Phase 1 is **not** complete; active optimization remains ongoing and 20.17 test 
 
 Historical Seed-1, Seed-2, the baseline 16M reference run, the superseded v3 Terminal-SPT reference run, and the superseded v4 PARITY001 reference run remain preserved for their respective historical task, interface, and reward definitions. See [Phase 1 v4 PARITY001 Seed3 16M Terminal-SPT Reference Run (Superseded)](docs/results/Phase1_V4_PARITY001_Seed3_16M_TerminalSPT_Reference_Run.md), [Phase 1 v3 Seed3 16M Terminal-SPT Reference Run (Superseded)](docs/results/Phase1_V3_Seed3_16M_TerminalSPT_Reference_Run.md), [Phase 1 v3 Seed3 16M Reference Run](docs/results/Phase1_V3_Seed3_16M_Reference_Run.md), [Phase 1 Seed-1 mixed-opening reflection](docs/results/Phase1_Seed1_Mixed_Opening_Validation_Reflection.md), and [Phase 1 scripted-opening audit](docs/results/Phase1_Scripted_Opening_Audit.md).
 
+## Non-combat ResNet training result
+
+The Farmshare `spatial_resnet` economy-only run completed on **October 20, 2026**. It used seed 1 and a requested budget of 5 million environment steps; PPO completed **4,999,168 steps** after rounding to full rollout batches. The saved checkpoint is `runs/Tribes-v0__farmshare_resnet_5m__1__1792495859/farmshare_resnet_5m.cleanrl_model`.
+
+An October 23 diagnostic evaluated this checkpoint on **two validation maps**, using episode seed 42 and deterministic PPO argmax. Scores below are final Turn-10 stars per turn (SPT):
+
+| Validation map | ResNet PPO argmax | ResNet + tactical heuristic |
+|---|---:|---:|
+| `map_004262.csv` | 22 | 22 |
+| `map_003722.csv` | 21 | 23 |
+| **Mean (2 maps)** | **21.5** | **22.5** |
+
+The tactical heuristic reranks legal actions using visible economic and exploration features; it does not simulate future states. See the [machine-readable diagnostic report](outputs/evaluations/training_fixes_20261023_diagnostic.json) for checkpoint identity, configuration, and episode results.
+
+**These are noncanonical diagnostic results, not a full validation benchmark.** Two maps do not establish superiority over the frozen 16M reference, a reliable improvement from the heuristic, human-level play, or combat ability. This completed economy-only run is separate from the later failed combat jobs. Model weights under `runs/` are excluded from Git; the results report is tracked in this repository.
+
 ## Repository structure
 
 | Path | Purpose |
