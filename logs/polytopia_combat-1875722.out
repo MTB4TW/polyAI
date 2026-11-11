@@ -1,0 +1,10 @@
+Job ID: 1875722
+Running on node: oat-02
+Started at: Wed Oct 28 21:24:36 PDT 2026
+PyTorch CUDA available: True
+Device: NVIDIA L40S
+Device count: 1
+Starting Phase 2 Combat training: 2000000 steps with 16 parallel environments on GPU (spatial_resnet)...
+[ACTION_VALIDATOR] Passed strict validation over 10000 decision states.
+[ACTION_VALIDATOR] Situation coverage seen: spawn_warrior=True, resource_animal=True, capture_village=True, research_forestry=True, clear_forest=True
+[ACTION_INTERFACE] actor_mode=legal_features info_mode=fast catalog_version=flat-v1 action_space_n=78675 max_legal_actions=256

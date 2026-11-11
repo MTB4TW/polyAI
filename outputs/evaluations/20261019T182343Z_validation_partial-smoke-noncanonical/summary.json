@@ -1,0 +1,208 @@
+{
+  "bootstrap": {
+    "method": "fixed-seed nonparametric percentile bootstrap; stochastic headline bootstraps per-map replicate means",
+    "samples": 5000
+  },
+  "canonical": false,
+  "evaluation_id": "20261019T182343Z_validation_partial-smoke-noncanonical",
+  "evaluation_schema_version": "polyvision-phase1-evaluation-v1",
+  "paired": {
+    "ppo_argmax_vs_random_legal": {
+      "left": "ppo_argmax",
+      "losses": 1,
+      "maps": 5,
+      "mean_difference": 1.2,
+      "mean_difference_ci95": [
+        -0.4,
+        3.0
+      ],
+      "median_difference": 0.0,
+      "right": "random_legal",
+      "ties": 2,
+      "win_rate": 0.4,
+      "wins": 2
+    },
+    "ppo_argmax_vs_visible_greedy": {
+      "left": "ppo_argmax",
+      "losses": 3,
+      "maps": 5,
+      "mean_difference": -0.8,
+      "mean_difference_ci95": [
+        -1.4,
+        -0.2
+      ],
+      "median_difference": -1.0,
+      "right": "visible_greedy",
+      "ties": 2,
+      "win_rate": 0.0,
+      "wins": 0
+    },
+    "ppo_sampled_vs_random_legal": {
+      "left": "ppo_sampled",
+      "losses": 0,
+      "maps": 5,
+      "mean_difference": 8.2,
+      "mean_difference_ci95": [
+        6.4,
+        10.6
+      ],
+      "median_difference": 8.0,
+      "right": "random_legal",
+      "ties": 0,
+      "win_rate": 1.0,
+      "wins": 5
+    }
+  },
+  "policies": {
+    "ppo_argmax": {
+      "episode_level": {
+        "count": 5,
+        "max": 9.0,
+        "mean": 7.4,
+        "mean_ci95": [
+          5.6,
+          8.8
+        ],
+        "median": 8.0,
+        "min": 4.0,
+        "p05": 4.6,
+        "p25": 7.0,
+        "p75": 9.0,
+        "p95": 9.0,
+        "stddev": 2.073644135332772
+      },
+      "episodes": 5,
+      "headline_level": "map_level",
+      "map_level": {
+        "count": 5,
+        "max": 9.0,
+        "mean": 7.4,
+        "mean_ci95": [
+          5.6,
+          8.8
+        ],
+        "median": 8.0,
+        "min": 4.0,
+        "p05": 4.6,
+        "p25": 7.0,
+        "p75": 9.0,
+        "p95": 9.0,
+        "stddev": 2.073644135332772
+      },
+      "maps": 5
+    },
+    "ppo_sampled": {
+      "episode_level": {
+        "count": 5,
+        "max": 20.0,
+        "mean": 14.4,
+        "mean_ci95": [
+          12.2,
+          17.4
+        ],
+        "median": 14.0,
+        "min": 11.0,
+        "p05": 11.4,
+        "p25": 13.0,
+        "p75": 14.0,
+        "p95": 18.799999999999997,
+        "stddev": 3.3615472627943226
+      },
+      "episodes": 5,
+      "headline_level": "map_level",
+      "map_level": {
+        "count": 5,
+        "max": 20.0,
+        "mean": 14.4,
+        "mean_ci95": [
+          12.2,
+          17.4
+        ],
+        "median": 14.0,
+        "min": 11.0,
+        "p05": 11.4,
+        "p25": 13.0,
+        "p75": 14.0,
+        "p95": 18.799999999999997,
+        "stddev": 3.3615472627943226
+      },
+      "maps": 5
+    },
+    "random_legal": {
+      "episode_level": {
+        "count": 5,
+        "max": 8.0,
+        "mean": 6.2,
+        "mean_ci95": [
+          5.2,
+          7.2
+        ],
+        "median": 6.0,
+        "min": 5.0,
+        "p05": 5.0,
+        "p25": 5.0,
+        "p75": 7.0,
+        "p95": 7.8,
+        "stddev": 1.3038404810405297
+      },
+      "episodes": 5,
+      "headline_level": "map_level",
+      "map_level": {
+        "count": 5,
+        "max": 8.0,
+        "mean": 6.2,
+        "mean_ci95": [
+          5.2,
+          7.2
+        ],
+        "median": 6.0,
+        "min": 5.0,
+        "p05": 5.0,
+        "p25": 5.0,
+        "p75": 7.0,
+        "p95": 7.8,
+        "stddev": 1.3038404810405297
+      },
+      "maps": 5
+    },
+    "visible_greedy": {
+      "episode_level": {
+        "count": 5,
+        "max": 10.0,
+        "mean": 8.2,
+        "mean_ci95": [
+          6.8,
+          9.4
+        ],
+        "median": 9.0,
+        "min": 6.0,
+        "p05": 6.2,
+        "p25": 7.0,
+        "p75": 9.0,
+        "p95": 9.8,
+        "stddev": 1.6431676725154984
+      },
+      "episodes": 5,
+      "headline_level": "map_level",
+      "map_level": {
+        "count": 5,
+        "max": 10.0,
+        "mean": 8.2,
+        "mean_ci95": [
+          6.8,
+          9.4
+        ],
+        "median": 9.0,
+        "min": 6.0,
+        "p05": 6.2,
+        "p25": 7.0,
+        "p75": 9.0,
+        "p95": 9.8,
+        "stddev": 1.6431676725154984
+      },
+      "maps": 5
+    }
+  },
+  "pool": "validation",
+  "primary_metric": "final Turn-10 stars per turn"
+}

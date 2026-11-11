@@ -1,0 +1,5 @@
+policy,maps,episodes,headline_level,mean_spt,median_spt,stddev_spt,min_spt,max_spt,p05_spt,p25_spt,p75_spt,p95_spt,ci95_low,ci95_high
+ppo_argmax,5,5,map_level,8.2,8.0,0.8366600265340756,7.0,9.0,7.2,8.0,9.0,9.0,7.6,8.8
+ppo_sampled,5,5,map_level,5.8,6.0,1.3038404810405297,4.0,7.0,4.2,5.0,7.0,7.0,4.8,6.8
+random_legal,5,5,map_level,6.2,6.0,1.3038404810405297,5.0,8.0,5.0,5.0,7.0,7.8,5.2,7.2
+visible_greedy,5,5,map_level,8.2,9.0,1.6431676725154984,6.0,10.0,6.2,7.0,9.0,9.8,6.8,9.4

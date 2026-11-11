@@ -1,0 +1,55 @@
+{
+  "bootstrap": {
+    "method": "fixed-seed nonparametric percentile bootstrap; stochastic headline bootstraps per-map replicate means",
+    "samples": 5000
+  },
+  "canonical": false,
+  "evaluation_id": "training_fixes_20261023_local_arch_smoke",
+  "evaluation_schema_version": "polyvision-phase1-evaluation-v1",
+  "paired": {
+    "ppo_argmax_vs_random_legal": null,
+    "ppo_argmax_vs_visible_greedy": null,
+    "ppo_sampled_vs_random_legal": null
+  },
+  "policies": {
+    "ppo_argmax": {
+      "episode_level": {
+        "count": 2,
+        "max": 7.0,
+        "mean": 6.5,
+        "mean_ci95": [
+          6.0,
+          7.0
+        ],
+        "median": 6.5,
+        "min": 6.0,
+        "p05": 6.05,
+        "p25": 6.25,
+        "p75": 6.75,
+        "p95": 6.95,
+        "stddev": 0.7071067811865476
+      },
+      "episodes": 2,
+      "headline_level": "map_level",
+      "map_level": {
+        "count": 2,
+        "max": 7.0,
+        "mean": 6.5,
+        "mean_ci95": [
+          6.0,
+          7.0
+        ],
+        "median": 6.5,
+        "min": 6.0,
+        "p05": 6.05,
+        "p25": 6.25,
+        "p75": 6.75,
+        "p95": 6.95,
+        "stddev": 0.7071067811865476
+      },
+      "maps": 2
+    }
+  },
+  "pool": "validation",
+  "primary_metric": "final Turn-10 stars per turn"
+}

@@ -1,0 +1,3 @@
+policy,map_filename,map_identity,episodes,mean_spt,median_spt,min_spt,max_spt,stddev_spt
+ppo_argmax,map_004262.csv,0146ca517ca5c4f74f672f18642bb2a5f49ee138d8e98f145a6b712925d73e0d,1,6.0,6.0,6.0,6.0,0.0
+ppo_argmax,map_003722.csv,0179e4c80d1eb550522eeaec9fd49be3c2ece4dfbedb8636e3a36b727ffb29b2,1,7.0,7.0,7.0,7.0,0.0

@@ -1,0 +1,66 @@
+# Actions
+
+The `v2_guaranteed_two_unit` opening applies one script-local mask: on Turn 1, moves by the original warrior whose destination is its own capital are excluded before the existing heuristic scores candidates. This does not change the stable action catalog, policy-visible legal mask, features, global IDs, or ordinary post-handoff ability to enter capitals.
+
+PolyVision separates the Java engine's state-local action indices from the policy's stable global action IDs. The policy never relies on “action 7” meaning the seventh legal Java action across states.
+
+## Global catalog
+
+`GlobalActionCatalog` deterministically allocates ID ranges from map geometry and Java enum vocabularies. Families include `END_TURN`, `MOVE`, `CAPTURE`, training/spawning, `RESOURCE_GATHERING`, `CLEAR_FOREST`, `GROW_FOREST`, `BUILD`, `RESEARCH_TECH`, `LEVEL_UP`, and `EXAMINE`.
+
+For the current 11×11 corpus, the discrete global action space contains **63,913 IDs**. Most IDs are illegal in any one state. The catalog is versioned as `flat-v1`; structured canonicalization is `flat-v1-structured`. Its fingerprint is saved with checkpoints because geometry or vocabulary changes can change ID meaning.
+
+## Legal action construction
+
+For each state the wrapper:
+
+1. asks Java for the complete raw legal-action list;
+2. removes action families outside the Phase 1 interface and applies current tactical filters;
+3. canonicalizes each remaining structured action to one global ID;
+4. rejects missing mappings or ID collisions;
+5. builds the dense debug mask and fixed-size sparse legal tensors;
+6. maps a chosen global ID back to its exact raw Java index.
+
+The Phase 1 allow-list currently includes `END_TURN`, `MOVE`, `CAPTURE`, `EXAMINE`, `SPAWN`, `RESOURCE_GATHERING`, `CLEAR_FOREST`, `GROW_FOREST`, `LEVEL_UP`, `RESEARCH_TECH`, and `BUILD`. Java `ATTACK` actions are deliberately excluded. Water-unit and super-unit training entries are not included in the catalog.
+
+The wrapper also contains active curriculum filters: before two cities it prioritizes available village captures, then movement onto or toward visible neutral villages; it blocks one narrow immediate-backtrack pattern on early turns; and it can optionally gate resource gathering on city-upgrade usefulness. These filters mean “Java-legal” and “policy-visible” are not always identical.
+
+## Actor modes
+
+| Mode | Policy scoring path | Intended use |
+|---|---|---|
+| `legal_features` | Adds a learned encoding of per-action semantic/economic features to legal-slot scoring. | Standard Phase-1 default actor. |
+| `legal_only` | Scores only current legal slots using learned embeddings of stable global IDs. | Ablations and backward comparisons. |
+| `dense_debug` | Produces logits for all 63,913 global IDs, then applies a dense legality mask. | Debugging and equivalence checks, not the efficient path. |
+
+The fixed legal-slot capacity defaults to **256** (`POLYVISION_MAX_LEGAL_ACTIONS` / `--max-legal-actions`). Exceeding it is a hard error, not silent truncation.
+
+## Current action features
+
+`legal_features` uses version `v1_4_parity_spatial_and_cost`, a **47-dimensional** vector per legal slot. It combines:
+
+- movement and exploration signals, including predicted reveal, adjacent fog, backtracking, capital distance, and village targeting (features 0..13);
+- one-hot action-family indicators (features 14..23);
+- normalized research, resource, building, and level-up identities (features 24..27);
+- semantic flags for Organization, Forestry, common resources/buildings, and Workshop (features 28..35);
+- predicted population/SPT effects and city-upgrade readiness/progress (features 36..41);
+- **action star cost**: `float(star_cost) / ACTION_STAR_COST_SCALE` (where `ACTION_STAR_COST_SCALE = 50.0`, feature 42, `FEAT-MISS-001`);
+- **action spatial coordinates**: normalized source `(src_x / (width - 1), src_y / (height - 1))` and destination `(target_x / (width - 1), target_y / (height - 1))` across spatial action families (`MOVE`, `CAPTURE`, `SPAWN`, `BUILD`, `RESOURCE_GATHERING`, `CLEAR_FOREST`, `GROW_FOREST`, `LEVEL_UP`, `EXAMINE`) (features 43..46, `FEAT-SPAT-001`). For the 11×11 corpus, width - 1 = height - 1 = 10.0.
+
+Features are derived from policy-visible state plus the legal action's structured metadata. Full-visibility observations are diagnostic-only and are not fed into these features.
+
+## Interface tensors
+
+`reset()` and `step()` return in `info`:
+
+- `legal_global_ids_padded`: length 256 by default;
+- `legal_action_valid_mask`: which slots are populated;
+- `legal_action_count`: number of populated slots;
+- `legal_action_features_padded`: shape `(256, 47)` by default;
+- feature/catalog versions and fingerprints.
+
+Checkpoint loading validates geometry, observation/action dimensions, actor mode, catalog fingerprint, canonicalizer/catalog versions, feature version/dimension, and legal-slot capacity before model tensors are used.
+
+## Human benchmark presentation
+
+Official human play does not construct or filter actions independently. `tools/human_policy_interface.py` reads the legal IDs from the same padded tensors used by PPO, decodes each stable ID into a neutral description using catalog offsets and vocabularies, and passes the selected ID to `env.step(global_id)`. It never offers raw Java actions excluded by the wrapper and never reads raw action dictionaries for labels. `tools/validate_human_benchmark_parity.py` checks this mapping on live benchmark states.

@@ -1,0 +1,16 @@
+Traceback (most recent call last):
+  File "/home/users/devinlai/polytopia-ai/py_rl/cleanrl/cleanrl/ppo.py", line 1597, in <module>
+    action, action_slot, logprob, _, value = agent.get_action_and_value(
+                                             ~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        next_obs,
+        ^^^^^^^^^
+    ...<2 lines>...
+        legal_action_features=next_legal_action_features if args.actor_mode == "legal_features" else None,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/home/users/devinlai/polytopia-ai/py_rl/cleanrl/cleanrl/spatial_agent.py", line 224, in get_action_and_value
+    probs = self._distribution(h, grid, legal_global_ids, legal_action_valid_mask, legal_action_features)
+  File "/home/users/devinlai/polytopia-ai/py_rl/cleanrl/cleanrl/spatial_agent.py", line 195, in _distribution
+    raise ValueError("Each policy decision requires at least one valid legal action")
+ValueError: Each policy decision requires at least one valid legal action

@@ -1,0 +1,122 @@
+# Training
+
+The primary trainer is `py_rl/cleanrl/cleanrl/ppo.py`. It is based on CleanRL PPO but contains PolyVision-specific actor paths, asynchronous JVM orchestration, validation, telemetry, and checkpoint metadata.
+
+## Authoritative Phase 1 v5 PARITY002 Seed3 16M Terminal-SPT Reference Run
+
+The authoritative command used to produce the active **Phase 1 v5 PARITY002 Seed3 16M Terminal-SPT frozen reference benchmark** (`model_checkpoint_16000000.cleanrl_model`, SHA-256 `924d4603fa5038b3ca11081cdfcb5c7a00063949dab44f50f05989e5c9dab061`, completed 2026-08-27) is:
+
+```powershell
+cd C:\PolyVision; $env:POLYVISION_LEVEL_POOL_GLOB='levels/phase1_pool_bardur_real/train/*.csv'; $env:POLYVISION_SOLO_NO_OPPONENT_MODE='1'; $env:POLYVISION_INFO_MODE='fast'; $env:POLYVISION_BATCH_LEGAL_ACTION_FETCH='1'; $env:POLYVISION_DERIVE_OBS_METADATA='1'; $env:POLYVISION_TERMINAL_SPT_REWARD_ENABLED='1'; python py_rl/cleanrl/cleanrl/ppo.py `
+    --exp-name Phase1-Scientific-Train-V5-PARITY002-Seed3-TerminalSPT `
+    --seed 3 `
+    --actor-mode legal_features `
+    --total-timesteps 16000000 `
+    --num-envs 20 `
+    --num-steps 128 `
+    --max-legal-actions 256 `
+    --legal-action-feature-dim 47 `
+    --enable-step-diagnostics `
+    --step-diagnostics-log-every 3 `
+    --track `
+    --wandb-project-name cleanRL `
+    --save-model `
+    --save-frequency 500000 `
+    --force-revalidate-action-interface `
+    --validation-states 10000
+```
+
+### Reference Run Specifications
+
+- **Run Directory:** `runs/Tribes-v0__Phase1-Scientific-Train-V5-PARITY002-Seed3-TerminalSPT__3__1787788415`
+- **Canonical Checkpoint:** `runs/Tribes-v0__Phase1-Scientific-Train-V5-PARITY002-Seed3-TerminalSPT__3__1787788415/model_checkpoint_16000000.cleanrl_model`
+- **Sidecar File:** `runs/Tribes-v0__Phase1-Scientific-Train-V5-PARITY002-Seed3-TerminalSPT__3__1787788415/model_checkpoint_16000000.cleanrl_model.action_interface.json`
+- **Seed:** `3`
+- **Timesteps:** 16,000,000 global environment transitions
+- **Actor Mode:** `legal_features` (47-dimensional semantic action features, 256 legal slots, 6,424-d observation)
+- **Environment Contract:** `phase1_environment_version=v5_human_information_parity`, `phase1_opening_version=v2_guaranteed_two_unit`
+- **Observation Dimension:** 6,424 (including 52 spatial channels and 132 scalar/structured features from `PARITY-002`)
+- **Reward Configuration:** `POLYVISION_TERMINAL_SPT_REWARD_ENABLED=1` (Terminal-SPT base weight 1.0, over-10 weight 2.0, over-15 weight 3.0) + standard step-level shaping
+- **Key PPO Settings:** LR 2.5e-4 with linear annealing, 20 parallel envs, 128 rollout steps per env, batch size 2560, minibatch size 640 (4 minibatches/epoch), 4 epochs, $\gamma=0.99$, $\lambda=0.95$, clip 0.2
+- **Completion Date:** 2026-08-27
+- **Authoritative Run Card:** [Phase 1 v5 PARITY002 Seed3 16M Terminal-SPT Reference Run](results/Phase1_V5_PARITY002_Seed3_16M_TerminalSPT_Reference_Run.md)
+
+This 16M run represents the active frozen reference benchmark for Phase 1 optimization. (The superseded v4 and v3 references remain preserved as historical benchmarks in [Phase 1 v4 PARITY001 Seed3 16M Terminal-SPT Reference Run](results/Phase1_V4_PARITY001_Seed3_16M_TerminalSPT_Reference_Run.md), [Phase 1 v3 Seed3 16M Terminal-SPT Reference Run](results/Phase1_V3_Seed3_16M_TerminalSPT_Reference_Run.md), and [Phase 1 v3 Seed3 16M Reference Run](results/Phase1_V3_Seed3_16M_Reference_Run.md)).
+
+## Representative development run
+
+From the repository root in an activated Python environment:
+
+```powershell
+$env:POLYVISION_LEVEL_POOL_GLOB = 'levels/phase1_pool_bardur_real/train/*.csv'
+$env:POLYVISION_SOLO_NO_OPPONENT_MODE = '1'
+$env:POLYVISION_INFO_MODE = 'fast'
+python py_rl/cleanrl/cleanrl/ppo.py `
+    --total-timesteps 500000 `
+    --num-envs 12 `
+    --num-steps 128 `
+    --save-model `
+    --save-frequency 100000
+```
+
+Standard Phase-1 training automatically uses the `legal_features` actor mode (47-dimensional semantic action features) and the Terminal-SPT reward bonus ($w_{\text{base}}=1.0, w_{>10}=2.0, w_{>15}=3.0$) without requiring explicit CLI flags or reward environment variables.
+
+### Experimental Ablations and Overrides
+
+For controlled ablations and backward comparison experiments:
+- **`legal_only` actor mode:** Pass `--actor-mode legal_only` to score legal slots with learned global ID embeddings only (disabling the 47-d feature encoder).
+- **Disabled Terminal-SPT:** Set `$env:POLYVISION_TERMINAL_SPT_REWARD_ENABLED='0'` to disable the Turn-10 terminal reward bonus and train exclusively on step-level shaping terms.
+- **`dense_debug` mode:** Pass `--actor-mode dense_debug` to evaluate the dense 63,913-logit mask for debugging.
+
+The wrapper also defaults to `levels/phase1_pool_bardur_real/train/*.csv` when the environment variable is absent. Training must never use `validation`, `test`, or `human_benchmark`; explicit pool overrides exist for evaluation, not PPO gradient runs. Record the training glob and aggregate pool identity with every experiment.
+
+Checkpoints record `phase1_environment_version=v5_human_information_parity` and `phase1_opening_version=v2_guaranteed_two_unit`. Do not resume historical checkpoints: they were trained under earlier observation contracts (`v3` or `v4`) and fail current compatibility by default. Phase 1 optimization continues actively from scratch.
+
+## Important arguments
+
+| Argument | Current default | Meaning |
+|---|---:|---|
+| `--actor-mode` | `legal_features` | `legal_features` (default), `legal_only`, or `dense_debug`. |
+| `--total-timesteps` | 500,000 | Scheduled environment transitions. |
+| `--num-envs` | 12 | Parallel spawned processes/JVMs. |
+| `--num-steps` | 128 | Rollout length per environment. |
+| `--max-legal-actions` | 256 | Fixed legal-slot tensor capacity. |
+| `--legal-action-feature-dim` | 47 | Must match the wrapper for `legal_features`. |
+| `--validation-states` | 10,000 | Strict pre-training decision states. |
+| `--save-model` | false | Enables periodic and final checkpoint writes. |
+| `--track` | false | Enables W&B in addition to local TensorBoard logs. |
+
+Run `python py_rl/cleanrl/cleanrl/ppo.py --help` for the complete generated CLI.
+
+## Preflight validation
+
+Validation is enabled by default. It checks canonicalization, collisions, mask/slot agreement, sampled legal-ID execution, fallback behavior, and coverage of representative action families. Successful results are cached under `.cache/action_validator/` using a fingerprint that includes interface code hashes, geometry, feature contract, actor settings, and exact pool file identities.
+
+Use `--force-revalidate-action-interface` after suspicious environmental changes. Disabling validation with `--no-validate-action-interface` is suitable only for narrowly controlled debugging.
+
+## Outputs and checkpoints
+
+TensorBoard events and checkpoints are written to `runs/<run_name>/`. With `--save-model`, periodic files are named `model_checkpoint_<step>.cleanrl_model`; the final path is either `--model-path` or `<run_dir>/ppo.cleanrl_model`.
+
+Every saved model has an adjacent `.action_interface.json` sidecar. Evaluators require it and reject mismatched geometry, observation/action dimensions, actor mode, catalog fingerprint/version, feature version/dimension, canonicalizer version, or legal-slot capacity.
+
+The trainer does not implement checkpoint resume or optimizer-state restoration. Loading an existing policy is an evaluation workflow, not a continuation workflow. Note that mid-training telemetry logged during training rollouts reflects stochastic sampling under active policy entropy rather than deterministic argmax convergence; diagnostic evaluation of the 16M run's 4M checkpoint confirmed that deterministic argmax exhibited 0.0% explicit Forestry adoption matching the 16M endpoint.
+
+
+## Tracking
+
+Local TensorBoard logging is always enabled:
+
+```powershell
+tensorboard --logdir runs
+```
+
+For W&B, install/configure `wandb`, then add `--track --wandb-project-name <project>`. Training summary values are useful diagnostics but are not substitutes for a fixed evaluation protocol.
+
+## Parallel JVMs and profiling
+
+Each vector worker starts its own JVM. Startup jitter defaults to 0.1–2.0 seconds to avoid a process-creation burst. If workers fail or memory pressure is high, reduce `--num-envs` before changing rollout or optimization settings.
+
+Set `POLYVISION_PROFILE_SPS=1` to collect timing breakdowns. `POLYVISION_PROFILE_EVERY_N_STEPS` controls reporting frequency and `POLYVISION_PROFILE_OUTPUT_DIR` controls JSON output (default `outputs/sps_profiles`). `--enable-step-diagnostics` adds richer metrics at a throughput cost.
+
+See [Reproducibility](reproducibility.md) before comparing runs.

@@ -1,0 +1,101 @@
+{
+  "canonical": false,
+  "checkpoint_metadata": {
+    "action_catalog_fingerprint": "c849a4abf7b0bee073ccc56b63ae65917ea30e77068ad648c472130693dfe6e4",
+    "action_offset_table_hash": "c849a4abf7b0bee073ccc56b63ae65917ea30e77068ad648c472130693dfe6e4",
+    "action_space_n": "63913",
+    "actor_mode": "legal_features",
+    "canonicalizer_version": "flat-v1-structured",
+    "catalog_version": "flat-v1",
+    "global_action_space_n": "63913",
+    "legal_action_feature_dim": 47,
+    "legal_action_feature_version": "v1_4_parity_spatial_and_cost",
+    "map_height": "11",
+    "map_width": "11",
+    "max_legal_actions": "256",
+    "network_arch": "spatial_resnet_local",
+    "observation_dim": "6424",
+    "phase1_environment_version": "v5_human_information_parity",
+    "phase1_opening_version": "v2_guaranteed_two_unit"
+  },
+  "checkpoint_sha256": "f2bd02eb0f5999d867bae1688fc60f9fee55ca90bbc82c2b665941221d8fb4c4",
+  "classification": "partial-smoke-noncanonical",
+  "ended_utc": "2026-10-23T17:07:51.006190Z",
+  "environment_interface_metadata": {
+    "action_catalog_fingerprint": "c849a4abf7b0bee073ccc56b63ae65917ea30e77068ad648c472130693dfe6e4",
+    "action_space_n": 63913,
+    "actor_mode": "legal_features",
+    "canonicalizer_version": "flat-v1-structured",
+    "catalog_version": "flat-v1",
+    "legal_action_feature_dim": 47,
+    "legal_action_feature_version": "v1_4_parity_spatial_and_cost",
+    "map_height": 11,
+    "map_width": 11,
+    "max_legal_actions": 256,
+    "observation_dim": 6424,
+    "phase1_environment_version": "v5_human_information_parity",
+    "phase1_opening_version": "v2_guaranteed_two_unit"
+  },
+  "evaluated_map_count": 2,
+  "evaluation_id": "training_fixes_20261023_local_arch_smoke",
+  "evaluation_schema_version": "polyvision-phase1-evaluation-v1",
+  "evaluation_seed": 42,
+  "expected_manifest_map_count": 250,
+  "model_path": "/Users/devin/Library/Mobile Documents/com~apple~CloudDocs/polytopia-devin/polytopia-ai/runs/Tribes-v0__mac_smoke__1__1792763986/mac_smoke.cleanrl_model",
+  "ordered_maps": [
+    {
+      "canonical_map_sha256": "0146ca517ca5c4f74f672f18642bb2a5f49ee138d8e98f145a6b712925d73e0d",
+      "csv_sha256": "29a04ffa34e8feaef658b3539260a8ec0e7f321a91264efe18be5bb76c6d440e",
+      "filename": "map_004262.csv",
+      "path": "/Users/devin/Library/Mobile Documents/com~apple~CloudDocs/polytopia-devin/polytopia-ai/pol_env/Tribes/levels/phase1_pool_bardur_real/validation/map_004262.csv",
+      "pool": "validation"
+    },
+    {
+      "canonical_map_sha256": "0179e4c80d1eb550522eeaec9fd49be3c2ece4dfbedb8636e3a36b727ffb29b2",
+      "csv_sha256": "3ef414b98522d2bb01ab94b4bf545c3debf9e7bd7b4cd56a4bb4549893b0cdb5",
+      "filename": "map_003722.csv",
+      "path": "/Users/devin/Library/Mobile Documents/com~apple~CloudDocs/polytopia-devin/polytopia-ai/pol_env/Tribes/levels/phase1_pool_bardur_real/validation/map_003722.csv",
+      "pool": "validation"
+    }
+  ],
+  "policies": [
+    "ppo_argmax"
+  ],
+  "policy_semantics": {
+    "ppo_argmax": "highest-logit valid slot",
+    "ppo_sampled": "torch.multinomial over authoritative valid-slot probabilities with per-episode generator",
+    "random_legal": "uniform policy-visible valid slot",
+    "visible_greedy": "deterministic observation/legal-feature heuristic"
+  },
+  "polyvision_environment": {
+    "POLYVISION_COMBAT_MODE": "0",
+    "POLYVISION_INFO_MODE": "fast",
+    "POLYVISION_LEVEL_POOL_GLOB": "levels/phase1_pool_bardur_real/validation/*.csv",
+    "POLYVISION_LEVEL_SELECTION_MODE": "round_robin",
+    "POLYVISION_MAX_LEGAL_ACTIONS": "256",
+    "POLYVISION_PHASE": "1",
+    "POLYVISION_RUN_JAVA_TESTS": "1",
+    "POLYVISION_SOLO_NO_OPPONENT_MODE": "1"
+  },
+  "pool": "validation",
+  "pool_glob": "levels/phase1_pool_bardur_real/validation/*.csv",
+  "pool_identity": "a56e74c952ad3b08d4645fc16d66ce0f17e0589fea2fe9042f7cd293669eac72",
+  "repeats_per_stochastic_map": 5,
+  "runtime": {
+    "git_commit": "5641344575b6d486df388cba82e788cdb20c556d",
+    "git_dirty": true,
+    "gymnasium": "1.3.0",
+    "java": "openjdk version \"11.0.32.1\" 2026-08-18\nOpenJDK Runtime Environment Temurin-11.0.32.1+1 (build 11.0.32.1+1)\nOpenJDK 64-Bit Server VM Temurin-11.0.32.1+1 (build 11.0.32.1+1, mixed mode)",
+    "platform": "macOS-26.6.2-arm64-arm-64bit",
+    "py4j": "0.10.9.9",
+    "python": "3.12.14",
+    "torch": "2.11.0"
+  },
+  "schedule_rules": "episode seed is shared by map+replicate across policies; policy seed is policy-specific; exact manifest map is runner-selected and verified",
+  "sidecar_path": "/Users/devin/Library/Mobile Documents/com~apple~CloudDocs/polytopia-devin/polytopia-ai/runs/Tribes-v0__mac_smoke__1__1792763986/mac_smoke.cleanrl_model.action_interface.json",
+  "sidecar_sha256": "ec2144ab08173e9f39285cc1be5082c3b8508b171cfd17c68ee90786240b33c5",
+  "split_manifest_path": "/Users/devin/Library/Mobile Documents/com~apple~CloudDocs/polytopia-devin/polytopia-ai/pol_env/Tribes/levels/phase1_pool_bardur_real/split_manifest.json",
+  "split_manifest_sha256": "c8721cd0fcb636d9ddb483745585e5b69eca9ca501950a1ddec6a51d0c763690",
+  "started_utc": "2026-10-23T17:07:50.064678Z",
+  "status": "complete"
+}
