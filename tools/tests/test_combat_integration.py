@@ -41,17 +41,51 @@ class CombatIntegrationTests(unittest.TestCase):
         self.assertEqual(info['combat_outcome_reward'], 0)
         self.assertAlmostEqual(reward, info['combat_shaping_reward'])
 
-    def test_win_ends_episode_before_horizon(self):
+    def _capture(self, tribe_id, x, y):
         state = self.env.tribes_env._env.getGameState()
-        result = self.env.tribes_env._jvm.core.Types.RESULT
-        state.getTribe(1).setWinner(result.LOSS)
+        self.assertTrue(state.getBoard().capture(state, state.getTribe(tribe_id), int(x), int(y)))
+
+    def _capital_pos(self, tribe_id):
+        state = self.env.tribes_env._env.getGameState()
+        from py4j.java_gateway import get_field
+        pos = state.getActor(state.getTribe(tribe_id).getCapitalID()).getPosition()
+        return int(get_field(pos, 'x')), int(get_field(pos, 'y'))
+
+    def _give_enemy_second_city(self):
+        state = self.env.tribes_env._env.getGameState()
+        board, village = state.getBoard(), self.env.tribes_env._jvm.core.Types.TERRAIN.VILLAGE
+        size = board.getSize()
+        for x in range(size):
+            for y in range(size):
+                if board.getTerrainAt(x, y) == village:
+                    self._capture(1, x, y)
+                    self.assertEqual(state.getTribe(1).getNumCities(), 2)
+                    return
+        self.skipTest('map has no village to give the enemy a second city')
+
+    def test_capturing_enemy_capital_wins_even_if_they_keep_another_city(self):
+        self.assertEqual(self.env.tribes_env._last_obs['gameMode'], 0)  # Types.GAME_MODE.CAPITALS key
+        self._give_enemy_second_city()
+        self._capture(0, *self._capital_pos(1))
         _, reward, term, trunc, info = self.env.step(self.env._catalog.end_turn_id)
         self.assertTrue(term)
         self.assertFalse(trunc)
+        self.assertEqual(info['combat_outcome'], 'win')
         self.assertEqual(info['combat_outcome_reward'], TribesGymWrapper.COMBAT_REWARD_DEFAULTS['win'])
         self.assertAlmostEqual(reward, info['combat_outcome_reward'] + info['combat_shaping_reward'])
-        self.assertEqual(info['combat_outcome'], 'win')
+        self.assertEqual(info['combat_end_enemy_capitals_held'], 1)
+        self.assertEqual(info['combat_end_enemy_cities'], 1)
         self.assertFalse(any(info['legal_action_valid_mask']))
+
+    def test_potential_counts_enemy_cities_hidden_by_fog(self):
+        obs_enemy = len(self.env.tribes_env._last_obs['tribes']['1']['citiesID'])
+        totals = self.env._combat_engine_totals()['tribes']
+        self.assertEqual(totals['1']['numCities'], 1)
+        self.assertLessEqual(obs_enemy, 1)
+        before = TribesGymWrapper._combat_potential({'tribes': totals}, self.env._combat_reward_weights)
+        self._give_enemy_second_city()
+        after = TribesGymWrapper._combat_potential(self.env._combat_engine_totals(), self.env._combat_reward_weights)
+        self.assertLess(after, before)
 
     def test_enemy_ownership_and_fog_encoding(self):
         import copy
@@ -69,10 +103,8 @@ class CombatIntegrationTests(unittest.TestCase):
         self.assertEqual(planes[1, x, y], 0)
         self.assertEqual(planes[13, x, y], 0)
 
-    def test_loss_ends_episode(self):
-        state = self.env.tribes_env._env.getGameState()
-        result = self.env.tribes_env._jvm.core.Types.RESULT
-        state.getTribe(0).setWinner(result.LOSS)
+    def test_losing_own_capital_ends_episode_as_loss(self):
+        self._capture(1, *self._capital_pos(0))
         _, reward, term, trunc, info = self.env.step(self.env._catalog.end_turn_id)
         self.assertTrue(term)
         self.assertFalse(trunc)

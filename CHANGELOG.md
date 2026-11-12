@@ -2,6 +2,38 @@
 
 All notable changes to this project are documented in this file.
 
+## [Phase2-Combat_Capitals_Win_and_Engine_Potential-052] - (2026-11-12)
+
+### Scope
+- **Win condition:** combat resets the engine in CAPITALS mode (`TribesGymWrapper._engine_game_mode`). A tribe
+  wins as soon as it holds every capital; in 1v1 that is taking the enemy capital while keeping its own, and
+  losing its own capital is a loss. SCORE mode, used before, required taking every enemy city, so an enemy
+  that had captured villages could not be beaten by taking its capital. Phase 1 stays in SCORE mode.
+- **Potential uses engine totals:** Φ (cities, Tribes score, kills) now reads the engine's game state
+  (`_combat_engine_totals`) instead of the policy observation. The observation is fog-limited: in random games
+  the observed enemy city count was below the true count at 90–100% of steps (one game showed 1 of 4), and
+  enemy kills differed at 223 of 538 steps. So discovering an enemy city cost −1.0 reward, penalizing scouting.
+  Enemy score was already exact.
+- **Episode-end diagnostics** in `info` on a game's last step: `combat_end_enemy_cities`,
+  `combat_end_own_cities`, `combat_end_enemy_capitals_held`, `combat_end_min_unit_dist_to_enemy_capital`,
+  `combat_first_contact_tick`. The trainer logs rolling 100-game means (`combat/end_*_last100`,
+  `combat/enemy_contact_rate_last100`, `combat/first_contact_tick_last100`).
+- **Trainer diagnostics** (all runs, logging only): `losses/value_mean`, `losses/value_std`,
+  `losses/return_std`, `losses/epochs_completed` (target-KL early stopping), `charts/max_legal_action_count`
+  and `charts/max_legal_action_fraction` per rollout. Motivated by run `s2ccxirq`, whose explained variance
+  sat at exactly 0 (a constant critic) from ~10k steps on.
+- Corrected the claim that the combat shaping leaves the optimal policy unchanged: it telescopes to
+  Φ(final) − Φ(start), so the agent optimizes `outcome + Φ(final)`.
+- Combat environment version → `combat_v4_capitals_engine_potential_horizon_<T>`, so `combat_v3` checkpoints
+  are rejected. No combat checkpoint had been saved yet.
+
+### Validation
+- Live tests (`POLYVISION_RUN_JAVA_TESTS=1`, `tools/tests/test_combat_integration.py`): capturing the enemy
+  capital while it keeps a second city wins; losing our capital loses; Φ counts an enemy city hidden by fog;
+  turn-limit timeouts unchanged. The win/loss tests now capture capitals instead of forcing `setWinner`, which
+  only ends a game in SCORE mode.
+- `tools/tests/test_combat_reward_shaping.py` passes unchanged.
+
 ## [Phase2-Combat_Legal_Capacity-051] - (2026-11-12)
 
 ### Scope

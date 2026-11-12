@@ -328,9 +328,13 @@ class TribesGymWrapper(gym.Env):
             if self.MAX_TURNS < 1:
                 raise ValueError("POLYVISION_MAX_TURNS must be positive")
             self.PHASE1_OPENING_VERSION = "combat_no_scripted_opening_v1"
-            self.PHASE1_ENVIRONMENT_VERSION = f"combat_v3_potential_shaping_horizon_{self.MAX_TURNS}"
+            self.PHASE1_ENVIRONMENT_VERSION = f"combat_v4_capitals_engine_potential_horizon_{self.MAX_TURNS}"
             self._combat_reward_weights = self._load_combat_reward_weights()
             self._combat_prev_potential = 0.0
+            self._combat_first_contact_tick = -1
+        # Combat is won by holding every capital (in 1v1: taking the enemy capital while keeping ours);
+        # SCORE mode would require taking every enemy city. Phase 1 keeps SCORE.
+        self._engine_game_mode = "CAPITALS" if self._is_combat_mode else "SCORE"
         self.tribes_env = make_default_env()
         if self._is_combat_mode:
             self.tribes_env._env.setSoloNoOpponentMode(False)
@@ -456,7 +460,7 @@ class TribesGymWrapper(gym.Env):
             self._current_level_file = bootstrap_level
             self._current_level_index = bootstrap_idx
             self._validate_level_file_is_square(self._current_level_file)
-            obs = self.tribes_env.reset(self._current_level_file, bootstrap_seed)
+            obs = self.tribes_env.reset(self._current_level_file, bootstrap_seed, mode=self._engine_game_mode)
             dims = self._board_dimensions_from_obs(obs)
             if dims is None:
                 raise RuntimeError("Cannot infer board dimensions for action catalog.")
@@ -524,7 +528,7 @@ class TribesGymWrapper(gym.Env):
         self._last_reset_seed = int(episode_seed)
         self._validate_level_file_is_square(self._current_level_file)
         t_java0 = time.perf_counter() if self._profile_sps_enabled else None
-        obs = self.tribes_env.reset(self._current_level_file, self._last_reset_seed)
+        obs = self.tribes_env.reset(self._current_level_file, self._last_reset_seed, mode=self._engine_game_mode)
         if self._is_combat_mode and len(obs.get("tribes", {})) != 2:
             raise ValueError("Combat training requires a two-player map pool")
         if self._profile_sps_enabled:
@@ -551,7 +555,8 @@ class TribesGymWrapper(gym.Env):
             if self._profile_sps_enabled:
                 t_reset_opening += time.perf_counter() - t_opening0
         if self._is_combat_mode:
-            self._combat_prev_potential = self._combat_potential(obs, self._combat_reward_weights)
+            self._combat_prev_potential = self._combat_potential(self._combat_engine_totals(), self._combat_reward_weights)
+            self._combat_first_contact_tick = -1
         self._starting_city_count = self._get_city_count(obs)
         self._last_city_count = self._starting_city_count
         self._moved_on_t0 = False
@@ -1255,13 +1260,13 @@ class TribesGymWrapper(gym.Env):
 
         reward = float(delta_spt_reward) + reward_adjustment + float(terminal_spt_bonus)
         if self._is_combat_mode:
-            # Outcome reward (win/loss) plus potential-based shaping: the change in a weighted
-            # "who is ahead" score. Shaping telescopes over an episode, so a timeout still pays
-            # out the final advantage, and it does not change which policy is optimal.
+            # Outcome reward (win/loss) plus the change in a weighted "who is ahead" potential.
+            # The shaping telescopes to phi(final) - phi(start), so a timeout pays out the final
+            # advantage: the agent optimizes outcome + phi(final), not the outcome alone.
             _outcome_sign, outcome = self._combat_result(obs, terminated)
             weights = self._combat_reward_weights
             outcome_reward = weights["win"] if outcome == "win" else (weights["loss"] if outcome == "loss" else 0.0)
-            potential = self._combat_potential(obs, weights)
+            potential = self._combat_potential(self._combat_engine_totals(), weights)
             shaping = potential - self._combat_prev_potential
             self._combat_prev_potential = potential
             reward = float(outcome_reward + shaping)
@@ -1271,6 +1276,10 @@ class TribesGymWrapper(gym.Env):
             info["combat_outcome"] = outcome if terminated else ("timeout" if truncated else "ongoing")
             info["combat_win"] = int(outcome == "win")
             info["combat_loss"] = int(outcome == "loss")
+            if self._combat_first_contact_tick < 0 and self._combat_enemy_visible(obs):
+                self._combat_first_contact_tick = int(obs.get("tick", 0) or 0)
+            if terminated or truncated:
+                info.update(self._combat_end_diagnostics(obs))
         if self._profile_sps_enabled:
             t_reward_board_scans += (t_reward_village_reveal + t_reward_fog_reward)
             t_reward_java_calls += 0.0
@@ -4877,8 +4886,10 @@ class TribesGymWrapper(gym.Env):
     def _combat_potential(obs, weights, me="0"):
         """Weighted advantage of tribe `me` over all other tribes (cities, Tribes score, kills).
 
-        Uses tribe-level totals from the engine, which are not fog-limited; this is fine for a
-        training reward because the policy never sees it.
+        `obs` is {"tribes": {id: {...}}}. Pass engine totals (`_combat_engine_totals`), not the policy
+        observation: the observation is fog-limited, so enemy cities and kills there are undercounted
+        and discovering an enemy city would lower the potential. The policy never sees this value.
+        A tribe entry may give "numCities" directly or a "citiesID" list.
         """
         tribes = (obs or {}).get("tribes") or {}
         if not isinstance(tribes, dict):
@@ -4886,7 +4897,8 @@ class TribesGymWrapper(gym.Env):
 
         def stats(t):
             t = t if isinstance(t, dict) else {}
-            return (float(len(t.get("citiesID") or [])), float(t.get("score") or 0.0), float(t.get("nKills") or 0.0))
+            cities = t["numCities"] if "numCities" in t else len(t.get("citiesID") or [])
+            return (float(cities), float(t.get("score") or 0.0), float(t.get("nKills") or 0.0))
 
         mine = stats(tribes.get(me))
         others = [stats(t) for key, t in tribes.items() if str(key) != str(me)]
@@ -4894,6 +4906,51 @@ class TribesGymWrapper(gym.Env):
         return (weights["city"] * (mine[0] - theirs[0])
                 + weights["score_per_1000"] * (mine[1] - theirs[1]) / 1000.0
                 + weights["kill"] * (mine[2] - theirs[2]))
+
+    def _combat_engine_totals(self):
+        """True per-tribe totals from the engine's game state (not fog-limited), as {"tribes": {...}}."""
+        gs = self.tribes_env._env.getGameState()
+        tribes = {}
+        for tid in range(len(gs.getTribes())):
+            t = gs.getTribe(tid)
+            tribes[str(tid)] = {"numCities": int(t.getNumCities()), "score": int(t.getScore()),
+                                "nKills": int(t.getnKills())}
+        return {"tribes": tribes}
+
+    @staticmethod
+    def _combat_enemy_visible(obs, me=0):
+        """True if any enemy unit or city is in the (fog-limited) observation."""
+        for key in ("unit", "city"):
+            for actor in ((obs or {}).get(key) or {}).values():
+                if isinstance(actor, dict) and int(actor.get("tribeId", me)) != int(me):
+                    return True
+        return False
+
+    def _combat_end_diagnostics(self, obs, me=0):
+        """Engine-side facts about a finished combat game, for judging how close timeouts came to a win."""
+        gs = self.tribes_env._env.getGameState()
+        enemy_ids = [tid for tid in self._combat_engine_totals()["tribes"] if int(tid) != int(me)]
+        enemy_cities = sum(int(gs.getTribe(int(tid)).getNumCities()) for tid in enemy_ids)
+        held, dist = 0, -1
+        for tid in enemy_ids:
+            capital = gs.getActor(int(gs.getTribe(int(tid)).getCapitalID()))
+            if capital is None:
+                continue
+            held += int(int(capital.getTribeId()) == int(me))
+            from py4j.java_gateway import get_field  # Vector2d exposes public fields, not getters
+            pos = capital.getPosition()
+            cx, cy = int(get_field(pos, "x")), int(get_field(pos, "y"))
+            for unit in ((obs or {}).get("unit") or {}).values():
+                if isinstance(unit, dict) and int(unit.get("tribeId", -1)) == int(me):
+                    d = max(abs(int(unit["x"]) - cx), abs(int(unit["y"]) - cy))
+                    dist = d if dist < 0 else min(dist, d)
+        return {
+            "combat_end_enemy_cities": int(enemy_cities),
+            "combat_end_own_cities": int(gs.getTribe(int(me)).getNumCities()),
+            "combat_end_enemy_capitals_held": int(held),
+            "combat_end_min_unit_dist_to_enemy_capital": int(dist),
+            "combat_first_contact_tick": int(self._combat_first_contact_tick),
+        }
 
     def combat_reward_config(self):
         """Active combat reward weights (for logging and run records)."""
