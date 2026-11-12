@@ -19,6 +19,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 import importlib.util
 import sys
+from collections import deque
 
 # add repo root (two levels up) so `pol_env` can be imported by name
 _repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
@@ -35,6 +36,7 @@ except Exception:
     spec.loader.exec_module(register_env)
 
 from pol_env.Tribes.py.register_env import TribesGymWrapper  # adjust if folder name differs
+from py_rl.cleanrl.cleanrl.gae import compute_gae, per_turn_discounts
 from pol_env.Tribes.py.environment_contract import (
     compute_level_pool_identity,
     environment_compatibility_metadata,
@@ -59,6 +61,8 @@ class Args:
     seed: int = 1
     """seed of the experiment"""
     torch_deterministic: bool = True
+    torch_threads: int = 0
+    """CPU threads for the learner's PyTorch ops (0 = PyTorch default). Env workers stay single-threaded via OMP_NUM_THREADS."""
     """if toggled, `torch.backends.cudnn.deterministic=False`"""
     cuda: bool = True
     """if toggled, cuda will be enabled by default"""
@@ -97,6 +101,8 @@ class Args:
     """the discount factor gamma"""
     gae_lambda: float = 0.95
     """the lambda for the general advantage estimation"""
+    gamma_per_turn: bool = False
+    """discount only on END_TURN actions, so gamma is a per-turn discount (a game has many actions per turn)"""
     num_minibatches: int = 4
     """the number of mini-batches"""
     update_epochs: int = 4
@@ -1381,6 +1387,8 @@ if __name__ == "__main__":
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
     torch.backends.cudnn.deterministic = args.torch_deterministic
+    if args.torch_threads > 0:
+        torch.set_num_threads(int(args.torch_threads))
 
     device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
 
@@ -1465,6 +1473,9 @@ if __name__ == "__main__":
     profiler.add("trainer/reset_tensor_conversion", time.perf_counter() - t0_reset_tensor)
     profiler.ingest_env_profile_infos(reset_infos, args.num_envs)
     next_done = torch.zeros(args.num_envs).to(device)
+    combat_outcome_window = deque(maxlen=100)
+    combat_potential_window = deque(maxlen=100)
+    combat_games_completed = 0
     next_action_mask = None
     next_legal_global_ids = None
     next_legal_action_valid_mask = None
@@ -1581,6 +1592,7 @@ if __name__ == "__main__":
         "[ACTION_INTERFACE] "
         f"actor_mode={args.actor_mode} "
         f"autoreset=SameStep gymnasium={gym.__version__} "
+        f"gamma={args.gamma} gamma_per_turn={args.gamma_per_turn} "
         f"info_mode={detected_info_mode} "
         f"catalog_version={action_interface_meta.get('catalog_version')} "
         f"action_space_n={envs.single_action_space.n} "
@@ -1685,6 +1697,17 @@ if __name__ == "__main__":
             ]
             if end_potentials:
                 log_scalar("combat/episode_end_potential", float(np.mean(end_potentials)), global_step)
+            # Rolling means over the last 100 finished games; the per-step rates above jump between 0 and 1.
+            if completed_combat:
+                combat_outcome_window.extend(completed_combat)
+                combat_games_completed += len(completed_combat)
+                combat_potential_window.extend(end_potentials)
+                for outcome in ("win", "loss", "timeout"):
+                    log_scalar(f"combat/{outcome}_rate_last100",
+                               combat_outcome_window.count(outcome) / len(combat_outcome_window), global_step)
+                if combat_potential_window:
+                    log_scalar("combat/episode_end_potential_last100", float(np.mean(combat_potential_window)), global_step)
+                log_scalar("combat/games_completed", combat_games_completed, global_step)
             next_done = np.logical_or(terminations, truncations)
             t0_step_tensor = time.perf_counter()
             rewards[step] = torch.tensor(reward).to(device).view(-1)
@@ -2220,18 +2243,12 @@ if __name__ == "__main__":
         t0_update_iter = time.perf_counter()
         with torch.no_grad():
             next_value = agent.get_value(next_obs).reshape(1, -1)
-            advantages = torch.zeros_like(rewards).to(device)
-            lastgaelam = 0
-            for t in reversed(range(args.num_steps)):
-                if t == args.num_steps - 1:
-                    nextnonterminal = 1.0 - next_done
-                    nextvalues = next_value
-                else:
-                    nextnonterminal = 1.0 - dones[t + 1]
-                    nextvalues = values[t + 1]
-                delta = rewards[t] + args.gamma * nextvalues * nextnonterminal - values[t]
-                advantages[t] = lastgaelam = delta + args.gamma * args.gae_lambda * nextnonterminal * lastgaelam
-            returns = advantages + values
+            step_discounts = None
+            if args.gamma_per_turn:
+                step_discounts = per_turn_discounts(actions.long(), args.gamma).to(rewards.dtype)
+            advantages, returns = compute_gae(
+                rewards, values, dones, next_value, next_done, args.gamma, args.gae_lambda, step_discounts
+            )
 
         # flatten the batch
         b_obs = obs.reshape((-1,) + envs.single_observation_space.shape)

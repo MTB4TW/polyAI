@@ -17,6 +17,8 @@ work on it (Kevin and Devin), each with their own agent, sharing the GitHub repo
 - Mac: `.venv/bin/python local/playground.py build|check|smoke` (see `local/START-HERE.md`).
 - Farmshare: `cluster/run_experiment.sh NAME ARCH STEPS [SEED]` trains, then evaluates automatically.
   Evaluate an existing checkpoint with `MODEL_PATH=... EVAL_ID=... sbatch cluster/eval_farmshare.sbatch`.
+- Combat (Phase 2): `EXP_NAME=... sbatch cluster/train_combat_cpu.sbatch` for a short CPU run (starts fast);
+  `cluster/train_farmshare_combat.sbatch` for long GPU runs. Combat is judged by win rate, not shaped return.
 - W&B (team `polyai-stanford`, project `polyAI`) holds checkpoints and copies of results: `WANDB_UPLOAD=1` uploads
   the checkpoint, `WANDB_LOG_EVAL=1` logs the evaluation (`tools/wandb_log_eval.py`). Git remains the source of
   truth for results; W&B is a read-only copy.
