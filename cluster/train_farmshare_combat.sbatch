@@ -51,6 +51,10 @@ export POLYVISION_SOLO_NO_OPPONENT_MODE="0"
 export POLYVISION_LEVEL_POOL_GLOB="levels/phase2_pool_1v1/train/*.csv"
 export POLYVISION_MAX_TURNS="${POLYVISION_MAX_TURNS:-20}"
 export POLYVISION_INFO_MODE="fast"
+# Combat reward weights (see docs/rewards.md); set any of these before sbatch to override:
+#   POLYVISION_COMBAT_REWARD_WIN=10 POLYVISION_COMBAT_REWARD_LOSS=-10 POLYVISION_COMBAT_REWARD_CITY=1.0
+#   POLYVISION_COMBAT_REWARD_SCORE_PER_1000=1.0 POLYVISION_COMBAT_REWARD_KILL=0.25
+env | grep '^POLYVISION_COMBAT_REWARD_' || echo "Combat reward: defaults"
 export OMP_NUM_THREADS="1"
 export MKL_NUM_THREADS="1"
 export PYTHONUNBUFFERED="1"
@@ -60,6 +64,13 @@ NUM_ENVS=${NUM_ENVS:-16}
 TOTAL_TIMESTEPS=${TOTAL_TIMESTEPS:-2000000}  # Initial budget; validate learning before scaling
 EXP_NAME=${EXP_NAME:-"farmshare_combat_resnet_2m"}
 NETWORK_ARCH=${NETWORK_ARCH:-"spatial_resnet"}
+
+# W&B curves are on by default for combat runs (TRACK=0 to turn off). Run `wandb login` once
+# on this account; WANDB_ENTITY (e.g. polyai-stanford) picks the team.
+TRACK_ARGS=()
+if [ "${TRACK:-1}" = "1" ]; then
+    TRACK_ARGS=(--track --wandb-project-name "${WANDB_PROJECT:-polyAI}")
+fi
 
 echo "Starting Phase 2 Combat training: $TOTAL_TIMESTEPS steps with $NUM_ENVS parallel environments on GPU ($NETWORK_ARCH)..."
 
@@ -73,6 +84,7 @@ python py_rl/cleanrl/cleanrl/ppo.py \
     --save-frequency 500000 \
     --exp-name "$EXP_NAME" \
     --network-arch "$NETWORK_ARCH" \
-    --validation-states 10000
+    --validation-states 10000 \
+    ${TRACK_ARGS[@]+"${TRACK_ARGS[@]}"}
 
 echo "Combat Training finished at: $(date)"

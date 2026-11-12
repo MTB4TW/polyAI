@@ -328,7 +328,9 @@ class TribesGymWrapper(gym.Env):
             if self.MAX_TURNS < 1:
                 raise ValueError("POLYVISION_MAX_TURNS must be positive")
             self.PHASE1_OPENING_VERSION = "combat_no_scripted_opening_v1"
-            self.PHASE1_ENVIRONMENT_VERSION = f"combat_v2_signed_ownership_win_loss_horizon_{self.MAX_TURNS}"
+            self.PHASE1_ENVIRONMENT_VERSION = f"combat_v3_potential_shaping_horizon_{self.MAX_TURNS}"
+            self._combat_reward_weights = self._load_combat_reward_weights()
+            self._combat_prev_potential = 0.0
         self.tribes_env = make_default_env()
         if self._is_combat_mode:
             self.tribes_env._env.setSoloNoOpponentMode(False)
@@ -548,6 +550,8 @@ class TribesGymWrapper(gym.Env):
             obs = self._apply_bardur_opening(obs, audit_recorder=getattr(self, "_opening_audit_recorder", None))
             if self._profile_sps_enabled:
                 t_reset_opening += time.perf_counter() - t_opening0
+        if self._is_combat_mode:
+            self._combat_prev_potential = self._combat_potential(obs, self._combat_reward_weights)
         self._starting_city_count = self._get_city_count(obs)
         self._last_city_count = self._starting_city_count
         self._moved_on_t0 = False
@@ -1251,7 +1255,19 @@ class TribesGymWrapper(gym.Env):
 
         reward = float(delta_spt_reward) + reward_adjustment + float(terminal_spt_bonus)
         if self._is_combat_mode:
-            reward, outcome = self._combat_result(obs, terminated)
+            # Outcome reward (win/loss) plus potential-based shaping: the change in a weighted
+            # "who is ahead" score. Shaping telescopes over an episode, so a timeout still pays
+            # out the final advantage, and it does not change which policy is optimal.
+            _outcome_sign, outcome = self._combat_result(obs, terminated)
+            weights = self._combat_reward_weights
+            outcome_reward = weights["win"] if outcome == "win" else (weights["loss"] if outcome == "loss" else 0.0)
+            potential = self._combat_potential(obs, weights)
+            shaping = potential - self._combat_prev_potential
+            self._combat_prev_potential = potential
+            reward = float(outcome_reward + shaping)
+            info["combat_outcome_reward"] = float(outcome_reward)
+            info["combat_shaping_reward"] = float(shaping)
+            info["combat_potential"] = float(potential)
             info["combat_outcome"] = outcome if terminated else ("timeout" if truncated else "ongoing")
             info["combat_win"] = int(outcome == "win")
             info["combat_loss"] = int(outcome == "loss")
@@ -4787,6 +4803,57 @@ class TribesGymWrapper(gym.Env):
 
     def _get_owned_unit_count(self, obs):
         return len(self._get_owned_unit_tiles(obs))
+
+    # Combat reward weights; each can be overridden with POLYVISION_COMBAT_REWARD_<NAME>.
+    COMBAT_REWARD_DEFAULTS = {
+        "win": 10.0,              # terminal reward for eliminating the opponent
+        "loss": -10.0,            # terminal reward for being eliminated
+        "city": 1.0,              # potential per city of advantage (ours minus theirs)
+        "score_per_1000": 1.0,    # potential per 1000 points of Tribes score advantage
+        "kill": 0.25,             # potential per unit-kill of advantage
+    }
+
+    @classmethod
+    def _load_combat_reward_weights(cls, environ=None):
+        environ = os.environ if environ is None else environ
+        weights = {}
+        for name, default in cls.COMBAT_REWARD_DEFAULTS.items():
+            raw = environ.get(f"POLYVISION_COMBAT_REWARD_{name.upper()}")
+            try:
+                weights[name] = float(default if raw is None or str(raw).strip() == "" else raw)
+            except ValueError:
+                raise ValueError(f"POLYVISION_COMBAT_REWARD_{name.upper()} must be a number, got {raw!r}")
+            if not np.isfinite(weights[name]):
+                raise ValueError(f"POLYVISION_COMBAT_REWARD_{name.upper()} must be finite, got {raw!r}")
+        if weights["win"] <= 0 or weights["loss"] >= 0:
+            raise ValueError("Combat reward needs win > 0 and loss < 0")
+        return weights
+
+    @staticmethod
+    def _combat_potential(obs, weights, me="0"):
+        """Weighted advantage of tribe `me` over all other tribes (cities, Tribes score, kills).
+
+        Uses tribe-level totals from the engine, which are not fog-limited; this is fine for a
+        training reward because the policy never sees it.
+        """
+        tribes = (obs or {}).get("tribes") or {}
+        if not isinstance(tribes, dict):
+            return 0.0
+
+        def stats(t):
+            t = t if isinstance(t, dict) else {}
+            return (float(len(t.get("citiesID") or [])), float(t.get("score") or 0.0), float(t.get("nKills") or 0.0))
+
+        mine = stats(tribes.get(me))
+        others = [stats(t) for key, t in tribes.items() if str(key) != str(me)]
+        theirs = tuple(sum(o[i] for o in others) for i in range(3)) if others else (0.0, 0.0, 0.0)
+        return (weights["city"] * (mine[0] - theirs[0])
+                + weights["score_per_1000"] * (mine[1] - theirs[1]) / 1000.0
+                + weights["kill"] * (mine[2] - theirs[2]))
+
+    def combat_reward_config(self):
+        """Active combat reward weights (for logging and run records)."""
+        return dict(getattr(self, "_combat_reward_weights", {}))
 
     @staticmethod
     def _combat_result(obs, terminated):
