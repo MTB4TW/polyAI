@@ -1476,6 +1476,10 @@ if __name__ == "__main__":
     combat_outcome_window = deque(maxlen=100)
     combat_potential_window = deque(maxlen=100)
     combat_games_completed = 0
+    # End-of-game diagnostics (engine-side), rolling over the last 100 finished combat games.
+    combat_end_keys = ("combat_end_enemy_cities", "combat_end_own_cities", "combat_end_enemy_capitals_held",
+                       "combat_end_min_unit_dist_to_enemy_capital", "combat_first_contact_tick")
+    combat_end_windows = {key: deque(maxlen=100) for key in combat_end_keys}
     next_action_mask = None
     next_legal_global_ids = None
     next_legal_action_valid_mask = None
@@ -1630,6 +1634,7 @@ if __name__ == "__main__":
             lrnow = frac * args.learning_rate
             optimizer.param_groups[0]["lr"] = lrnow
 
+        rollout_max_legal = 0
         for step in range(0, args.num_steps):
             prev_global_step = global_step
             global_step += args.num_envs
@@ -1708,6 +1713,20 @@ if __name__ == "__main__":
                 if combat_potential_window:
                     log_scalar("combat/episode_end_potential_last100", float(np.mean(combat_potential_window)), global_step)
                 log_scalar("combat/games_completed", combat_games_completed, global_step)
+                for row in final_infos:
+                    if isinstance(row, dict) and row.get("combat_end_enemy_cities") is not None:
+                        for key in combat_end_keys:
+                            combat_end_windows[key].append(float(row.get(key, -1)))
+                contact = combat_end_windows["combat_first_contact_tick"]
+                if contact:
+                    for key in combat_end_keys[:4]:
+                        window_vals = [v for v in combat_end_windows[key] if v >= 0]
+                        if window_vals:
+                            log_scalar(f"combat/{key[len('combat_'):]}_last100", float(np.mean(window_vals)), global_step)
+                    log_scalar("combat/enemy_contact_rate_last100", float(np.mean([v >= 0 for v in contact])), global_step)
+                    seen = [v for v in contact if v >= 0]
+                    if seen:
+                        log_scalar("combat/first_contact_tick_last100", float(np.mean(seen)), global_step)
             next_done = np.logical_or(terminations, truncations)
             t0_step_tensor = time.perf_counter()
             rewards[step] = torch.tensor(reward).to(device).view(-1)
@@ -1732,6 +1751,8 @@ if __name__ == "__main__":
                     device,
                 )
                 profiler.add("trainer/step_info_extract", time.perf_counter() - t0_extract_legal)
+                if next_legal_action_valid_mask is not None:
+                    rollout_max_legal = max(rollout_max_legal, int(next_legal_action_valid_mask.sum(dim=1).max().item()))
                 if args.actor_mode == "legal_features":
                     t0_extract_features = time.perf_counter()
                     next_legal_action_features = _extract_vector_legal_feature_tensors(
@@ -2295,7 +2316,9 @@ if __name__ == "__main__":
         t0_ppo_update = time.perf_counter()
         b_inds = np.arange(args.batch_size)
         clipfracs = []
+        epochs_completed = 0
         for epoch in range(args.update_epochs):
+            epochs_completed = epoch + 1
             np.random.shuffle(b_inds)
             for start in range(0, args.batch_size, args.minibatch_size):
                 end = start + args.minibatch_size
@@ -2380,6 +2403,13 @@ if __name__ == "__main__":
         log_scalar("losses/approx_kl", approx_kl.item(), global_step)
         log_scalar("losses/clipfrac", np.mean(clipfracs), global_step)
         log_scalar("losses/explained_variance", explained_var, global_step)
+        # A collapsed critic shows up as value_std ~ 0 (explained_variance then sits at exactly 0).
+        log_scalar("losses/value_mean", float(np.mean(y_pred)), global_step)
+        log_scalar("losses/value_std", float(np.std(y_pred)), global_step)
+        log_scalar("losses/return_std", float(np.std(y_true)), global_step)
+        log_scalar("losses/epochs_completed", epochs_completed, global_step)
+        log_scalar("charts/max_legal_action_count", rollout_max_legal, global_step)
+        log_scalar("charts/max_legal_action_fraction", rollout_max_legal / float(args.max_legal_actions), global_step)
         if args.enable_step_diagnostics and iter_valid_actions_count > 0:
             log_scalar(
                 "charts/mean_valid_actions",
