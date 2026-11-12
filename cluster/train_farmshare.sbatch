@@ -59,8 +59,22 @@ NUM_ENVS=${NUM_ENVS:-16}
 TOTAL_TIMESTEPS=${TOTAL_TIMESTEPS:-5000000}  # 5 Million steps
 EXP_NAME=${EXP_NAME:-"farmshare_resnet_5m"}
 NETWORK_ARCH=${NETWORK_ARCH:-"spatial_resnet"}
+SEED=${SEED:-1}
 
-echo "Starting training: $TOTAL_TIMESTEPS steps with $NUM_ENVS parallel environments on GPU ($NETWORK_ARCH)..."
+# Optional (set by cluster/run_experiment.sh):
+#   MODEL_PATH     final model location (default: runs/<run_name>/<EXP_NAME>.cleanrl_model)
+#   TRACK=1        log training curves to W&B (project WANDB_PROJECT, default polyAI)
+#   WANDB_UPLOAD=1 upload the final model + sidecar as a W&B artifact named EXP_NAME
+EXTRA_ARGS=()
+if [ -n "${MODEL_PATH:-}" ]; then
+    mkdir -p "$(dirname "$MODEL_PATH")"
+    EXTRA_ARGS+=(--model-path "$MODEL_PATH")
+fi
+if [ "${TRACK:-0}" = "1" ]; then
+    EXTRA_ARGS+=(--track --wandb-project-name "${WANDB_PROJECT:-polyAI}")
+fi
+
+echo "Starting training: $TOTAL_TIMESTEPS steps with $NUM_ENVS parallel environments on GPU ($NETWORK_ARCH, seed $SEED)..."
 
 python py_rl/cleanrl/cleanrl/ppo.py \
     --total-timesteps "$TOTAL_TIMESTEPS" \
@@ -70,7 +84,14 @@ python py_rl/cleanrl/cleanrl/ppo.py \
     --save-model \
     --save-frequency 500000 \
     --exp-name "$EXP_NAME" \
+    --seed "$SEED" \
     --network-arch "$NETWORK_ARCH" \
-    --validation-states 10000
+    --validation-states 10000 \
+    ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}
 
 echo "Training finished at: $(date)"
+
+if [ "${WANDB_UPLOAD:-0}" = "1" ] && [ -n "${MODEL_PATH:-}" ]; then
+    python tools/wandb_checkpoint.py upload "$MODEL_PATH" --name "$EXP_NAME" \
+        || echo "warning: W&B upload failed; the checkpoint is still at $MODEL_PATH" >&2
+fi
