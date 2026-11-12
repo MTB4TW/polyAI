@@ -2,6 +2,31 @@
 
 All notable changes to this project are documented in this file.
 
+## [Phase2-Combat_Potential_Reward_Shaping-048] - (2026-11-12)
+
+### Scope
+- Replaced the combat reward (previously only ±1 on win/loss, 0 on timeout) with an outcome reward plus
+  potential-based shaping: `reward = outcome + Φ(s') − Φ(s)`, where Φ weights the city, Tribes-score and
+  kill advantage over the opponent(s). See `docs/rewards.md`, "Phase 2 combat reward".
+- Weights are configurable per run with `POLYVISION_COMBAT_REWARD_{WIN,LOSS,CITY,SCORE_PER_1000,KILL}`
+  (defaults 10, −10, 1.0, 1.0, 0.25) and validated at startup.
+- Step `info` now reports `combat_outcome_reward`, `combat_shaping_reward` and `combat_potential`.
+- Combat environment version bumped to `combat_v3_potential_shaping_horizon_<T>`, so earlier combat
+  checkpoints are rejected. (No earlier combat checkpoints exist; both earlier combat jobs failed at startup.)
+- Phase 1 reward and environment version are unchanged.
+
+### Validation
+- New unit tests `tools/tests/test_combat_reward_shaping.py` (weights, validation, potential terms, symmetry,
+  telescoping); live combat tests in `tools/tests/test_combat_integration.py` updated for the new reward.
+- Random legal play, 80 episodes vs `SimpleAgent`, 20-turn horizon: every episode has a nonzero return
+  (timeouts −0.24 ± 2.41, losses −14.90 ± 1.35); the previous reward was zero in ~89% of episodes.
+- The Oct 30 SAME_STEP autoreset fix for the combat startup crash was reproduced locally: every lost game
+  ends on a state with no legal actions, and no empty legal set occurred in 20,000 random non-terminal steps.
+
+### Rationale
+- With win/loss only, the agent almost never received a learning signal in a 20-turn game. Potential-based
+  shaping gives dense credit for getting ahead without changing the optimal policy.
+
 ## [Phase1-V5_PARITY002_Seed3_16M_TerminalSPT_Reference_Run_and_Freeze-047] - (2026-08-27)
 
 ### Scope

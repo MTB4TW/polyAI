@@ -29,7 +29,8 @@ class CombatIntegrationTests(unittest.TestCase):
     def test_clock_income_and_timeout(self):
         _, reward, term, trunc, info = self.env.step(self.env._catalog.end_turn_id)
         self.assertFalse(term or trunc)
-        self.assertEqual(reward, 0)
+        self.assertEqual(info['combat_outcome_reward'], 0)
+        self.assertAlmostEqual(reward, info['combat_shaping_reward'])
         self.assertEqual(info['tick'], 1)
         self.assertGreater(info['stars'], 5)
         _, reward, term, trunc, info = self.env.step(self.env._catalog.end_turn_id)
@@ -37,7 +38,8 @@ class CombatIntegrationTests(unittest.TestCase):
         self.assertTrue(trunc)
         self.assertEqual(info['combat_outcome'], 'timeout')
         self.assertEqual(info['turn_count'], 2)
-        self.assertEqual(reward, 0)
+        self.assertEqual(info['combat_outcome_reward'], 0)
+        self.assertAlmostEqual(reward, info['combat_shaping_reward'])
 
     def test_win_ends_episode_before_horizon(self):
         state = self.env.tribes_env._env.getGameState()
@@ -46,7 +48,8 @@ class CombatIntegrationTests(unittest.TestCase):
         _, reward, term, trunc, info = self.env.step(self.env._catalog.end_turn_id)
         self.assertTrue(term)
         self.assertFalse(trunc)
-        self.assertEqual(reward, 1)
+        self.assertEqual(info['combat_outcome_reward'], TribesGymWrapper.COMBAT_REWARD_DEFAULTS['win'])
+        self.assertAlmostEqual(reward, info['combat_outcome_reward'] + info['combat_shaping_reward'])
         self.assertEqual(info['combat_outcome'], 'win')
         self.assertFalse(any(info['legal_action_valid_mask']))
 
@@ -73,5 +76,6 @@ class CombatIntegrationTests(unittest.TestCase):
         _, reward, term, trunc, info = self.env.step(self.env._catalog.end_turn_id)
         self.assertTrue(term)
         self.assertFalse(trunc)
-        self.assertEqual(reward, -1)
+        self.assertEqual(info['combat_outcome_reward'], TribesGymWrapper.COMBAT_REWARD_DEFAULTS['loss'])
+        self.assertAlmostEqual(reward, info['combat_outcome_reward'] + info['combat_shaping_reward'])
         self.assertEqual(info['combat_outcome'], 'loss')

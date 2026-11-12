@@ -68,3 +68,40 @@ Because Phase 1 is shaped and combat-restricted, its return is not a measure of 
 The interaction between dense step-level shaping rewards (such as immediate fruit/animal gathering deltas and fog clearance bounties) and multi-step delayed economic investments (such as Tier-2 Forestry research) was historically problematic under pure step shaping, where deterministic argmax exhibited an Organization monoculture (analyzed in detail in the historical [Phase 1 v3 Seed3 16M Behavioral Failure Analysis](results/Phase1_V3_Seed3_16M_Behavioral_Failure_Analysis.md)).
 
 Enabling the non-stepwise Terminal-SPT bonus established a strong terminal credit-assignment signal that successfully unlocked deterministic Forestry adoption and supported the current reference benchmark of **20.17 test argmax SPT** in v5. Future work will investigate multi-seed confirmation and whether simplified or normalized reward formulations achieve similar or superior credit assignment.
+
+## Phase 2 combat reward
+
+Combat mode (`POLYVISION_COMBAT_MODE=1`, environment version `combat_v3_potential_shaping_horizon_<T>`)
+replaces the Phase 1 reward entirely. Each step pays
+
+```text
+reward = outcome + (Φ(s') − Φ(s))
+outcome = win (default +10) when the opponent is eliminated, loss (default −10) when we are, else 0
+Φ(s)   = city            × (our cities − their cities)
+       + score_per_1000  × (our Tribes score − their score) / 1000
+       + kill            × (our unit kills − their unit kills)
+```
+
+The second term is *potential-based shaping*: it rewards changes in a weighted "who is ahead" score.
+Its sum over an episode is Φ(final) − Φ(start), so a game that reaches the turn limit still pays out the
+final advantage instead of zero, and shaping of this form does not change which policy is optimal.
+Φ uses tribe-level totals from the engine (not fog-limited); that is acceptable for a training reward
+because the policy never observes it.
+
+Weights default to `TribesGymWrapper.COMBAT_REWARD_DEFAULTS` and can be overridden per run without code
+changes, e.g. `POLYVISION_COMBAT_REWARD_CITY=2 POLYVISION_COMBAT_REWARD_KILL=0.5 sbatch cluster/train_farmshare_combat.sbatch`:
+
+| Variable | Default | Meaning |
+|---|---:|---|
+| `POLYVISION_COMBAT_REWARD_WIN` | 10 | terminal reward for a win (must be > 0) |
+| `POLYVISION_COMBAT_REWARD_LOSS` | −10 | terminal reward for a loss (must be < 0) |
+| `POLYVISION_COMBAT_REWARD_CITY` | 1.0 | potential per city of advantage |
+| `POLYVISION_COMBAT_REWARD_SCORE_PER_1000` | 1.0 | potential per 1000 points of Tribes score advantage |
+| `POLYVISION_COMBAT_REWARD_KILL` | 0.25 | potential per kill of advantage |
+
+Each step's `info` reports `combat_outcome_reward`, `combat_shaping_reward` and `combat_potential`.
+Under random legal play against `SimpleAgent` on the 1v1 pool (20-turn horizon), every episode now has a
+nonzero return (timeouts range about −7 to +5, losses about −15), where the previous ±1-only reward was
+zero in about 89% of episodes. The defaults are a starting point, not a tuned design.
+
+The evaluation metric for combat is win rate against fixed opponents on held-out maps, not shaped return.

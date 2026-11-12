@@ -51,6 +51,10 @@ export POLYVISION_SOLO_NO_OPPONENT_MODE="0"
 export POLYVISION_LEVEL_POOL_GLOB="levels/phase2_pool_1v1/train/*.csv"
 export POLYVISION_MAX_TURNS="${POLYVISION_MAX_TURNS:-20}"
 export POLYVISION_INFO_MODE="fast"
+# Combat reward weights (see docs/rewards.md); set any of these before sbatch to override:
+#   POLYVISION_COMBAT_REWARD_WIN=10 POLYVISION_COMBAT_REWARD_LOSS=-10 POLYVISION_COMBAT_REWARD_CITY=1.0
+#   POLYVISION_COMBAT_REWARD_SCORE_PER_1000=1.0 POLYVISION_COMBAT_REWARD_KILL=0.25
+env | grep '^POLYVISION_COMBAT_REWARD_' || echo "Combat reward: defaults"
 export OMP_NUM_THREADS="1"
 export MKL_NUM_THREADS="1"
 export PYTHONUNBUFFERED="1"
