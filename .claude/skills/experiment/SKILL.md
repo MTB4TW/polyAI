@@ -14,7 +14,7 @@ Arguments: `NAME ARCH STEPS [SEED]`, where ARCH is `mlp`, `spatial_resnet` or `s
 2. Check `docs/experiments.md` and `outputs/experiments/` so NAME is new and descriptive
    (e.g. `resnet-local-16m-seed1`).
 3. Submit:
-   `MAIL_USER=<their stanford email, if they gave one> TRACK=1 WANDB_UPLOAD=1 cluster/run_experiment.sh NAME ARCH STEPS SEED`
-   Leave out `TRACK`/`WANDB_UPLOAD` if `wandb login` has not been done on this account.
+   `MAIL_USER=<their stanford email, if they gave one> TRACK=1 WANDB_UPLOAD=1 WANDB_LOG_EVAL=1 cluster/run_experiment.sh NAME ARCH STEPS SEED`
+   Leave out `TRACK`/`WANDB_UPLOAD`/`WANDB_LOG_EVAL` if `wandb login` has not been done on this account.
 4. Report the two job IDs, the model path, and the evaluation folder name the script printed.
 5. Do not wait or poll. When the user says the jobs finished, use the `compare` skill.

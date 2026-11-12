@@ -14,7 +14,9 @@
 #   MAIL_USER=you@stanford.edu  email when each job ends or fails
 #   TRACK=1                     log training curves to W&B
 #   WANDB_UPLOAD=1              upload the final checkpoint as a W&B artifact named NAME
-#   WANDB_PROJECT=polyAI        W&B project for both of the above
+#   WANDB_LOG_EVAL=1            copy the evaluation results to W&B (linked to the checkpoint
+#                               artifact when WANDB_UPLOAD=1)
+#   WANDB_PROJECT=polyAI        W&B project for all of the above
 #   NUM_ENVS=16                 parallel environments for training
 #
 # Outputs:
@@ -41,7 +43,7 @@ case "$ARCH" in
 esac
 [[ "$STEPS" =~ ^[0-9]+$ ]] || { echo "Invalid STEPS: $STEPS" >&2; usage; }
 [[ "$SEED" =~ ^[0-9]+$ ]] || { echo "Invalid SEED: $SEED" >&2; usage; }
-for flag in TRACK WANDB_UPLOAD; do
+for flag in TRACK WANDB_UPLOAD WANDB_LOG_EVAL; do
     value=${!flag:-0}
     [ "$value" = 0 ] || [ "$value" = 1 ] || { echo "$flag must be 0 or 1, got: $value" >&2; exit 2; }
 done
@@ -71,7 +73,12 @@ TRAIN_OUT=$(EXP_NAME="$NAME" NETWORK_ARCH="$ARCH" TOTAL_TIMESTEPS="$STEPS" SEED=
     cluster/train_farmshare.sbatch)
 TRAIN_JOB=${TRAIN_OUT%%;*}
 
+CHECKPOINT_ARTIFACT=""
+if [ "${WANDB_UPLOAD:-0}" = "1" ]; then
+    CHECKPOINT_ARTIFACT="$NAME"
+fi
 EVAL_OUT=$(MODEL_PATH="$MODEL_PATH" EVAL_ID="$EVAL_ID" \
+    WANDB_LOG_EVAL="${WANDB_LOG_EVAL:-0}" CHECKPOINT_ARTIFACT="$CHECKPOINT_ARTIFACT" \
     sbatch --parsable --job-name="eval_$NAME" --dependency="afterok:$TRAIN_JOB" --kill-on-invalid-dep=yes \
     ${MAIL_ARGS[@]+"${MAIL_ARGS[@]}"} cluster/eval_farmshare.sbatch)
 EVAL_JOB=${EVAL_OUT%%;*}
@@ -98,7 +105,8 @@ cat > "$RECORD" <<EOF
   "train_job": "$TRAIN_JOB",
   "eval_job": "$EVAL_JOB",
   "wandb_track": ${TRACK:-0},
-  "wandb_upload": ${WANDB_UPLOAD:-0}
+  "wandb_upload": ${WANDB_UPLOAD:-0},
+  "wandb_log_eval": ${WANDB_LOG_EVAL:-0}
 }
 EOF
 

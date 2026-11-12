@@ -17,6 +17,9 @@ work on it (Kevin and Devin), each with their own agent, sharing the GitHub repo
 - Mac: `.venv/bin/python local/playground.py build|check|smoke` (see `local/START-HERE.md`).
 - Farmshare: `cluster/run_experiment.sh NAME ARCH STEPS [SEED]` trains, then evaluates automatically.
   Evaluate an existing checkpoint with `MODEL_PATH=... EVAL_ID=... sbatch cluster/eval_farmshare.sbatch`.
+- W&B (team `polyai-stanford`, project `polyAI`) holds checkpoints and copies of results: `WANDB_UPLOAD=1` uploads
+  the checkpoint, `WANDB_LOG_EVAL=1` logs the evaluation (`tools/wandb_log_eval.py`). Git remains the source of
+  truth for results; W&B is a read-only copy.
 - Tests: `python tools/run_core_ci_checks.py` (what CI runs), or pytest on `pol_env/Tribes/py/tests` and `tools/tests`.
 - Training and full evaluations take minutes to hours: run them in the background or as SLURM jobs, never in the foreground.
 

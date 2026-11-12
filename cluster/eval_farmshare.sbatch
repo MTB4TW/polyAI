@@ -19,6 +19,7 @@
 #
 # Optional: POOL=validation (default) or human_benchmark. The test pool is
 # refused here on purpose; run it by hand with --confirm-test.
+# Optional: WANDB_LOG_EVAL=1 copies the results to W&B afterwards (see the end of this file).
 # No partition is set, so SLURM uses the cluster default; override with -p.
 # ==============================================================================
 
@@ -65,3 +66,20 @@ fi
 python tools/evaluate_phase1.py "${EVAL_ARGS[@]}"
 
 echo "Evaluation finished at: $(date)"
+
+# Optional: copy the results to W&B (git stays the source of truth).
+#   WANDB_LOG_EVAL=1       log this evaluation as a W&B run (needs EVAL_ID)
+#   REFERENCE_EVAL=...     evaluation to compare against (default: current MLP reference)
+#   CHECKPOINT_ARTIFACT=.. W&B checkpoint artifact to link, e.g. NAME or NAME:v0
+if [ "${WANDB_LOG_EVAL:-0}" = "1" ]; then
+    if [ -z "${EVAL_ID:-}" ]; then
+        echo "warning: WANDB_LOG_EVAL=1 needs EVAL_ID; skipping the W&B log" >&2
+    else
+        LOG_ARGS=(--reference "${REFERENCE_EVAL:-20260827_phase1_v5_parity002_seed3_16m_terminal_spt_validation_canonical}")
+        if [ -n "${CHECKPOINT_ARTIFACT:-}" ]; then
+            LOG_ARGS+=(--checkpoint-artifact "$CHECKPOINT_ARTIFACT")
+        fi
+        python tools/wandb_log_eval.py "$EVAL_ID" "${LOG_ARGS[@]}" \
+            || echo "warning: W&B evaluation log failed; results are still in outputs/evaluations/$EVAL_ID" >&2
+    fi
+fi
