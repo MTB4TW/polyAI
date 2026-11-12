@@ -35,7 +35,8 @@ fi
 # 2. Activate Virtual Environment
 source .venv/bin/activate
 
-# 3. Verify GPU
+# 3. Report the device (GPU if this node has one, otherwise CPU)
+DEVICE=$(python -c 'import torch; print("GPU" if torch.cuda.is_available() else "CPU")')
 python -c '
 import torch
 print("PyTorch CUDA available:", torch.cuda.is_available())
@@ -72,7 +73,7 @@ if [ "${TRACK:-1}" = "1" ]; then
     TRACK_ARGS=(--track --wandb-project-name "${WANDB_PROJECT:-polyAI}")
 fi
 
-echo "Starting Phase 2 Combat training: $TOTAL_TIMESTEPS steps with $NUM_ENVS parallel environments on GPU ($NETWORK_ARCH)..."
+echo "Starting Phase 2 Combat training: $TOTAL_TIMESTEPS steps with $NUM_ENVS parallel environments on $DEVICE ($NETWORK_ARCH)..."
 
 python py_rl/cleanrl/cleanrl/ppo.py \
     --total-timesteps "$TOTAL_TIMESTEPS" \
