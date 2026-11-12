@@ -8,6 +8,10 @@ action_embeddings_cache/
 .cache/action_validator/
 *.py[cod]
 
+# SLURM job logs (the few historical logs already in git stay tracked)
+logs/*.out
+logs/*.err
+
 # OS/editor artifacts
 .DS_Store
 

@@ -1,0 +1,29 @@
+{
+  "baseline": {
+    "evaluation": "20260827_phase1_v5_parity002_seed3_16m_terminal_spt_validation_canonical",
+    "mean_spt": 20.516,
+    "network_arch": "mlp"
+  },
+  "bootstrap": {
+    "samples": 5000,
+    "seed": 42,
+    "unit": "map"
+  },
+  "candidate": {
+    "evaluation": "20261112_farmshare_resnet_5m_validation_canonical",
+    "mean_spt": 19.844,
+    "network_arch": "spatial_resnet"
+  },
+  "difference_ci95": [
+    -1.212,
+    -0.128
+  ],
+  "losses": 127,
+  "maps": 250,
+  "mean_difference": -0.672,
+  "policy": "ppo_argmax",
+  "pool": "validation",
+  "ties": 21,
+  "warnings": [],
+  "wins": 102
+}
