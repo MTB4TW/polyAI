@@ -2,6 +2,23 @@
 
 All notable changes to this project are documented in this file.
 
+## [Perf-Cached_Board_Scans-049] - (2026-11-12)
+
+### Scope
+- `TribesGymWrapper._board_dimensions_from_obs` caches its result for the most recent observation object.
+  It was recomputed on every tile lookup (about 2.7 million times per 1,500 steps).
+- `_get_visible_uncaptured_village_positions` caches its board scan per observation object (it ran about six
+  times per step on the same board) and reads the board column by column instead of per tile. Validation of
+  the village set still runs on every call.
+- No behaviour change: observations, rewards, legal actions and legal-action features are byte-identical.
+
+### Validation
+- 1,500-step random-legal trajectories hash identically before and after in Phase 1 and combat mode.
+- Single-environment throughput on a 2019 Intel MacBook: Phase 1 99 -> 169 steps/s (+70%), combat 96 -> 157
+  steps/s (+63%).
+- New `tools/tests/test_board_scan_cache.py`: the fast scan matches the original per-tile algorithm on 300
+  random and malformed boards; caches are per observation object and cannot be corrupted by callers.
+
 ## [Phase2-Combat_Potential_Reward_Shaping-048] - (2026-11-12)
 
 ### Scope
