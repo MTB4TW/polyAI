@@ -2,6 +2,25 @@
 
 All notable changes to this project are documented in this file.
 
+## [Phase2-Combat_Legal_Capacity-051] - (2026-11-12)
+
+### Scope
+- Both combat training jobs (`cluster/train_combat_cpu.sbatch`, `cluster/train_farmshare_combat.sbatch`) now pass
+  `--max-legal-actions "$MAX_LEGAL_ACTIONS"`, default **512**. A 1M-step CPU combat run (job 1977872) crashed at
+  ~110k steps with `legal_action_count=257 exceeded max_legal_actions=256`: combat boards with many units exceed
+  the Phase 1 capacity.
+- The trainer exports the value to the environment as `POLYVISION_MAX_LEGAL_ACTIONS` and records it in the
+  checkpoint sidecar, so environment, trainer and checkpoint agree (`docs/troubleshooting.md`). The capacity only
+  pads per-step legal-action tensors; no network weights depend on it.
+- Phase 1 is unchanged: its jobs and the trainer default stay at 256.
+
+### Validation
+- Probe of legal-action counts in combat (11x11 1v1 vs SimpleAgent, 20 turns): 40 random-legal games peaked at
+  118 (p99 81); 20 games that take every non-END_TURN action before ending a turn peaked at 153 (p99 95).
+  Neither reached 256, so the 257 seen in training comes from states a learning agent reaches and random play
+  does not. 512 is about twice the largest count observed; it is a margin, not a proven bound.
+- `bash -n` on both scripts; `tools/run_core_ci_checks.py` passes.
+
 ## [Phase2-CPU_Combat_Run_and_PPO_Options-050] - (2026-11-12)
 
 ### Scope
