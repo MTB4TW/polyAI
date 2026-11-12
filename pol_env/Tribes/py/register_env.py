@@ -4499,6 +4499,17 @@ class TribesGymWrapper(gym.Env):
         """
         if not isinstance(obs, dict):
             return None
+        # Board lookups call this once per tile, many times per step, on the same observation;
+        # remember the answer for the most recent observation object (same object => same board).
+        cache = self.__dict__.get("_board_dims_cache")
+        if cache is not None and cache[0] is obs:
+            return cache[1]
+        dims = self._compute_board_dimensions(obs)
+        self._board_dims_cache = (obs, dims)
+        return dims
+
+    @staticmethod
+    def _compute_board_dimensions(obs):
         board = obs.get("board", {})
         terrain = board.get("terrain", []) if isinstance(board, dict) else []
         if not isinstance(terrain, list) or not terrain:
@@ -4591,9 +4602,25 @@ class TribesGymWrapper(gym.Env):
         return 0 <= int(dest_x) < width and 0 <= int(dest_y) < height
 
     def _get_visible_uncaptured_village_positions(self, obs):
+        # Called several times per step on the same observation; the board scan is cached per
+        # observation object, while validation still runs on every call (it depends on the
+        # current legal actions).
+        cache = self.__dict__.get("_village_positions_cache")
+        if cache is not None and cache[0] is obs:
+            village_positions = set(cache[1])
+            self._validate_visible_uncaptured_villages(obs, village_positions)
+            return village_positions
+        village_positions = self._scan_visible_uncaptured_villages(obs)
+        if village_positions is None:
+            return set()
+        self._village_positions_cache = (obs, frozenset(village_positions))
+        self._validate_visible_uncaptured_villages(obs, village_positions)
+        return set(village_positions)
+
+    def _scan_visible_uncaptured_villages(self, obs):
         dims = self._board_dimensions_from_obs(obs)
         if dims is None:
-            return set()
+            return None
         width, height = dims
 
         # City occupancy in board.cityID is not always reliable for captured-village
@@ -4612,14 +4639,31 @@ class TribesGymWrapper(gym.Env):
                 if cx >= 0 and cy >= 0:
                     occupied_city_coords.add((cx, cy))
 
+        # Same semantics as _board_get_int_by_java_coord(..., default=-1), read column by column.
+        def as_int(value):
+            if value is None:
+                return -1
+            try:
+                return int(value)
+            except Exception:
+                return -1
+
+        board = obs.get("board", {}) if isinstance(obs, dict) else {}
+        terrain = board.get("terrain", []) if isinstance(board, dict) else []
+        city_ids = board.get("cityID", []) if isinstance(board, dict) else []
+        terrain = terrain if isinstance(terrain, list) else []
+        city_ids = city_ids if isinstance(city_ids, list) else []
         village_positions = set()
         for x in range(int(width)):
+            t_col = terrain[x] if x < len(terrain) and isinstance(terrain[x], (list, tuple)) else ()
+            c_col = city_ids[x] if x < len(city_ids) and isinstance(city_ids[x], (list, tuple)) else ()
             for y in range(int(height)):
-                t_val = self._board_get_int_by_java_coord(obs, "terrain", int(x), int(y), default=-1)
-                c_val = self._board_get_int_by_java_coord(obs, "cityID", int(x), int(y), default=-1)
-                if t_val == 4 and c_val == -1 and (int(x), int(y)) not in occupied_city_coords:
-                    village_positions.add((int(x), int(y)))
-        self._validate_visible_uncaptured_villages(obs, village_positions)
+                t_val = as_int(t_col[y]) if y < len(t_col) else -1
+                if t_val != 4:
+                    continue
+                c_val = as_int(c_col[y]) if y < len(c_col) else -1
+                if c_val == -1 and (x, y) not in occupied_city_coords:
+                    village_positions.add((x, y))
         return village_positions
 
     def _validate_visible_uncaptured_villages(self, obs, village_positions):

@@ -2,6 +2,44 @@
 
 All notable changes to this project are documented in this file.
 
+## [Phase2-CPU_Combat_Run_and_PPO_Options-050] - (2026-11-12)
+
+### Scope
+- New `cluster/train_combat_cpu.sbatch`: a short (default 1M steps, 8 envs, 8 h limit) combat run on the CPU
+  partition, which starts far sooner than the GPU queue. W&B curves on by default.
+- PPO options, all opt-in (Phase 1 defaults unchanged):
+  - `--gamma-per-turn`: discount only on END_TURN actions, so `--gamma` is a per-turn discount. With ~6+
+    actions per turn, per-action gamma 0.99 shrank a 20-turn game's final reward far more than intended.
+  - `--torch-threads N`: CPU threads for the learner while env workers stay single-threaded.
+- The CPU combat job uses `--gamma-per-turn --no-clip-vloss --learning-rate 5e-4 --update-epochs 8
+  --target-kl 0.03`: the smoke run's updates were ~10x smaller than typical (approx_kl ~0.002, clipfrac ~0),
+  and the ±0.2 value clip is far too tight for shaped combat returns.
+- GAE moved into `py_rl/cleanrl/cleanrl/gae.py` (`compute_gae`, `per_turn_discounts`), torch-free and tested.
+- Trainer logs rolling 100-game combat metrics: `combat/{win,loss,timeout}_rate_last100`,
+  `combat/episode_end_potential_last100`, `combat/games_completed`.
+
+### Validation
+- `tools/tests/test_gae.py`: default GAE matches the previous inline loop exactly; per-turn discounting
+  counts turns, not actions.
+- All flags used by the CPU job parse with the trainer's `Args` (tyro); defaults verified unchanged.
+- Not yet run end-to-end with PyTorch (unavailable on the development Mac).
+## [Perf-Cached_Board_Scans-049] - (2026-11-12)
+
+### Scope
+- `TribesGymWrapper._board_dimensions_from_obs` caches its result for the most recent observation object.
+  It was recomputed on every tile lookup (about 2.7 million times per 1,500 steps).
+- `_get_visible_uncaptured_village_positions` caches its board scan per observation object (it ran about six
+  times per step on the same board) and reads the board column by column instead of per tile. Validation of
+  the village set still runs on every call.
+- No behaviour change: observations, rewards, legal actions and legal-action features are byte-identical.
+
+### Validation
+- 1,500-step random-legal trajectories hash identically before and after in Phase 1 and combat mode.
+- Single-environment throughput on a 2019 Intel MacBook: Phase 1 99 -> 169 steps/s (+70%), combat 96 -> 157
+  steps/s (+63%).
+- New `tools/tests/test_board_scan_cache.py`: the fast scan matches the original per-tile algorithm on 300
+  random and malformed boards; caches are per observation object and cannot be corrupted by callers.
+
 ## [Phase2-Combat_Potential_Reward_Shaping-048] - (2026-11-12)
 
 ### Scope
