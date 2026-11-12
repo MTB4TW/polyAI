@@ -11,6 +11,9 @@ All notable changes to this project are documented in this file.
 - Weights are configurable per run with `POLYVISION_COMBAT_REWARD_{WIN,LOSS,CITY,SCORE_PER_1000,KILL}`
   (defaults 10, −10, 1.0, 1.0, 0.25) and validated at startup.
 - Step `info` now reports `combat_outcome_reward`, `combat_shaping_reward` and `combat_potential`.
+- `cluster/train_farmshare_combat.sbatch` logs W&B curves by default (`TRACK=0` to disable; project
+  `WANDB_PROJECT`, default `polyAI`), and PPO logs `combat/episode_end_potential` (final advantage of
+  finished games) alongside the existing `combat/{win,loss,timeout}_rate` and episodic return.
 - Combat environment version bumped to `combat_v3_potential_shaping_horizon_<T>`, so earlier combat
   checkpoints are rejected. (No earlier combat checkpoints exist; both earlier combat jobs failed at startup.)
 - Phase 1 reward and environment version are unchanged.

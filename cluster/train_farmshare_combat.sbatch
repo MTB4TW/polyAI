@@ -65,6 +65,13 @@ TOTAL_TIMESTEPS=${TOTAL_TIMESTEPS:-2000000}  # Initial budget; validate learning
 EXP_NAME=${EXP_NAME:-"farmshare_combat_resnet_2m"}
 NETWORK_ARCH=${NETWORK_ARCH:-"spatial_resnet"}
 
+# W&B curves are on by default for combat runs (TRACK=0 to turn off). Run `wandb login` once
+# on this account; WANDB_ENTITY (e.g. polyai-stanford) picks the team.
+TRACK_ARGS=()
+if [ "${TRACK:-1}" = "1" ]; then
+    TRACK_ARGS=(--track --wandb-project-name "${WANDB_PROJECT:-polyAI}")
+fi
+
 echo "Starting Phase 2 Combat training: $TOTAL_TIMESTEPS steps with $NUM_ENVS parallel environments on GPU ($NETWORK_ARCH)..."
 
 python py_rl/cleanrl/cleanrl/ppo.py \
@@ -77,6 +84,7 @@ python py_rl/cleanrl/cleanrl/ppo.py \
     --save-frequency 500000 \
     --exp-name "$EXP_NAME" \
     --network-arch "$NETWORK_ARCH" \
-    --validation-states 10000
+    --validation-states 10000 \
+    ${TRACK_ARGS[@]+"${TRACK_ARGS[@]}"}
 
 echo "Combat Training finished at: $(date)"

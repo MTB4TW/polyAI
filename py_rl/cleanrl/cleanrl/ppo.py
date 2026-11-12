@@ -1678,6 +1678,13 @@ if __name__ == "__main__":
             if completed_combat:
                 for outcome in ("win", "loss", "timeout"):
                     log_scalar(f"combat/{outcome}_rate", completed_combat.count(outcome) / len(completed_combat), global_step)
+            # Final "who is ahead" potential of finished combat games (positive = we were ahead).
+            end_potentials = [
+                float(row["combat_potential"]) for row in final_infos
+                if isinstance(row, dict) and row.get("combat_potential") is not None
+            ]
+            if end_potentials:
+                log_scalar("combat/episode_end_potential", float(np.mean(end_potentials)), global_step)
             next_done = np.logical_or(terminations, truncations)
             t0_step_tensor = time.perf_counter()
             rewards[step] = torch.tensor(reward).to(device).view(-1)
