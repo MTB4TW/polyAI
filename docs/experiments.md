@@ -18,6 +18,14 @@ Current reference: **v5 PARITY002 MLP, 16M, seed 3** (validation 20.52, test 20.
 
 | Date | Name | Arch | Steps | Seed | Ran by | Validation SPT | Δ vs reference (95% CI) | Test SPT | Evaluation | Notes |
 |---|---|---|---:|---:|---|---:|---|---:|---|---|
+| 2026-11-13 | combined-ep2-local-1m-cpu-seed1 | spatial_resnet_local | 1M | 1 | Devin (Claude agent) | 25.05 | +4.54 [+3.96, +5.14], 205 W / 11 T / 34 L | — | `20261113_combined-ep2-local-1m-cpu-seed1_validation_canonical` | Combined winners `--norm-obs --no-clip-vloss --norm-returns --gamma-per-turn` `--update-epochs 2`; `--torch-threads 6`, 8 envs, CPU. Commit `fe641b7`. Budget 1/16 of the reference's. |
+| 2026-11-13 | combined-ep2-local-1m-cpu-seed2 | spatial_resnet_local | 1M | 2 | Devin (Claude agent) | 24.84 | +4.32 [+3.71, +4.90], 187 W / 18 T / 45 L | — | `20261113_combined-ep2-local-1m-cpu-seed2_validation_canonical` | Combined winners `--norm-obs --no-clip-vloss --norm-returns --gamma-per-turn` `--update-epochs 2`; `--torch-threads 6`, 8 envs, CPU. Commit `fe641b7`. Budget 1/16 of the reference's. |
+| 2026-11-13 | combined-ep2-local-1m-cpu-seed3 | spatial_resnet_local | 1M | 3 | Devin (Claude agent) | 24.94 | +4.43 [+3.84, +5.00], 198 W / 11 T / 41 L | — | `20261113_combined-ep2-local-1m-cpu-seed3_validation_canonical` | Combined winners `--norm-obs --no-clip-vloss --norm-returns --gamma-per-turn` `--update-epochs 2`; `--torch-threads 6`, 8 envs, CPU. Commit `fe641b7`. Budget 1/16 of the reference's. |
+| 2026-11-13 | combined-mb2-local-1m-cpu-seed1 | spatial_resnet_local | 1M | 1 | Devin (Claude agent) | 24.72 | +4.21 [+3.63, +4.78], 189 W / 15 T / 46 L | — | `20261113_combined-mb2-local-1m-cpu-seed1_validation_canonical` | Combined winners `--norm-obs --no-clip-vloss --norm-returns --gamma-per-turn` `--num-minibatches 2`; `--torch-threads 6`, 8 envs, CPU. Commit `fe641b7`. Budget 1/16 of the reference's. |
+| 2026-11-13 | combined-mb2-local-1m-cpu-seed2 | spatial_resnet_local | 1M | 2 | Devin (Claude agent) | 25.11 | +4.60 [+3.99, +5.20], 201 W / 12 T / 37 L | — | `20261113_combined-mb2-local-1m-cpu-seed2_validation_canonical` | Combined winners `--norm-obs --no-clip-vloss --norm-returns --gamma-per-turn` `--num-minibatches 2`; `--torch-threads 6`, 8 envs, CPU. Commit `fe641b7`. Budget 1/16 of the reference's. |
+| 2026-11-13 | combined-mb2-local-1m-cpu-seed3 | spatial_resnet_local | 1M | 3 | Devin (Claude agent) | 23.67 | +3.15 [+2.57, +3.74], 180 W / 17 T / 53 L | — | `20261113_combined-mb2-local-1m-cpu-seed3_validation_canonical` | Combined winners `--norm-obs --no-clip-vloss --norm-returns --gamma-per-turn` `--num-minibatches 2`; `--torch-threads 6`, 8 envs, CPU. Commit `fe641b7`. Budget 1/16 of the reference's. |
+| 2026-11-13 | combined-local-1m-cpu-seed1 | spatial_resnet_local | 1M | 1 | Devin (Claude agent) | 24.76 | +4.25 [+3.63, +4.86], 195 W / 8 T / 47 L | — | `20261113_combined-local-1m-cpu-seed1_validation_canonical` | Combined winners `--norm-obs --no-clip-vloss --norm-returns --gamma-per-turn`; `--torch-threads 6`, 8 envs, CPU. Commit `fe641b7`. Budget 1/16 of the reference's. |
+| 2026-11-13 | combined-local-1m-cpu-seed2 | spatial_resnet_local | 1M | 2 | Devin (Claude agent) | 24.33 | +3.81 [+3.22, +4.41], 183 W / 18 T / 49 L | — | `20261113_combined-local-1m-cpu-seed2_validation_canonical` | Combined winners `--norm-obs --no-clip-vloss --norm-returns --gamma-per-turn`; `--torch-threads 6`, 8 envs, CPU. Commit `fe641b7`. Budget 1/16 of the reference's. |
 | 2026-11-13 | normobs-local-1m-cpu-seed1 | spatial_resnet_local | 1M | 1 | Devin (Claude agent) | 21.74 | +1.23 [+0.64, +1.82], 130 W / 27 T / 93 L | — | `20261113_normobs-local-1m-cpu-seed1_validation_canonical` | 1M CPU matched-budget sweep (`--norm-obs`; all runs `--torch-threads 6`, 8 envs, JVM limits). vs baseline seed 1: +5.35 [+4.82, +5.88]. Commit `fe641b7` (exp/phase1-cpu-matched). Budget is 1/16 of the reference's. |
 | 2026-11-13 | normobs-local-1m-cpu-seed2 | spatial_resnet_local | 1M | 2 | Devin (Claude agent) | 21.60 | +1.08 [+0.49, +1.68], 122 W / 35 T / 93 L | — | `20261113_normobs-local-1m-cpu-seed2_validation_canonical` | 1M CPU matched-budget sweep (`--norm-obs`; all runs `--torch-threads 6`, 8 envs, JVM limits). vs baseline seed 2: +5.24 [+4.66, +5.78]. Commit `fe641b7` (exp/phase1-cpu-matched). Budget is 1/16 of the reference's. |
 | 2026-11-13 | normobs-local-1m-cpu-seed3 | spatial_resnet_local | 1M | 3 | Devin (Claude agent) | 21.93 | +1.41 [+0.81, +2.01], 140 W / 28 T / 82 L | — | `20261113_normobs-local-1m-cpu-seed3_validation_canonical` | 1M CPU matched-budget sweep (`--norm-obs`; all runs `--torch-threads 6`, 8 envs, JVM limits). vs baseline seed 3: +4.63 [+4.07, +5.17]. Commit `fe641b7` (exp/phase1-cpu-matched). Budget is 1/16 of the reference's. |
@@ -45,6 +53,24 @@ Current reference: **v5 PARITY002 MLP, 16M, seed 3** (validation 20.52, test 20.
 | 2026-08-14 | Seed 1 | mlp | — | 1 | PolyVision upstream | 14.58 | — | — | `20260814T110912Z_validation_canonical` | Older mixed opening; shelved. |
 
 
+
+### 2026-11-13: combined winners at 1M steps, plus PPO update size
+
+Combined `--norm-obs --no-clip-vloss --norm-returns --gamma-per-turn` on `spatial_resnet_local`, 1M steps, CPU.
+Seed-pooled paired differences (per-map SPT averaged over seeds; 95% bootstrap CI over maps):
+
+| Config | Seeds | Mean SPT | Δ vs 1M baseline (16.68) | Δ vs combined |
+|---|---:|---:|---|---|
+| combined (4 minibatches × 4 epochs) | 2 | 24.55 | +7.86 [+7.43, +8.28], 247/1/2 maps | — |
+| combined, `--update-epochs 2` | 3 | 24.94 | +8.26 [+7.85, +8.67] | +0.40 [−0.01, +0.81] |
+| combined, `--num-minibatches 2` | 3 | 24.50 | +7.82 [+7.44, +8.19] | −0.04 [−0.41, +0.32] |
+
+Every finished combined run beats the 16M reference (+3.15 to +4.60, all CIs above zero). The gains stack:
+combined beats the best single change (`--norm-obs`, +5.07). Two epochs match four and trained ~9% faster.
+
+`combined-local-1m-cpu-seed3` crashed at 43 min with `legal_action_count=261 exceeded max_legal_actions=256`
+(no evaluation; its `outputs/experiments` record is kept). Stronger policies reach positions with more than
+256 legal actions; use `--max-legal-actions 512` for new runs.
 ### 2026-11-13: 1M-step CPU PPO sweep (3 seeds each, diagnostic budget)
 
 Seed-pooled paired difference vs the 1M baseline (`spatial_resnet_local`, defaults); per-map SPT averaged

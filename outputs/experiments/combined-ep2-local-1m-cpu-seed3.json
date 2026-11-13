@@ -1,0 +1,18 @@
+{
+  "name": "combined-ep2-local-1m-cpu-seed3",
+  "network_arch": "spatial_resnet_local",
+  "total_timesteps": 1000000,
+  "seed": 3,
+  "extra_ppo_args": "--torch-threads 6 --norm-obs --no-clip-vloss --norm-returns --gamma-per-turn --update-epochs 2",
+  "submitted_utc": "2026-11-13T08:21:47Z",
+  "submitted_by": "devinlai",
+  "git_commit": "fe641b73c33eb6bcb0aa407377f8c963585410c4",
+  "git_dirty": true,
+  "model_path": "runs/experiments/combined-ep2-local-1m-cpu-seed3/combined-ep2-local-1m-cpu-seed3.cleanrl_model",
+  "evaluation_id": "20261113_combined-ep2-local-1m-cpu-seed3_validation_canonical",
+  "train_job": "1980102",
+  "eval_job": "1980103",
+  "wandb_track": 1,
+  "wandb_upload": 1,
+  "wandb_log_eval": 1
+}
