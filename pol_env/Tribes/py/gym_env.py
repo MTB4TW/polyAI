@@ -1,5 +1,6 @@
 import json
 import os
+import shlex
 import time
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -22,7 +23,11 @@ class TribesGymEnv:
             classpath = os.pathsep.join([classpath_out, json_jar])
             # Set working directory to the Tribes directory so Java can find terrainProbs.json
             tribes_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-            port = launch_gateway(classpath=classpath, die_on_exit=True, cwd=tribes_dir)
+            # Optional JVM flags, e.g. POLYVISION_JVM_OPTS="-Xmx512m -XX:+UseSerialGC -XX:ActiveProcessorCount=1".
+            # Unset means JVM defaults, which on a large node size the heap and GC/JIT threads for the whole
+            # machine; with one JVM per environment that costs memory and parallel scaling.
+            javaopts = shlex.split(os.environ.get("POLYVISION_JVM_OPTS", ""))
+            port = launch_gateway(classpath=classpath, javaopts=javaopts, die_on_exit=True, cwd=tribes_dir)
         self._gateway = JavaGateway(gateway_parameters=GatewayParameters(port=port, auto_convert=True))
         self._jvm = self._gateway.jvm
         self._env = self._jvm.core.game.PythonEnv()
