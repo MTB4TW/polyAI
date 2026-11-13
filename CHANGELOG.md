@@ -2,6 +2,141 @@
 
 All notable changes to this project are documented in this file.
 
+## [Net-Composed_Action_Representation-054] - (2026-11-12)
+
+### Scope
+- New experimental `--network-arch spatial_resnet_composed`. It is the ResNet agent with the per-action-ID
+  embedding table (`nn.Embedding(n_actions, 64)`, 93% of `spatial_resnet`'s parameters) removed. Each legal
+  slot is scored from parts instead:
+  - an action-type embedding (64-d) over the catalog's (family, variant) blocks, e.g. `MOVE`,
+    `CAPTURE/VILLAGE`, `TRAIN/WARRIOR`, `BUILD/SAWMILL`, `RESEARCH_TECH/ORGANIZATION`, `LEVEL_UP/WORKSHOP`
+    (73 types in Phase 1, 75 with combat's `ATTACK`/`RECOVER`);
+  - the ResNet grid features at the source and target tiles (2 x 64-d, as in `spatial_resnet_local`),
+    zeroed for tile-less types (`END_TURN`, `RESEARCH_TECH`) so they do not read tile (0,0);
+  - the 47 legal-action features through the existing 32-d encoder, plus the 64-d state vector.
+  The scorer is unchanged in form (Linear 288 -> 64, Tanh, Linear 64 -> 1).
+- The type comes from the global ID: `py_rl/cleanrl/cleanrl/action_types.py` rebuilds the environment's
+  `GlobalActionCatalog` from `Types.java` (no Java), checks its size against the action space, and the agent
+  maps IDs to types with `torch.bucketize` over the block start offsets (stored as a state_dict buffer).
+- Parameters: 327,330 (Phase 1) and 327,458 (combat), versus 4,404,898 / 5,349,666 for `spatial_resnet` and
+  4,413,090 / 5,357,858 for `spatial_resnet_local`. The count no longer grows with the action catalog.
+- Wired into `agent_factory.py`, `local/playground.py --arch`, `cluster/run_experiment.sh`, the experiment
+  skill and docs. Evaluators already read `network_arch` from the checkpoint sidecar.
+- No environment, observation, action-space, reward, or feature change; no contract bump. Existing
+  `spatial_resnet` / `spatial_resnet_local` / `mlp` code paths are unchanged. The sidecar records
+  `network_arch`, and strict `load_state_dict` rejects loading a checkpoint under the other architecture.
+
+### Validation
+- `tools/tests/test_composed_action_arch.py`: the rebuilt catalog's fingerprint equals the environment's for
+  Phase 1 and combat; every global ID maps to its catalog block; forward/backward shapes; masked slots get
+  zero probability; tile-less types ignore tile (0,0); parameter counts; checkpoint round trip and cross-arch
+  rejection; old architectures keep their state_dict layout.
+- Old architectures checked against `origin/main`: identical parameter names, seeded initial weights and
+  logits; all `spatial_resnet` / `spatial_resnet_local` checkpoints under `runs/` load strictly and round-trip
+  bit-for-bit.
+- Smoke only (diagnostic, not a result): 2,048-step CPU training (2 envs, train pool) ran end to end, saved
+  a checkpoint whose sidecar records `network_arch: spatial_resnet_composed`, and `tools/evaluate_phase1.py`
+  loaded it and played 2 validation maps (1 repeat, PPO policies only). No model was trained for comparison,
+  so there is no `docs/experiments.md` entry; the architecture needs a full training run and canonical
+  evaluation before any claim about quality.
+## [Phase1-PPO_Experiment_Options-053] - (2026-11-12)
+
+### Scope
+- `cluster/run_experiment.sh` and `cluster/train_farmshare.sbatch` accept `EXTRA_PPO_ARGS` (as
+  `train_combat_cpu.sbatch` already did): extra `ppo.py` flags, split on whitespace and appended last.
+  `run_experiment.sh` records them as `extra_ppo_args` in `outputs/experiments/NAME.json`, allows only
+  `[A-Za-z0-9 ._=+:,/-]`, and refuses flags it sets itself (`--model-path`, `--exp-name`, `--seed`,
+  `--network-arch`, `--total-timesteps`, `--save-model`). Empty or unset changes nothing.
+- New opt-in `--norm-returns` (training only): rewards are divided by a running std of per-env discounted
+  returns and clipped to ±10 (the VecNormalize / `NormalizeReward` reward path), so value targets are in
+  scaled units. With `--gamma-per-turn` the return accumulator discounts only after END_TURN, matching GAE.
+  Logs `charts/return_norm_scale`. Inference is unaffected; recorded in the sidecar as
+  `return_normalization` for information only. Code: `py_rl/cleanrl/cleanrl/return_normalization.py`.
+- New opt-in `--norm-obs`: the policy is wrapped in `ObsNormalizedAgent`
+  (`py_rl/cleanrl/cleanrl/obs_normalization.py`), which applies a per-dimension running mean/std
+  (`(x - mean) / sqrt(var + 1e-8)`, clipped to ±10) before every policy call. The statistics are registered
+  buffers, so they are saved in the checkpoint's state_dict (`obs_normalizer.*`; network weights move under
+  `policy.*`). They are updated once per iteration, after the PPO update, so each rollout and its update see
+  fixed statistics; the first rollout uses mean 0 / var 1.
+- Checkpoint contract: normalised checkpoints carry `"observation_normalization": "running_mean_std_v1"` in
+  the `.action_interface.json` sidecar. `make_agent(..., observation_normalization=...)` builds the wrapper;
+  `tools/evaluate_phase1.py`, `evaluate_brain.py`, `tools/evaluate_superhuman.py` and
+  `tools/export_replay_html.py` pass the sidecar value. A missing field means no normalisation, so every
+  existing checkpoint loads exactly as before. A mismatch (normalised weights without the field, or the
+  reverse) fails `load_state_dict` because the key sets differ; unknown values are rejected. Tools that load
+  weights without reading the sidecar fail loudly on normalised checkpoints rather than mis-evaluating them.
+- Defaults unchanged: without the flags the agent, sidecar and training loop are identical to before.
+  No environment, observation, action, reward or network change, so no contract version bump.
+
+### Validation
+- New `tools/tests/test_ppo_experiment_options.py` (19 tests): flag defaults and parsing; running-moment
+  merge; return scaling against a reference loop, with and without per-turn discounting; obs-normaliser maths,
+  save/load round trip through checkpoint + sidecar for all three architectures, single normalisation inside
+  nested policy calls, mismatch rejection; `EXTRA_PPO_ARGS` forwarding, recording, rejection, and empty-value
+  no-op for both cluster scripts (stub `sbatch`/`python`).
+- Smoke run (diagnostic, not a result): `spatial_resnet_local --norm-obs --norm-returns`, 2,048 steps, 2 envs,
+  on a Mac CPU: trains, saves a checkpoint whose state_dict holds `obs_normalizer.*` (count 2,048 after 8
+  updates; raw feature means up to ~1,400) and whose sidecar records both fields; `tools/evaluate_phase1.py`
+  loads it through the sidecar and completes a 2-map, 1-repeat validation diagnostic (not committed).
+## [Fix-Validator_RNG_Isolation-055] - (2026-11-12)
+
+### Scope
+- `ppo.py` snapshots the Python, NumPy and torch global RNG states before the action-interface
+  validator and restores them afterwards. The validator samples from `np.random` only when it actually
+  runs, not on a cache hit, so PPO minibatch shuffles (and other draws) used to depend on whether
+  `.cache/action_validator/` held a matching entry. Fresh worktrees or a `--force-revalidate-action-interface`
+  run therefore trained differently from a cached run with the same `--seed`.
+- Validation itself is unchanged. Training with the same seed now matches a cache-hit run from before
+  this fix; a run that previously re-validated will follow a different (now seed-only) random stream.
+
+### Validation
+- `tools/tests/test_validator_rng_isolation.py`: restoring the snapshot returns all three streams to
+  their seeded state.
+- 512-step mlp run (2 envs, seed 5) with forced revalidation and with a cache hit: identical checkpoints.
+## [Perf-Vectorized_Features_Compact_IPC-052] - (2026-11-12)
+
+### Scope
+- Legal-action feature building (`TribesGymWrapper._build_legal_action_features_padded`) is faster:
+  - `_build_feature_step_context` computes the fog window counts (3x3 / 5x5), city-bounds mask and
+    distance-to-village map with NumPy instead of per-tile Python loops.
+  - The observation-independent feature columns (action-type flags, tech/resource/building/level-up
+    vocabulary, star cost) are cached per global action id and reused only while every input field and its
+    type are unchanged; each step builds rows as Python floats and casts the block to float32 once.
+  - The previous implementation is kept as `_build_legal_action_features_padded_loops` /
+    `_build_feature_step_context_loops`; `POLYVISION_FEATURE_EQUIV_CHECK=1` now also checks the fast builder
+    against it byte for byte on every step.
+- Training sends only the valid legal rows through the `AsyncVectorEnv` pipe. A `CompactLegalInfoWrapper`
+  inside each worker replaces `legal_global_ids_padded`, `legal_action_valid_mask` and
+  `legal_action_features_padded` (256 x 47 float32, ~49 KB per env per step) with
+  `info["legal_compact"] = (ids[:n], features[:n], 256)` (~3.7 KB at the typical n = 18); the trainer
+  rebuilds identical padded tensors. Infos whose padding is not all zero are sent padded as before.
+  On by default; `POLYVISION_COMPACT_LEGAL_INFO=0` restores the padded transfer. The environment itself still
+  returns the padded keys, so evaluators and single-env tools are unchanged.
+- New `tools/hash_env_trajectory.py`: hashes a fixed-seed random-legal-play trajectory (observations,
+  rewards, done flags, legal ids/masks, feature bytes and all non-timing info fields).
+- No behaviour change: observations, rewards, legal actions, legal-action features and trainer tensors are
+  byte-identical, so no contract version changes.
+
+### Validation
+- `tools/hash_env_trajectory.py` digests are identical before and after: Phase 1 seeds 7 and 11 (3,000 steps
+  each) and combat mode seed 7 (1,500 steps).
+- New `tools/tests/test_vectorized_legal_features.py`: the vectorised context matches the per-tile loops on
+  300 random boards (1x1 to 14x14, malformed boards included) and feature tensors match the previous builder
+  byte for byte over 800 random action sets; opt-in live test runs 400 env steps with
+  `POLYVISION_FEATURE_EQUIV_CHECK=1`.
+- New `tools/tests/test_compact_legal_info.py`: compact rows round-trip bit for bit; layouts that cannot be
+  compacted stay padded; through a real `AsyncVectorEnv` (SAME_STEP autoreset included) the trainer's
+  legal id, mask, feature and action-mask tensors equal the padded path's; mixed padded/compact batches;
+  opt-in live test on 300 real env infos.
+- Tiny PPO runs (1,024 steps, 2 envs, seed 3, `--force-revalidate-action-interface`) with
+  `POLYVISION_COMPACT_LEGAL_INFO=0` and `=1` give identical checkpoints for `mlp` and `spatial_resnet_local`;
+  for `mlp` the rollout buffers (obs, actions, log-probs, returns, values, legal ids/masks/features) and
+  parameters were also hashed before each of the 4 updates and matched.
+- Timing on a shared 2019 Intel MacBook (noisy): feature builder on 1,020 recorded real inputs
+  (~17 valid rows) 1.06 -> 0.40 ms median per call, of which the step context 0.47 -> 0.09 ms; median
+  single-env step over the 3,000-step trajectories 5.0-5.6 ms -> 3.9-4.3 ms. Synthetic 2-env
+  `AsyncVectorEnv` step plus trainer extraction 0.97 -> 0.67-0.84 ms.
+
 ## [Perf-MPS_Learner_Device-051] - (2026-11-12)
 
 ### Scope

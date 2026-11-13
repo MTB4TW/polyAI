@@ -14,7 +14,7 @@ def main():
     parser = argparse.ArgumentParser(description="Polytopia opening-economy AI playground")
     parser.add_argument("task", choices=["build", "check", "smoke", "train", "evaluate", "dashboard"])
     parser.add_argument("--steps", type=int, default=500_000)
-    parser.add_argument("--arch", choices=["mlp", "spatial_resnet", "spatial_resnet_local"], default="mlp", help="Neural network architecture")
+    parser.add_argument("--arch", choices=["mlp", "spatial_resnet", "spatial_resnet_local", "spatial_resnet_composed"], default="mlp", help="Neural network architecture")
     parser.add_argument("--model", type=Path)
     args = parser.parse_args()
     if args.steps < 512:

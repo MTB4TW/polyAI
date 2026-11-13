@@ -1,0 +1,29 @@
+{
+  "baseline": {
+    "evaluation": "20261113_baseline-local-1m-cpu-seed2_validation_canonical",
+    "mean_spt": 16.364,
+    "network_arch": "spatial_resnet_local"
+  },
+  "bootstrap": {
+    "samples": 5000,
+    "seed": 42,
+    "unit": "map"
+  },
+  "candidate": {
+    "evaluation": "20261113_composed-1m-cpu-seed2_validation_canonical",
+    "mean_spt": 17.528,
+    "network_arch": "spatial_resnet_composed"
+  },
+  "difference_ci95": [
+    0.608,
+    1.72
+  ],
+  "losses": 89,
+  "maps": 250,
+  "mean_difference": 1.164,
+  "policy": "ppo_argmax",
+  "pool": "validation",
+  "ties": 23,
+  "warnings": [],
+  "wins": 138
+}

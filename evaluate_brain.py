@@ -390,12 +390,14 @@ def main() -> None:
             single_action_space=env.action_space,
         )
         from py_rl.cleanrl.cleanrl.agent_factory import make_agent
+        from py_rl.cleanrl.cleanrl.obs_normalization import observation_normalization_from_metadata
         agent = make_agent(
             env_adapter,
             network_arch=meta.get("network_arch", "mlp"),
             actor_mode=actor_mode,
             max_legal_actions=max_legal_actions,
             legal_action_feature_dim=legal_action_feature_dim,
+            observation_normalization=observation_normalization_from_metadata(meta),
         ).to(device)
 
         state_dict = torch.load(model_path, map_location=device)
