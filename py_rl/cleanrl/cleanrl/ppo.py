@@ -1101,6 +1101,24 @@ def _build_action_validator_fingerprint(
     return fingerprint, payload
 
 
+def _snapshot_global_rngs():
+    """Capture Python, NumPy and torch (CPU and CUDA) global RNG states."""
+    return {
+        "python": random.getstate(),
+        "numpy": np.random.get_state(),
+        "torch": torch.get_rng_state(),
+        "cuda": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None,
+    }
+
+
+def _restore_global_rngs(state):
+    random.setstate(state["python"])
+    np.random.set_state(state["numpy"])
+    torch.set_rng_state(state["torch"])
+    if state["cuda"] is not None:
+        torch.cuda.set_rng_state_all(state["cuda"])
+
+
 def _validate_action_interface(
     env_id: str,
     states: int,
@@ -1400,16 +1418,22 @@ if __name__ == "__main__":
         device = torch.device("cpu")
 
     if args.validate_action_interface:
-        _validate_action_interface(
-            args.env_id,
-            args.validation_states,
-            args.validation_seed,
-            args.actor_mode,
-            int(args.max_legal_actions),
-            int(args.legal_action_feature_dim),
-            cache_enabled=bool(args.validation_cache_enabled),
-            force_revalidate=bool(args.force_revalidate_action_interface),
-        )
+        # The validator samples from the global RNGs only when it actually runs (not on a cache hit).
+        # Restore them afterwards so training randomness depends on --seed alone, not on the cache.
+        rng_state = _snapshot_global_rngs()
+        try:
+            _validate_action_interface(
+                args.env_id,
+                args.validation_states,
+                args.validation_seed,
+                args.actor_mode,
+                int(args.max_legal_actions),
+                int(args.legal_action_feature_dim),
+                cache_enabled=bool(args.validation_cache_enabled),
+                force_revalidate=bool(args.force_revalidate_action_interface),
+            )
+        finally:
+            _restore_global_rngs(rng_state)
 
     # env setup
     envs = make_training_vector_env(
