@@ -56,6 +56,9 @@ public class LevelUpCommand implements ActionCommand {
             case PARK:
                 tribe.addScore(TribesConfig.CITY_LEVEL_UP_PARK);
                 city.addPointsWorth(TribesConfig.CITY_LEVEL_UP_PARK);
+                // 2.8.0: a Park also gives +1 star per turn.
+                if(core.RulesVersion.modern())
+                    city.addProduction(TribesConfig.CITY_LEVEL_UP_PARK_PROD_2_15);
                 break;
             case SUPERUNIT:
                 Unit unitInCity = gs.getBoard().getUnitAt(cityPos.x, cityPos.y);

@@ -579,7 +579,7 @@ public class Tribe extends Actor {
     public boolean canBuildRoads() {
         //Factors for tree building in general: tech and enough stars.
         boolean canBuildRoad = techTree.isResearched(Types.TECHNOLOGY.ROADS);
-        boolean hasMoney = stars >= TribesConfig.ROAD_COST;
+        boolean hasMoney = stars >= TribesConfig.roadCost();
         return canBuildRoad && hasMoney;
     }
 

@@ -1,7 +1,8 @@
 # Rules parity: Tribes engine vs. current Polytopia
 
-Status: gap analysis, November 2026. Nothing in this document has been implemented yet; the proposed order of
-changes is at the end.
+Status (November 2026): Steps 1 and 3 below are implemented behind `POLYVISION_RULES=polytopia_2_15`
+(CHANGELOG entry 052). Step 2 and everything under "Not proposed" are not implemented. The default,
+`tribes_2020`, is the original rule set, unchanged.
 
 The Java engine in `pol_env/Tribes/src/` is the Tribes research framework (Perez-Liebana et al., 2020) as
 inherited through PolyVision. Our Phase 1 maps are harvested from the real game (`tools/polytopia_harvester`),
@@ -144,7 +145,23 @@ environment variable (`POLYVISION_RULES`) that the JVM inherits from the wrapper
 `PythonEnv.java`, which most open PRs also edit. The wrapper reads the same variable, folds it into the version
 strings, and asks the JVM which rules it is running so that a mismatch fails closed.
 
-**Step 1: Phase 1 economy (small, well-sourced constant and logic changes)**
+## Using the rules switch
+
+```bash
+POLYVISION_RULES=polytopia_2_15 .venv/bin/python tools/evaluate_phase1.py ...
+```
+
+- `tribes_2020` (default, also when unset): the original rules.
+- `polytopia_2_15`: Steps 1 and 3 below. The environment version gains a `+rules_polytopia_2_15` suffix, so a
+  checkpoint trained under one rule set is rejected under the other.
+- Results under different rule sets are not comparable; record the rule set with every result.
+- Not changed even under `polytopia_2_15`: the ruin reward on water is still a Battleship (the 2.8.0 naval
+  units are not implemented); the Customs House is not replaced by the Market; Lumber Huts still turn their
+  tile into plain (Step 2).
+- Also under `polytopia_2_15`: forest actions (clear, burn, grow) are refused on a tile with a building, as in
+  the game. This matters once Forges can stand on forest.
+
+**Step 1: Phase 1 economy (small, well-sourced constant and logic changes)** (implemented)
 
 1. E1 Lumber Hut 3★.
 2. E2 Clear Forest +1★.
@@ -157,7 +174,7 @@ The scripted opening (two animal harvests and a Workshop on 5★) does not depen
 `phase1_opening_version` can stay. The Phase 1 reference numbers (24.5 SPT, 20.52) would need re-running under
 the new rules before comparing.
 
-**Step 2: Phase 1, larger or less certain (needs a decision)**
+**Step 2: Phase 1, larger or less certain (needs a decision)** (not implemented)
 
 7. E4 Lumber Huts stay on forest. Changes the observation and which actions are legal on that tile.
 8. E6 Market replacing the Customs House. A new building with its own income rule.
@@ -165,7 +182,7 @@ the new rules before comparing.
 10. R4 Explorer 12 steps (unverified, so I would skip it until confirmed).
 11. T1 Shields → Strategy rename (names only, unless we also add Diplomacy).
 
-**Step 3: Phase 2 combat (Kevin's area: ask before touching)**
+**Step 3: Phase 2 combat (Kevin's area)** (implemented; please review, Kevin)
 
 12. C1 Knight 10 HP; C2 Swordsman no fortify; C3 mountain defence from Climbing.
 13. E11-E13 roads 3★, Burn Forest 3★/Construction, Destroy/Chivalry.

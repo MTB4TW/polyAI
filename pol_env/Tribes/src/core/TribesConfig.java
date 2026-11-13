@@ -266,4 +266,59 @@ public class TribesConfig
     // MAP
     public static final int[] DEFAULT_MAP_SIZE = new int[]{-1, 11, 14, 16, 18, 20, 22, 24};
 
+    /* RULES-VERSION DEPENDENT VALUES
+     * The constants above are the TRIBES_2020 rules. Code that applies a rule which differs in
+     * POLYTOPIA_2_15 goes through these accessors (see RulesVersion and docs/rules-parity.md). */
+
+    public static final int LUMBER_HUT_COST_2_15 = 3;           // 2.8.0 Path of the Ocean
+    public static final int CLEAR_FOREST_STAR_2_15 = 1;         // 2.2
+    public static final int ROAD_COST_2_15 = 3;                 // 2.8.0
+    public static final int BURN_FOREST_COST_2_15 = 3;          // 2.14.0
+    public static final int KNIGHT_MAX_HP_2_15 = 10;            // 2.2
+    public static final int CITY_LEVEL_UP_PARK_PROD_2_15 = 1;   // 2.8.0: Park gives +1 star per turn
+
+    public static int clearForestStars() {
+        return RulesVersion.modern() ? CLEAR_FOREST_STAR_2_15 : CLEAR_FOREST_STAR;
+    }
+
+    public static int roadCost() {
+        return RulesVersion.modern() ? ROAD_COST_2_15 : ROAD_COST;
+    }
+
+    public static int burnForestCost() {
+        return RulesVersion.modern() ? BURN_FOREST_COST_2_15 : BURN_FOREST_COST;
+    }
+
+    public static int knightMaxHp() {
+        return RulesVersion.modern() ? KNIGHT_MAX_HP_2_15 : KNIGHT_MAX_HP;
+    }
+
+    /** Technology needed to burn a forest: Chivalry in 2020, Construction since 2.8.5. */
+    public static Types.TECHNOLOGY burnForestTech() {
+        return RulesVersion.modern() ? Types.TECHNOLOGY.CONSTRUCTION : Types.TECHNOLOGY.CHIVALRY;
+    }
+
+    /** Technology needed to destroy a building: Construction in 2020, Chivalry since 2.8.5. */
+    public static Types.TECHNOLOGY destroyTech() {
+        return RulesVersion.modern() ? Types.TECHNOLOGY.CHIVALRY : Types.TECHNOLOGY.CONSTRUCTION;
+    }
+
+    /** Technology that gives the mountain defence bonus: Meditation in 2020, Climbing since 2.0.58. */
+    public static Types.TECHNOLOGY mountainDefenceTech() {
+        return RulesVersion.modern() ? Types.TECHNOLOGY.CLIMBING : Types.TECHNOLOGY.MEDITATION;
+    }
+
+    /**
+     * Applies the Literacy (Philosophy) research discount.
+     * TRIBES_2020 keeps Tribes' original arithmetic, which charges 20% of the cost (Tribes meant "20% off").
+     * POLYTOPIA_2_15 takes 33% off, rounded up: ceil(2 * cost / 3), which reproduces the cost table on the
+     * fandom Technology page (2.0.44 onwards).
+     */
+    public static int applyLiteracyDiscount(int cost) {
+        if (RulesVersion.modern()) {
+            return (2 * cost + 2) / 3;
+        }
+        return (int) (cost * TECH_DISCOUNT_VALUE);
+    }
+
 }

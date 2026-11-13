@@ -120,7 +120,7 @@ public class AttackCommand implements ActionCommand {
         //     * in city tile, with no walls, and unit has the Fortify ability.
         //     * in water tile and Aquatism is researched.
         //     * in forest tile if Archery is researched.
-        //     * in mountain tile if Meditation is researched.
+        //     * in mountain tile if Meditation (2020 rules) or Climbing (2.15 rules) is researched.
 
         Types.TERRAIN targetTerrain = gs.getBoard().getTerrainAt(targetPos.x, targetPos.y);
         if (targetTerrain == CITY) {
@@ -132,7 +132,7 @@ public class AttackCommand implements ActionCommand {
                 else if (target.getType().canFortify())
                     defenceForce *= TribesConfig.DEFENCE_BONUS;
             }
-        } else if (targetTerrain == MOUNTAIN && targetTribe.getTechTree().isResearched(MEDITATION) ||
+        } else if (targetTerrain == MOUNTAIN && targetTribe.getTechTree().isResearched(TribesConfig.mountainDefenceTech()) ||
                 (targetTerrain.isWater() && targetTribe.getTechTree().isResearched(AQUATISM)) ||
                 (targetTerrain == FOREST && targetTribe.getTechTree().isResearched(ARCHERY))) {
             defenceForce *= TribesConfig.DEFENCE_BONUS;

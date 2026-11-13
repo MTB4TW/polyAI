@@ -23,6 +23,36 @@ class ObservationContractError(RuntimeError):
 
 PHASE1_ENVIRONMENT_VERSION = "v5_human_information_parity"
 
+# Game-rules version played by the Java engine (core.RulesVersion), selected with POLYVISION_RULES.
+# "tribes_2020" is the original Tribes rule set and leaves every version string unchanged, so existing
+# checkpoints stay valid. Any other rule set is folded into the environment version, so a checkpoint trained
+# under one rule set is rejected under another. See docs/rules-parity.md.
+RULES_ENV_VAR = "POLYVISION_RULES"
+DEFAULT_RULES_VERSION = "tribes_2020"
+SUPPORTED_RULES_VERSIONS = ("tribes_2020", "polytopia_2_15")
+
+
+def resolve_rules_version(environ: Mapping[str, str] | None = None) -> str:
+    """Return the validated rules version requested by the environment (default ``tribes_2020``)."""
+    environ = os.environ if environ is None else environ
+    raw = str(environ.get(RULES_ENV_VAR, "") or "").strip().lower()
+    if not raw:
+        return DEFAULT_RULES_VERSION
+    if raw not in SUPPORTED_RULES_VERSIONS:
+        raise ValueError(
+            f"Unknown {RULES_ENV_VAR}={raw!r}; expected one of {', '.join(SUPPORTED_RULES_VERSIONS)}"
+        )
+    return raw
+
+
+def versioned_for_rules(environment_version: str, rules_version: str) -> str:
+    """Fold a non-default rules version into an environment version string."""
+    if rules_version not in SUPPORTED_RULES_VERSIONS:
+        raise ValueError(f"Unsupported rules version {rules_version!r}")
+    if rules_version == DEFAULT_RULES_VERSION:
+        return str(environment_version)
+    return f"{environment_version}+rules_{rules_version}"
+
 ACTION_STAR_COST_SCALE = 50.0
 
 MAX_OWNED_CITIES = 9
