@@ -122,11 +122,13 @@ Explorer, a unit); villages and ruins need a unit that started its turn on the t
 | C4 | Naval units | Boat → Ship (+5★) → Battleship (+15★) | Raft → Scout (+5★, Sailing), Rammer (+5★, Ramming) or Bomber (+15★, Navigation; splash, stiff) | 2.8.0, 2.8.5 |
 | C5 | Giant on a Port | n/a | Becomes a Juggernaut | 2.8.0 |
 | C6 | Cloak, Dagger | absent | present (Diplomacy) | 2.2 |
+| C7 | Push direction when a unit is spawned onto an occupied tile (Giant level-up, ruin unit) | Fixed order from the tile: (0,+1), (−1,0), (0,−1), (+1,0), then the diagonals; no memory of the unit's movement (`Board.pushUnit`) | Each unit remembers its last direction: friendly units are pushed the way they last moved, enemy units the opposite way, ranged units the way they last moved or shot, unmoved units towards the map centre (south from the exact centre); if blocked it tries counterclockwise, then clockwise, one step at a time (fandom Movement page, "Forced Unit Spawns") | not dated | P2 (sieges); **P1 low**: under `polytopia_2_15` a ruin's Swordsman pushes the unit that explored it |
 
 Matching: Warrior, Archer, Defender, Rider, Catapult, Mind Bender and Giant stats; the damage formula
 (`round(attackForce/total × attack × 4.5)`, retaliation likewise); defence ×1.5 (forest with Archery, water with
 Aquatism, city without walls for fortifying units) and ×4 behind walls; veteran after 3 kills (+5 max HP);
-healing +2, +4 inside borders; Mind Bender heal +4; any unit can capture (the game allowed this from 2.0.31).
+healing +2, +4 inside borders; Mind Bender heal +4; any unit can capture (the game allowed this from 2.0.31). A unit that cannot be pushed
+anywhere is destroyed (the "Houdini" or "Thanos snap"), as in the game (`GameState.pushUnit`).
 
 ### Score only (neither phase)
 
@@ -193,6 +195,7 @@ the new rules before comparing.
 **Step 3: Phase 2 combat (Kevin's area)** (implemented; please review, Kevin)
 
 14. C1 Knight 10 HP; C2 Swordsman no fortify; C3 mountain defence from Climbing.
+    C7 push directions are not implemented yet (needs a per-unit direction that moves and shots update).
 15. E11-E13 roads 3★, Burn Forest 3★/Construction, Destroy/Chivalry.
 
 **Not proposed:** the naval rework (C4, C5, E9, E10, T2), Diplomacy/Cloak/Dagger (C6, E14), out-of-order
