@@ -43,6 +43,10 @@ FORBIDDEN_OFFICIAL_ATTRIBUTES = {
     "_build_legal_action_features_padded",
     "_build_action_mask_and_mapping",
     "_build_feature_step_context",
+    "_build_feature_step_context_loops",
+    "_build_legal_action_features_padded_loops",
+    "_legal_action_feature_row",
+    "_static_legal_action_feature_entry",
     "_compute_legal_action_feature_vector_reference",
     "_compute_legal_action_feature_vector_cached",
 }
