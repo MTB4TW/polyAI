@@ -2,6 +2,18 @@
 
 All notable changes to this project are documented in this file.
 
+## [Phase2-Combat_Tech_Logging_After_Loss-060] - (2026-11-13)
+
+### Scope
+- Logging fix only (no reward, observation or action change): in a lost game the final observation carries no tech
+  tree for our tribe, so `combat_end_raw_tech_*` logged every tech as 0. These metrics now use the last tech tree
+  seen in the game (filled at reset, refreshed every step). Before the fix every `tech_*` rate was understated by
+  exactly the loss rate (e.g. Hunting, which Bardur always starts with, read 1 − loss rate: 62% when the loss rate
+  was 38%, 97% at 3%). `combat_tech_turn/*` was not affected.
+
+### Validation
+- The live capital-loss test now checks that Hunting is logged as researched; the 39 combat tests pass (live engine).
+
 ## [Phase2-Combat_Capital_Terms_and_Unit_Breakdown-059] - (2026-11-13)
 
 ### Scope

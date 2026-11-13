@@ -131,6 +131,8 @@ class CombatIntegrationTests(unittest.TestCase):
         self.assertEqual(info['combat_outcome_reward'], TribesGymWrapper.COMBAT_REWARD_DEFAULTS['loss'])
         self.assertAlmostEqual(reward, info['combat_outcome_reward'] + info['combat_shaping_reward'])
         self.assertEqual(info['combat_outcome'], 'loss')
+        # Lost games still log the techs we had: we are Bardur, so Hunting is always researched.
+        self.assertEqual(info['combat_end_raw_tech_HUNTING'], 1.0)
 
 
 @unittest.skipUnless(os.environ.get('POLYVISION_RUN_JAVA_TESTS') == '1', 'requires local Java gateway')

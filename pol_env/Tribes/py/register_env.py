@@ -576,6 +576,7 @@ class TribesGymWrapper(gym.Env):
             self._combat_ep_components.update({f"phi_{k}": 0.0 for k in self._combat_prev_terms})
             self._combat_ep_components.update({k: 0.0 for k in self.COMBAT_EVENT_TERMS if w.get(k)})
             self._combat_ep_research_turn = {}
+            self._combat_last_researched = list((((obs or {}).get("tribes", {}).get("0", {}) or {}).get("technology", {}) or {}).get("researched") or [])
             self._combat_reset_turn_trackers()
             self._combat_first_contact_tick = -1
         self._starting_city_count = self._get_city_count(obs)
@@ -1323,6 +1324,9 @@ class TribesGymWrapper(gym.Env):
             info["combat_outcome"] = outcome if terminated else ("timeout" if truncated else "ongoing")
             info["combat_win"] = int(outcome == "win")
             info["combat_loss"] = int(outcome == "loss")
+            _researched = (((obs or {}).get("tribes", {}).get("0", {}) or {}).get("technology", {}) or {}).get("researched")
+            if _researched:
+                self._combat_last_researched = _researched
             if self._combat_first_contact_tick < 0 and self._combat_enemy_visible(obs):
                 self._combat_first_contact_tick = int(obs.get("tick", 0) or 0)
             if terminated or truncated:
@@ -5109,6 +5113,11 @@ class TribesGymWrapper(gym.Env):
         """Per tech: researched by the end of the game (1/0, from the observation's tech tree, so starting techs
         count) and the turn we researched it (-1 if not researched during the game)."""
         researched = (((obs or {}).get("tribes", {}).get(str(me), {}) or {}).get("technology", {}) or {}).get("researched") or []
+        if researched:
+            self._combat_last_researched = list(researched)
+        else:
+            # After a loss the final observation has no tech tree for us; use the last one we saw.
+            researched = getattr(self, "_combat_last_researched", None) or []
         out = {}
         for i, tech in enumerate(combat_shaping.TECH_ORDER):
             out[f"combat_end_raw_tech_{tech}"] = float(bool(researched[i])) if i < len(researched) else 0.0
