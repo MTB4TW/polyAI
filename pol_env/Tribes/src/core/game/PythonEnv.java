@@ -449,6 +449,94 @@ public class PythonEnv {
         return gs.getAllAvailableActions().size();
     }
 
+    // ---------------------------------------------------------------------------------------------
+    // Search support for oracle/lookahead diagnostics (tools/evaluate_search_policy.py).
+    // These methods only operate on copies of the state; the live game is never modified.
+    // fullInformation=false copies with the active tribe's fog applied (fogged tiles become FOG),
+    // so a search sees only what the player can see. fullInformation=true is a privileged oracle.
+    // ---------------------------------------------------------------------------------------------
+
+    private GameState searchCopy(boolean fullInformation) {
+        return fullInformation ? gs.copy() : gs.copy(gs.getActiveTribeID());
+    }
+
+    /** Heuristic features of the current state (see Phase1SptHeuristic.FEATURE_NAMES). */
+    public double[] heuristicFeatures(int turnsRemaining, boolean fullInformation) {
+        double[] zeros = new double[players.heuristics.Phase1SptHeuristic.NUM_FEATURES];
+        players.heuristics.Phase1SptHeuristic h = new players.heuristics.Phase1SptHeuristic(
+                gs.getActiveTribeID(), zeros, turnsRemaining, gs.getTick());
+        return h.features(searchCopy(fullInformation));
+    }
+
+    /**
+     * One-step lookahead: for every action in the current action list (same indices as listActionsJson /
+     * stepByIndex), the heuristic value of the state after applying it. END_TURN is scored as the current state
+     * (stopping now), so a non-END_TURN action is preferred only if it strictly improves the value.
+     * Infeasible actions in the (possibly fogged) copy score -Infinity.
+     */
+    public double[] lookaheadScores(double[] weights, int turnsRemaining, boolean fullInformation) {
+        return lookaheadScoresImpl(weights, turnsRemaining, fullInformation, false, 0L);
+    }
+
+    /**
+     * Same as lookaheadScores, but reproducible and cheap to transfer. State copies are created with an unseeded
+     * java.util.Random, so actions with random outcomes (EXAMINE ruins, LEVEL_UP with EXPLORER, ...) score
+     * differently on every call. Here the copy for action i is reseeded with seed * 1000003 + i before the action is
+     * applied, so equal (state, seed) give equal scores. The scores are returned as big-endian IEEE-754 doubles in
+     * one byte[] (a single Py4J transfer instead of one round trip per element).
+     */
+    public byte[] lookaheadScoresSeededPacked(double[] weights, int turnsRemaining, boolean fullInformation, long seed) {
+        double[] scores = lookaheadScoresImpl(weights, turnsRemaining, fullInformation, true, seed);
+        java.nio.ByteBuffer buf = java.nio.ByteBuffer.allocate(8 * scores.length);
+        for (double v : scores) buf.putDouble(v);
+        return buf.array();
+    }
+
+    private double[] lookaheadScoresImpl(double[] weights, int turnsRemaining, boolean fullInformation,
+                                         boolean seeded, long seed) {
+        ArrayList<Action> acts = gs.getAllAvailableActions();
+        int me = gs.getActiveTribeID();
+        players.heuristics.Phase1SptHeuristic h =
+                new players.heuristics.Phase1SptHeuristic(me, weights, turnsRemaining, gs.getTick());
+        double base = h.evaluateState(searchCopy(fullInformation));
+        double[] out = new double[acts.size()];
+        for (int i = 0; i < acts.size(); i++) {
+            Action a = acts.get(i);
+            if (a.getActionType() == Types.ACTION.END_TURN) {
+                out[i] = base;
+                continue;
+            }
+            try {
+                GameState s = searchCopy(fullInformation);
+                if (seeded) s.getRandomGenerator().setSeed(seed * 1000003L + i);
+                if (!a.isFeasible(s)) {
+                    out[i] = Double.NEGATIVE_INFINITY;
+                    continue;
+                }
+                s.advance(a, true);
+                out[i] = h.evaluateState(s);
+            } catch (RuntimeException e) {
+                out[i] = Double.NEGATIVE_INFINITY;
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Within-turn MCTS (players.heuristics.Phase1TurnMCTS) from the current state, valued by Phase1SptHeuristic.
+     * @param allowed raw action indices the caller may choose (the wrapper's legal set); must be non-empty
+     * @return the chosen raw action index (an element of allowed)
+     */
+    public int mctsChooseIndex(double[] weights, int turnsRemaining, boolean fullInformation, int[] allowed,
+                               int iterations, double c, int maxDepth, int rolloutSteps, long seed) {
+        if (allowed == null || allowed.length == 0) throw new IllegalArgumentException("allowed must be non-empty");
+        players.heuristics.Phase1SptHeuristic h = new players.heuristics.Phase1SptHeuristic(
+                gs.getActiveTribeID(), weights, turnsRemaining, gs.getTick());
+        players.heuristics.Phase1TurnMCTS mcts =
+                new players.heuristics.Phase1TurnMCTS(h, seed, c, maxDepth, rolloutSteps);
+        return mcts.search(searchCopy(fullInformation), gs.getAllAvailableActions(), allowed, iterations);
+    }
+
     /**
      * Applies the action by its index in the last listActionsJson() call and recomputes actions.
      */

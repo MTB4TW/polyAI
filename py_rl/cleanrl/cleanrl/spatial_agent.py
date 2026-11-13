@@ -246,7 +246,9 @@ class SpatialResNetAgent(nn.Module):
         legal_action_valid_mask=None,
         legal_action_features=None,
         selected_slot=None,
+        return_distribution=False,
     ):
+        """return_distribution=True appends the policy distribution (over legal slots) as a sixth value."""
         h, combined, grid = self.encode_state(x, return_grid=True)
         value = self.critic(combined)
 
@@ -263,4 +265,5 @@ class SpatialResNetAgent(nn.Module):
             selected_slot = selected_slot.view(-1)
 
         selected_global_id = legal_ids.gather(1, selected_slot.unsqueeze(1)).squeeze(1)
-        return selected_global_id, selected_slot, probs.log_prob(selected_slot), probs.entropy(), value
+        out = (selected_global_id, selected_slot, probs.log_prob(selected_slot), probs.entropy(), value)
+        return out + (probs,) if return_distribution else out
