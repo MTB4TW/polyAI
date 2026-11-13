@@ -97,6 +97,9 @@ class Args:
     """the number of parallel game environments"""
     num_steps: int = 128
     """the number of steps to run in each environment per policy rollout"""
+    overlap_rollout: bool = False
+    """split the envs into two halves and run one half's policy forward while the other half steps
+    (double buffering; same buffers, but actions are sampled in two batches, so runs differ from the default)"""
     anneal_lr: bool = True
     """Toggle learning rate annealing for policy and value networks"""
     gamma: float = 0.99
@@ -1186,12 +1189,66 @@ def _extract_vector_field(infos, key, num_envs, default_value=None):
     return values
 
 
-def make_training_vector_env(env_fns):
+def make_training_vector_env(env_fns, overlap_rollout=False):
+    if overlap_rollout:
+        from py_rl.cleanrl.cleanrl.overlapped_vector_env import OverlappedVectorEnv
+        return OverlappedVectorEnv(env_fns, make_training_vector_env)
     # PPO expects each returned observation to be ready for a policy action.
     # NEXT_STEP returns a terminal observation first and ignores the next action.
     return gym.vector.AsyncVectorEnv(
         env_fns, context="spawn", autoreset_mode=gym.vector.AutoresetMode.SAME_STEP,
     )
+
+
+def _overlap_policy_inputs(obs, legal_global_ids, legal_action_valid_mask, legal_action_features, action_mask):
+    inputs = {"obs": obs, "legal_global_ids": legal_global_ids, "legal_action_valid_mask": legal_action_valid_mask,
+              "legal_action_features": legal_action_features, "action_mask": action_mask}
+    return {k: v for k, v in inputs.items() if v is not None}
+
+
+def _make_overlap_stepper(args, envs, agent, device, profiler, values, actions, selected_slots, logprobs):
+    """--overlap-rollout: the per-half policy step (same sampling and checks as the default rollout step,
+    restricted to one half's env columns) and the input builder for a half's step result."""
+    from py_rl.cleanrl.cleanrl.overlapped_vector_env import OverlappedRolloutStepper
+
+    action_n = envs.single_action_space.n
+
+    def prepare_inputs(obs_np, infos, n):
+        infos = _normalize_final_infos(infos, n)
+        obs_t = torch.Tensor(obs_np).to(device)
+        if args.actor_mode == "dense_debug":
+            return _overlap_policy_inputs(obs_t, None, None, None,
+                                          _extract_vector_action_mask(infos, n, action_n, device))
+        ids, valid = _extract_vector_legal_tensors(infos, n, int(args.max_legal_actions), action_n, device)
+        feats = None
+        if args.actor_mode == "legal_features":
+            feats = _extract_vector_legal_feature_tensors(
+                infos, n, int(args.max_legal_actions), int(args.legal_action_feature_dim), device)
+        return _overlap_policy_inputs(obs_t, ids, valid, feats, None)
+
+    def act(step, sl, inp):
+        with torch.no_grad():
+            if args.actor_mode == "dense_debug":
+                action, action_slot, logprob, _, value = agent.get_action_and_value(
+                    inp["obs"], action_mask=inp["action_mask"])
+            else:
+                ids, valid = inp["legal_global_ids"], inp["legal_action_valid_mask"]
+                action, action_slot, logprob, _, value = agent.get_action_and_value(
+                    inp["obs"], legal_global_ids=ids, legal_action_valid_mask=valid,
+                    legal_action_features=inp.get("legal_action_features"),
+                )
+                if not bool(torch.all(valid.gather(1, action_slot.unsqueeze(1)).squeeze(1))):
+                    raise RuntimeError("Illegal selected_slot sampled in rollout (invalid/padded slot).")
+                if not bool(torch.equal(ids.gather(1, action_slot.unsqueeze(1)).squeeze(1).long(), action.long())):
+                    raise RuntimeError("selected_global_id mismatch with selected_slot mapping during rollout.")
+            values[step, sl] = value.flatten()
+        actions[step, sl] = action
+        if action_slot is not None:
+            selected_slots[step, sl] = action_slot.long()
+        logprobs[step, sl] = logprob
+        return action
+
+    return OverlappedRolloutStepper(envs, prepare_inputs, act, profiler=profiler)
 
 
 def _hash_file_sha256(path: str) -> str:
@@ -1584,6 +1641,7 @@ if __name__ == "__main__":
             )
             for i in range(args.num_envs)
         ],
+        overlap_rollout=args.overlap_rollout,
     )
     assert isinstance(envs.single_action_space, gym.spaces.Discrete), "only discrete action space is supported"
 
@@ -1767,6 +1825,12 @@ if __name__ == "__main__":
     )
     writer.add_text("meta/action_interface", json.dumps(action_interface_meta, sort_keys=True, default=str))
 
+    overlap_stepper = None
+    if args.overlap_rollout:
+        overlap_stepper = _make_overlap_stepper(
+            args, envs, agent, device, profiler, values, actions, selected_slots, logprobs,
+        )
+
     for iteration in range(1, args.num_iterations + 1):
         t0_rollout_iter = time.perf_counter()
         # Per-iteration diagnostics for dashboard clarity.
@@ -1810,42 +1874,55 @@ if __name__ == "__main__":
                 if args.actor_mode == "legal_features":
                     legal_action_features_buf[step] = next_legal_action_features
 
-            # ALGO LOGIC: action logic
-            t0_policy = time.perf_counter()
-            with torch.no_grad():
-                if args.actor_mode == "dense_debug":
-                    action, action_slot, logprob, _, value = agent.get_action_and_value(
-                        next_obs,
-                        action_mask=next_action_mask,
-                    )
-                else:
-                    action, action_slot, logprob, _, value = agent.get_action_and_value(
-                        next_obs,
-                        legal_global_ids=next_legal_global_ids,
-                        legal_action_valid_mask=next_legal_action_valid_mask,
-                        legal_action_features=next_legal_action_features if args.actor_mode == "legal_features" else None,
-                    )
-                    slot_valid = next_legal_action_valid_mask.gather(1, action_slot.unsqueeze(1)).squeeze(1)
-                    if not bool(torch.all(slot_valid)):
-                        raise RuntimeError("Illegal selected_slot sampled in rollout (invalid/padded slot).")
-                    selected_global_from_slot = next_legal_global_ids.gather(1, action_slot.unsqueeze(1)).squeeze(1)
-                    if not bool(torch.equal(selected_global_from_slot.long(), action.long())):
-                        raise RuntimeError("selected_global_id mismatch with selected_slot mapping during rollout.")
-                values[step] = value.flatten()
-            profiler.add("trainer/policy_forward_action_selection", time.perf_counter() - t0_policy)
-            actions[step] = action
-            if action_slot is not None:
-                selected_slots[step] = action_slot.long()
-            logprobs[step] = logprob
+            if overlap_stepper is not None:
+                # Double-buffered: policy and env step interleaved per half; buffers rows [step] are written
+                # by the stepper (values/actions/selected_slots/logprobs) with the usual env-column layout.
+                t0_env_step = time.perf_counter()
+                (next_obs, reward, terminations, truncations, infos), action = overlap_stepper.step(
+                    step,
+                    _overlap_policy_inputs(next_obs, next_legal_global_ids, next_legal_action_valid_mask,
+                                           next_legal_action_features, next_action_mask),
+                    last_step=step == args.num_steps - 1,
+                )
+                infos = _normalize_final_infos(infos, args.num_envs)
+                profiler.add("trainer/overlap_step_wall", time.perf_counter() - t0_env_step)
+            else:
+                # ALGO LOGIC: action logic
+                t0_policy = time.perf_counter()
+                with torch.no_grad():
+                    if args.actor_mode == "dense_debug":
+                        action, action_slot, logprob, _, value = agent.get_action_and_value(
+                            next_obs,
+                            action_mask=next_action_mask,
+                        )
+                    else:
+                        action, action_slot, logprob, _, value = agent.get_action_and_value(
+                            next_obs,
+                            legal_global_ids=next_legal_global_ids,
+                            legal_action_valid_mask=next_legal_action_valid_mask,
+                            legal_action_features=next_legal_action_features if args.actor_mode == "legal_features" else None,
+                        )
+                        slot_valid = next_legal_action_valid_mask.gather(1, action_slot.unsqueeze(1)).squeeze(1)
+                        if not bool(torch.all(slot_valid)):
+                            raise RuntimeError("Illegal selected_slot sampled in rollout (invalid/padded slot).")
+                        selected_global_from_slot = next_legal_global_ids.gather(1, action_slot.unsqueeze(1)).squeeze(1)
+                        if not bool(torch.equal(selected_global_from_slot.long(), action.long())):
+                            raise RuntimeError("selected_global_id mismatch with selected_slot mapping during rollout.")
+                    values[step] = value.flatten()
+                profiler.add("trainer/policy_forward_action_selection", time.perf_counter() - t0_policy)
+                actions[step] = action
+                if action_slot is not None:
+                    selected_slots[step] = action_slot.long()
+                logprobs[step] = logprob
 
-            # TRY NOT TO MODIFY: execute the game and log data.
-            t0_action_numpy = time.perf_counter()
-            action_np = action.cpu().numpy()
-            profiler.add("trainer/action_to_numpy", time.perf_counter() - t0_action_numpy)
-            t0_env_step = time.perf_counter()
-            next_obs, reward, terminations, truncations, infos = envs.step(action_np)
-            infos = _normalize_final_infos(infos, args.num_envs)
-            profiler.add("trainer/envs_step_wall", time.perf_counter() - t0_env_step)
+                # TRY NOT TO MODIFY: execute the game and log data.
+                t0_action_numpy = time.perf_counter()
+                action_np = action.cpu().numpy()
+                profiler.add("trainer/action_to_numpy", time.perf_counter() - t0_action_numpy)
+                t0_env_step = time.perf_counter()
+                next_obs, reward, terminations, truncations, infos = envs.step(action_np)
+                infos = _normalize_final_infos(infos, args.num_envs)
+                profiler.add("trainer/envs_step_wall", time.perf_counter() - t0_env_step)
             profiler.ingest_env_profile_infos(infos, args.num_envs)
             # Same-step vector autoreset stores completed episode info separately.
             combat_outcomes = _extract_vector_field(infos, "combat_outcome", args.num_envs)
