@@ -1500,6 +1500,7 @@ if __name__ == "__main__":
     # both as a 100-game rolling mean and as an exponential moving average over games (alpha = 2/101, a
     # comparable ~100-game horizon that weights recent games more and has no hard cut-off).
     combat_breakdown_windows = {}
+    combat_outcome_500 = {}
     combat_ema = {}
     COMBAT_EMA_ALPHA = 2.0 / 101.0
 
@@ -1752,6 +1753,8 @@ if __name__ == "__main__":
                         continue
                     for outcome in ("win", "loss", "timeout"):
                         combat_track(f"outcome/{outcome}_rate", float(row["combat_outcome"] == outcome))
+                        # A 500-game window for the trend: the 100-game one swings about +/-4 points from sampling alone.
+                        combat_outcome_500.setdefault(outcome, deque(maxlen=500)).append(float(row["combat_outcome"] == outcome))
                     for metric_key, raw_value in row.items():
                         if metric_key.startswith("combat_end_raw_"):
                             combat_track("end_raw/" + metric_key[len("combat_end_raw_"):], raw_value)
@@ -1767,6 +1770,8 @@ if __name__ == "__main__":
                             # Share of the game's total |reward| that came from this component.
                             combat_track(f"reward_share/{comp_name}", abs(comp_value) / total_abs if total_abs > 0 else 0.0)
                         combat_track("reward_component/total", sum(comps.values()))
+                for outcome, window500 in combat_outcome_500.items():
+                    log_scalar(f"combat_outcome/{outcome}_rate_last500", float(np.mean(window500)), global_step)
                 for metric_key, metric_window in combat_breakdown_windows.items():
                     log_scalar(f"combat_{metric_key}_last100", float(np.mean(metric_window)), global_step)
                     log_scalar(f"combat_{metric_key}_ema", combat_ema[metric_key], global_step)

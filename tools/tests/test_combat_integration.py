@@ -166,7 +166,8 @@ class CombatAllTermsEpisodeTests(unittest.TestCase):
             ('CAPITAL_PROXIMITY', '0.3'), ('CAPITAL_PROXIMITY_LATE', '0.6'), ('ZONE_OF_CONTROL', '0.05'),
             ('REGIONAL_ATTACK', '0.3'), ('ROLE_POSITIONING', '0.05'), ('DAMAGE_TRADE', '0.02'),
             ('HANGING_POPULATION', '0.1'), ('EARLY_WIN', '20'), ('TECH_ORDER', '0.1'), ('POP_TECH', '0.2'),
-            ('UNUSED_TECH', '0.5'), ('TECH_COST', '0.05'), ('AVOID_FISHING', '5'), ('AVOID_PHILOSOPHY_MEDITATION', '2'))}
+            ('UNUSED_TECH', '0.5'), ('TECH_COST', '0.05'), ('AVOID_FISHING', '5'), ('AVOID_PHILOSOPHY_MEDITATION', '2'),
+            ('AVOID_WHALING', '2'), ('CAPITAL_HOLD', '1'), ('CAPITAL_REGION_KILL', '0.5'))}
         jdks = sorted((ROOT / '.runtime').glob('jdk-*/Contents/Home'))
         settings = dict(POLYVISION_PHASE='2', POLYVISION_COMBAT_MODE='1', POLYVISION_SOLO_NO_OPPONENT_MODE='0',
                         POLYVISION_MAX_TURNS='8', POLYVISION_INFO_MODE='fast',
@@ -193,6 +194,8 @@ class CombatAllTermsEpisodeTests(unittest.TestCase):
                     self.assertIn('combat_end_component_avoid_philosophy_meditation', comps)  # present even if it never fired
                     self.assertAlmostEqual(sum(comps.values()), total, places=6)
                     self.assertIn('combat_end_raw_giants_ours', info)
+                    self.assertIn('combat_end_raw_units_WARRIOR_ours', info)
+                    self.assertIn('combat_end_component_capital_hold', comps)
                     self.assertEqual(sum(1 for k in info if k.startswith('combat_end_raw_tech_')), 24)
                     self.assertEqual(info['combat_end_raw_tech_FISHING'], 0.0)  # masked on Drylands maps
                     researched_turns = [v for k, v in info.items() if k.startswith('combat_end_techturn_') and v >= 0]

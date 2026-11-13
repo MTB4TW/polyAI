@@ -4939,6 +4939,9 @@ class TribesGymWrapper(gym.Env):
         "tech_cost": 0.0,               # event: penalty per star spent on research
         "avoid_fishing": 0.0,           # event: penalty for researching FISHING
         "avoid_philosophy_meditation": 0.0,  # event: penalty for researching PHILOSOPHY or MEDITATION
+        "avoid_whaling": 0.0,           # event: penalty for researching WHALING
+        "capital_hold": 0.0,            # event: per unit of ours on an enemy capital at the start of our turn
+        "capital_region_kill": 0.0,     # event: per enemy unit killed inside an enemy capital's territory
     }
 
     @classmethod
@@ -5031,7 +5034,8 @@ class TribesGymWrapper(gym.Env):
         return terms
 
     COMBAT_EVENT_TERMS = ("regional_attack", "role_positioning", "damage_trade", "hanging_population", "tech_order",
-                          "pop_tech", "unused_tech", "tech_cost", "avoid_fishing", "avoid_philosophy_meditation")
+                          "pop_tech", "unused_tech", "tech_cost", "avoid_fishing", "avoid_philosophy_meditation",
+                          "avoid_whaling", "capital_hold", "capital_region_kill")
 
     def _combat_reset_turn_trackers(self):
         self._combat_turn_research = []      # (tech, tier) researched this turn
@@ -5055,6 +5059,8 @@ class TribesGymWrapper(gym.Env):
                 out["avoid_fishing"] = -w["avoid_fishing"]
             if w["avoid_philosophy_meditation"] and tech in ("PHILOSOPHY", "MEDITATION"):
                 out["avoid_philosophy_meditation"] = -w["avoid_philosophy_meditation"]
+            if w["avoid_whaling"] and tech == "WHALING":
+                out["avoid_whaling"] = -w["avoid_whaling"]
             if w["pop_tech"]:
                 offered = [str(a.get("tech_type")) for a in (legal_actions or []) if a.get("type") == "RESEARCH_TECH"]
                 board = (start_obs or {}).get("board")
@@ -5087,6 +5093,13 @@ class TribesGymWrapper(gym.Env):
             ours = lost.get(int(me), 0)
             theirs = sum(v for k, v in lost.items() if int(k) != int(me))
             out["damage_trade"] = w["damage_trade"] * float(theirs - ours)
+        if w["capital_hold"] and action_type == "END_TURN":
+            # After END_TURN the opponent has moved, so `post` is the start of our next turn: a unit still on the
+            # enemy capital now can capture it this turn.
+            out["capital_hold"] = w["capital_hold"] * combat_shaping.units_on_enemy_capital(post, me)
+        if w["capital_region_kill"]:
+            out["capital_region_kill"] = w["capital_region_kill"] * combat_shaping.kills_in_enemy_capital_region(
+                pre, post, me)
         if w["hanging_population"] and action_type == "END_TURN" and self._combat_turn_start_state is not None:
             out["hanging_population"] = -w["hanging_population"] * combat_shaping.hanging_population(
                 self._combat_turn_start_state, pre, me)
@@ -5115,6 +5128,9 @@ class TribesGymWrapper(gym.Env):
         out["combat_end_raw_capital_proximity_ours"] = float(combat_shaping.capital_proximity(
             state, int(me), getattr(self, "_combat_enemy_capital_tiles", None)))
         out["combat_end_raw_zone_of_control_ours"] = float(combat_shaping.zone_of_control(state, int(me)))
+        for unit_type, (ours, theirs) in combat_shaping.unit_type_counts(state, int(me)).items():
+            out[f"combat_end_raw_units_{unit_type}_ours"] = float(ours)
+            out[f"combat_end_raw_units_{unit_type}_theirs"] = float(theirs)
         for k, v in self._combat_ep_components.items():
             out[f"combat_end_component_{k}"] = float(v)
         return out

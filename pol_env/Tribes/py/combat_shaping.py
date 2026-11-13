@@ -198,6 +198,39 @@ def hanging_population(turn_start, end_of_turn, me):
     return float(added)
 
 
+# --- capital terms ---------------------------------------------------------------------------------------
+
+def units_on_enemy_capital(state, me):
+    """Our units standing on an enemy-owned capital tile (a capture needs a unit there at the start of our turn)."""
+    caps = {(int(c["x"]), int(c["y"])) for c in enemy_capitals(state, me)}
+    return float(sum(1 for u in own_units(state, me) if (int(u["x"]), int(u["y"])) in caps))
+
+
+def kills_in_enemy_capital_region(prev, cur, me):
+    """Enemy units that vanished (killed or converted) this step while inside an enemy capital's territory."""
+    cap_ids = {int(c["id"]) for c in enemy_capitals(prev, me)}
+    tile_city = prev.get("tileCity") or []
+    alive = {int(u["id"]) for u in cur.get("units", []) if int(u["tribe"]) != int(me)}
+    count = 0
+    for u in enemy_units(prev, me):
+        if int(u["id"]) not in alive and tile_city and int(tile_city[int(u["x"])][int(u["y"])]) in cap_ids:
+            count += 1
+    return float(count)
+
+
+UNIT_TYPES = ("WARRIOR", "RIDER", "DEFENDER", "SWORDMAN", "ARCHER", "CATAPULT", "KNIGHT", "MIND_BENDER",
+              "BOAT", "SHIP", "BATTLESHIP", "SUPERUNIT")
+
+
+def unit_type_counts(state, me):
+    """{type: (ours, theirs)} for every unit type."""
+    out = {t: [0, 0] for t in UNIT_TYPES}
+    for u in state.get("units", []):
+        t = out.setdefault(str(u["type"]), [0, 0])
+        t[0 if int(u["tribe"]) == int(me) else 1] += 1
+    return out
+
+
 # --- technology terms -------------------------------------------------------------------------------------
 
 TECH_TIER = {t: 1 for t in ("CLIMBING", "FISHING", "HUNTING", "ORGANIZATION", "RIDING")}

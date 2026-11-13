@@ -2,6 +2,25 @@
 
 All notable changes to this project are documented in this file.
 
+## [Phase2-Combat_Capital_Terms_and_Unit_Breakdown-059] - (2026-11-13)
+
+### Scope
+- Opt-in combat terms (default 0):
+  - `capital_hold`: per unit of ours on an enemy capital at the start of our turn (the state after END_TURN, once
+    the opponent has moved). A capture needs a unit there at turn start; in the first sweep 30–43% of timeouts
+    ended with a unit next to the capital and enemy units were outnumbered 5:1, but the capital was not taken.
+  - `capital_region_kill`: per enemy unit killed inside an enemy capital's territory.
+  - `avoid_whaling`: penalty for researching Whaling (reachable only for tribes that start with Fishing).
+- End-of-game unit counts by type, ours and theirs (`combat_end_raw_units_<TYPE>_{ours,theirs}`, 12 types).
+- Trainer: `combat_outcome/{win,loss,timeout}_rate_last500`. The 100-game rolling rate swings about ±4 points
+  from binomial sampling alone at a ~20% win rate (√(0.2·0.8/100)), which is what the "oscillation" in the first
+  sweep amounted to (measured swing ±3.8–6.4 points around the trend).
+
+### Validation
+- Unit tests for the capital terms and unit-type counts; the live all-terms test covers the new terms.
+  `tools/run_core_ci_checks.py` and all `tools/tests` (107) pass; trainer smoke run logs the new metrics; Phase 1
+  hashes unchanged.
+
 ## [Phase2-Combat_Optional_Shaping_Terms-058] - (2026-11-13)
 
 ### Scope

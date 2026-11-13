@@ -109,6 +109,24 @@ class TermTests(unittest.TestCase):
         self.assertTrue(cs.tech_used_by("CLIMBING", set()))  # no defined use: never counted as unused
         self.assertEqual(cs.action_signature({"type": "BUILD", "building_type": "FARM"}), ("BUILD", "FARM"))
 
+    def test_capital_terms(self):
+        tc = [[-1] * 11 for _ in range(11)]
+        for x in range(9, 11):
+            for y in range(9, 11):
+                tc[x][y] = 9
+        prev = state([unit(1, 0, "WARRIOR", 10, 10), unit(5, 1, "DEFENDER", 9, 9), unit(6, 1, "WARRIOR", 2, 2)],
+                     [ENEMY_CAP], tile_city=tc)
+        cur = state([unit(1, 0, "WARRIOR", 10, 10)], [ENEMY_CAP], tile_city=tc)  # both enemy units gone
+        self.assertEqual(cs.units_on_enemy_capital(prev, 0), 1.0)
+        self.assertEqual(cs.kills_in_enemy_capital_region(prev, cur, 0), 1.0)  # only the one inside the capital region
+
+    def test_unit_type_counts(self):
+        s = state([unit(1, 0, "WARRIOR", 0, 0), unit(2, 0, "WARRIOR", 0, 1), unit(3, 1, "ARCHER", 5, 5)])
+        counts = cs.unit_type_counts(s, 0)
+        self.assertEqual(counts["WARRIOR"], [2, 0])
+        self.assertEqual(counts["ARCHER"], [0, 1])
+        self.assertEqual(counts["SUPERUNIT"], [0, 0])
+
 
 if __name__ == "__main__":
     unittest.main()
