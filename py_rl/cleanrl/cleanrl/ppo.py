@@ -1496,6 +1496,17 @@ if __name__ == "__main__":
     combat_end_windows = {key: deque(maxlen=100) for key in combat_end_keys}
     # Closest unit to the enemy capital, split by result (a win ends on the capital, so the pooled mean hides timeouts).
     combat_dist_by_outcome = {o: deque(maxlen=100) for o in ("win", "loss", "timeout")}
+    # End-of-game totals (combat_end_raw_*) and per-game reward by component (combat_end_component_*), logged
+    # both as a 100-game rolling mean and as an exponential moving average over games (alpha = 2/101, a
+    # comparable ~100-game horizon that weights recent games more and has no hard cut-off).
+    combat_breakdown_windows = {}
+    combat_ema = {}
+    COMBAT_EMA_ALPHA = 2.0 / 101.0
+
+    def combat_track(key, value):
+        combat_breakdown_windows.setdefault(key, deque(maxlen=100)).append(float(value))
+        combat_ema[key] = float(value) if key not in combat_ema else (
+            (1.0 - COMBAT_EMA_ALPHA) * combat_ema[key] + COMBAT_EMA_ALPHA * float(value))
     next_action_mask = None
     next_legal_global_ids = None
     next_legal_action_valid_mask = None
@@ -1736,6 +1747,29 @@ if __name__ == "__main__":
                         dist = float(row.get("combat_end_min_unit_dist_to_enemy_capital", -1))
                         if row.get("combat_outcome") in combat_dist_by_outcome and dist >= 0:
                             combat_dist_by_outcome[row["combat_outcome"]].append(dist)
+                for row in final_infos:
+                    if not isinstance(row, dict) or row.get("combat_outcome") not in ("win", "loss", "timeout"):
+                        continue
+                    for outcome in ("win", "loss", "timeout"):
+                        combat_track(f"outcome/{outcome}_rate", float(row["combat_outcome"] == outcome))
+                    for metric_key, raw_value in row.items():
+                        if metric_key.startswith("combat_end_raw_"):
+                            combat_track("end_raw/" + metric_key[len("combat_end_raw_"):], raw_value)
+                        elif metric_key.startswith("combat_end_techturn_") and float(raw_value) >= 0:
+                            # Turn a tech was researched, averaged over the games that researched it.
+                            combat_track("tech_turn/" + metric_key[len("combat_end_techturn_"):], raw_value)
+                    comps = {k[len("combat_end_component_"):]: float(v) for k, v in row.items()
+                             if k.startswith("combat_end_component_")}
+                    if comps:
+                        total_abs = sum(abs(v) for v in comps.values())
+                        for comp_name, comp_value in comps.items():
+                            combat_track(f"reward_component/{comp_name}", comp_value)
+                            # Share of the game's total |reward| that came from this component.
+                            combat_track(f"reward_share/{comp_name}", abs(comp_value) / total_abs if total_abs > 0 else 0.0)
+                        combat_track("reward_component/total", sum(comps.values()))
+                for metric_key, metric_window in combat_breakdown_windows.items():
+                    log_scalar(f"combat_{metric_key}_last100", float(np.mean(metric_window)), global_step)
+                    log_scalar(f"combat_{metric_key}_ema", combat_ema[metric_key], global_step)
                 for outcome, dists in combat_dist_by_outcome.items():
                     if dists:
                         log_scalar(f"combat/{outcome}_min_dist_to_enemy_capital_last100", float(np.mean(dists)), global_step)

@@ -2,6 +2,47 @@
 
 All notable changes to this project are documented in this file.
 
+## [Phase2-Combat_Optional_Shaping_Terms-058] - (2026-11-13)
+
+### Scope
+- New `PythonEnv.combatStateJson()` returns the full true combat state in one call per step (per-tribe totals,
+  every unit with type/position/HP/movement/range/cost, every city with level/population, and the territory and
+  road grids). Combat only, never part of the observation. The potential's totals now come from it.
+- Fourteen opt-in reward terms, all default 0 (reward unchanged unless set), set with
+  `POLYVISION_COMBAT_REWARD_<NAME>`; computed in the new `pol_env/Tribes/py/combat_shaping.py`:
+
+  | Term | Kind | What it pays |
+  |---|---|---|
+  | `capital_proximity` | Φ | per unit, proximity to the enemy capital's starting tile (1 on it, 0 across the board) |
+  | `capital_proximity_late` | Φ | the same, scaled by turn / MAX_TURNS |
+  | `zone_of_control` | Φ | per tile in or next to enemy territory that one of our units can reach (Chebyshev ≤ movement; terrain ignored) |
+  | `regional_attack` | event | per attack where, in the target's city/village region (or a 5×5 window), we have more units or more unit value |
+  | `role_positioning` | event | warriors near the nearest enemy unit and city, riders 3–4 tiles and catapults 3 tiles from the nearest enemy (−1 if closer) at end of turn; −2 for an archer attack from within the target's range; +1 for attacking riders/archers; +0.5 for moving onto a road |
+  | `damage_trade` | event | per HP of (enemy HP lost − our HP lost) each step |
+  | `hanging_population` | event | penalty per population gained this turn without a level-up |
+  | `early_win` | outcome | extra win reward × max(0, 1 − turns / MAX_TURNS) |
+  | `tech_order` | event | per star of tech cost saved by researching before a capture in the same turn, or wasted by researching after one (tech cost rises by tier per city) |
+  | `pop_tech` | event | for population techs, population unlocked inside our borders minus the best other population tech on offer; non-population techs 0 |
+  | `unused_tech` | event | penalty per tech researched this turn and not used before END_TURN (techs without a defined use, e.g. Climbing, are exempt) |
+  | `tech_cost` | event | penalty per star spent on research |
+  | `avoid_fishing` | event | penalty for researching Fishing (already masked on Drylands maps, i.e. the whole combat pool) |
+  | `avoid_philosophy_meditation` | event | penalty for researching Philosophy or Meditation |
+
+- Every game's last step reports `combat_end_raw_<total>_{ours,theirs}` and `combat_end_component_<name>` (that
+  game's summed reward per component; they add up exactly to the game's reward). The trainer logs each as a
+  100-game rolling mean (`combat_<group>/<name>_last100`) and an exponential moving average over games
+  (`_ema`, alpha 2/101), plus `combat_reward_share/<name>`, the component's share of the game's total |reward|,
+  and `combat_outcome/{win,loss,timeout}_rate` in both forms.
+- Reward-only change; combat environment version unchanged.
+
+### Validation
+- `tools/tests/test_combat_shaping_terms.py` (11 unit tests of the terms); a live test plays full random games
+  with every term on and checks the components sum to the episode reward.
+- Random play, every term on: each new Φ/event term contributes 0.2–1.6 per game; the tech penalties are larger
+  (about −12 per game) because random play researches constantly. Single-env speed 39 vs 41 steps/s before.
+- `tools/run_core_ci_checks.py` and all `tools/tests` (105, with live JVM tests) pass; Phase 1 observation and
+  reward hashes unchanged.
+
 ## [Phase2-Combat_Win_Reward_30-057] - (2026-11-12)
 
 ### Scope
