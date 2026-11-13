@@ -195,7 +195,10 @@ the new rules before comparing.
 **Step 3: Phase 2 combat (Kevin's area)** (implemented; please review, Kevin)
 
 14. C1 Knight 10 HP; C2 Swordsman no fortify; C3 mountain defence from Climbing.
-    C7 push directions are not implemented yet (needs a per-unit direction that moves and shots update).
+    C7 push directions (implemented). Each unit stores the direction of its last move, push or ranged shot.
+    For a move of several tiles that is the overall direction (the sign of the displacement on each axis), not
+    the last step. "South" is +x (x is the board row). The blocked-tile fallback alternates counterclockwise and
+    clockwise, one step further each time. Saved-game JSON does not store the direction.
 15. E11-E13 roads 3★, Burn Forest 3★/Construction, Destroy/Chivalry.
 
 **Not proposed:** the naval rework (C4, C5, E9, E10, T2), Diplomacy/Cloak/Dagger (C6, E14), out-of-order

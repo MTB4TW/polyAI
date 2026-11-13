@@ -33,6 +33,7 @@ public class Boat extends Unit
         c.setMaxHP(getMaxHP());
         c.setActorId(getActorId());
         c.setStatus(getStatus());
+        c.setLastDirection(getLastDirX(), getLastDirY());
         c.setBaseLandUnit(getBaseLandUnit());
         return hideInfo ? (Boat) c.hide() : c;
     }

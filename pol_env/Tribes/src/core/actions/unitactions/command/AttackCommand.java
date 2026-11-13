@@ -36,6 +36,10 @@ public class AttackCommand implements ActionCommand {
             Unit target = (Unit) gs.getActor(targetId);
 
             attacker.transitionToStatus(Types.TURN_STATUS.ATTACKED);
+            // 2.15 rules: a ranged shot sets the attacker's direction (used for forced-spawn pushes).
+            if (core.RulesVersion.modern() && attacker.getType().isRanged())
+                attacker.setLastDirection(target.getPosition().x - attacker.getPosition().x,
+                        target.getPosition().y - attacker.getPosition().y);
             Tribe attackerTribe = gs.getTribe(attacker.getTribeId());
             attackerTribe.resetPacifistCount();
 

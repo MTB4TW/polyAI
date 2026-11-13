@@ -23,6 +23,7 @@ public class Knight extends Unit
         c.setMaxHP(getMaxHP());
         c.setActorId(getActorId());
         c.setStatus(getStatus());
+        c.setLastDirection(getLastDirX(), getLastDirY());
         return hideInfo ? (Knight) c.hide() : c;
     }
 }

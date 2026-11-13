@@ -291,6 +291,19 @@ public class Board {
      * @return true if the unit could be pushed.
      */
     boolean pushUnit(Tribe tribe, Unit toPush, int startX, int startY, Random r) {
+        return pushUnit(tribe, toPush, startX, startY, tribe.getTribeId(), r);
+    }
+
+    // 2.15 rules: the eight directions in clockwise order, starting north. x is the row (south is +x).
+    private static final int[][] PUSH_RING = {{-1, 0}, {-1, 1}, {0, 1}, {1, 1}, {1, 0}, {1, -1}, {0, -1}, {-1, -1}};
+
+    /**
+     * Pushes a unit off a tile where another unit is being spawned.
+     * @param spawnerTribeId tribe that spawns the new unit; decides whether the pushed unit is friendly.
+     */
+    boolean pushUnit(Tribe tribe, Unit toPush, int startX, int startY, int spawnerTribeId, Random r) {
+        if (core.RulesVersion.modern())
+            return pushUnitModern(tribe, toPush, startX, startY, spawnerTribeId, r);
         //xPush and yPush encode the order of tiles where the push may be tried.
         int[] xPush = {0, -1, 0, 1, -1, -1, 1, 1};
         int[] yPush = {1, 0, -1, 0, 1, -1, -1, 1};
@@ -310,6 +323,42 @@ public class Board {
         //A pushed unit moves to PUSHED status - essentially its turn is over.
         toPush.setStatus(Types.TURN_STATUS.PUSHED);
 
+        return pushed;
+    }
+
+    /**
+     * 2.15 rules (fandom Movement page, "Forced Unit Spawns"): a friendly unit is pushed the way it last moved,
+     * an enemy unit the opposite way, a ranged unit the way it last moved or shot; a unit with no direction is
+     * pushed towards the map centre (south from the exact centre). If that tile is blocked it tries
+     * counterclockwise, then clockwise, one step further each time. With no free tile the unit is not pushed
+     * (and the caller destroys it: the "Houdini").
+     */
+    private boolean pushUnitModern(Tribe tribe, Unit toPush, int startX, int startY, int spawnerTribeId, Random r) {
+        int dx = toPush.getLastDirX(), dy = toPush.getLastDirY();
+        if (dx != 0 || dy != 0) {
+            boolean keepDirection = toPush.getType().isRanged() || toPush.getTribeId() == spawnerTribeId;
+            if (!keepDirection) { dx = -dx; dy = -dy; }
+        } else {
+            double centre = (size - 1) / 2.0;
+            dx = (int) Math.signum(centre - startX);
+            dy = (int) Math.signum(centre - startY);
+            if (dx == 0 && dy == 0) dx = 1; // exact centre: south
+        }
+        int start = 0;
+        for (int i = 0; i < PUSH_RING.length; i++)
+            if (PUSH_RING[i][0] == dx && PUSH_RING[i][1] == dy) start = i;
+
+        boolean pushed = false;
+        for (int k = 0; k < PUSH_RING.length && !pushed; k++) {
+            // order: preferred, ccw 1, cw 1, ccw 2, cw 2, ccw 3, cw 3, opposite
+            int offset = (k == 0) ? 0 : ((k % 2 == 1) ? -((k + 1) / 2) : (k / 2));
+            int[] d = PUSH_RING[((start + offset) % 8 + 8) % 8];
+            int x = startX + d[0];
+            int y = startY + d[1];
+            if (x >= 0 && y >= 0 && x < size && y < size)
+                pushed = tryPush(tribe, toPush, startX, startY, x, y, r);
+        }
+        toPush.setStatus(Types.TURN_STATUS.PUSHED);
         return pushed;
     }
 
@@ -449,6 +498,9 @@ public class Board {
      * @param r random generator
      */
     public void moveUnit(Unit unit, int x0, int y0, int xF, int yF, Random r) {
+        // 2.15 rules: every move (including a push) sets the unit's direction.
+        if (core.RulesVersion.modern() && (xF != x0 || yF != y0))
+            unit.setLastDirection(xF - x0, yF - y0);
         units[x0][y0] = 0;
         units[xF][yF] = unit.getActorId();
         unit.setPosition(xF, yF);

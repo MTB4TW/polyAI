@@ -67,7 +67,7 @@ public class ExamineCommand implements ActionCommand {
 
                     Unit unitInCity = board.getUnitAt(spawnPos.x, spawnPos.y);
                     if(unitInCity != null)
-                        gs.pushUnit(unitInCity, spawnPos.x, spawnPos.y);
+                        gs.pushUnit(unitInCity, spawnPos.x, spawnPos.y, unit.getTribeId());
 
                     board.addUnit((City)gs.getActor(handlerCityId), newUnit);
 

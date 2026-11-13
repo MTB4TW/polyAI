@@ -65,6 +65,7 @@ public final class RulesParityTest {
                 testMeetingStars(modern);
                 if (modern) testExplorerScores();
                 testExplorerSeeksFog(modern);
+                testPushDirections(modern);
             }
             testRulesIds();
         } finally {
@@ -400,6 +401,76 @@ public final class RulesParityTest {
         if (modern) assertEq(true, t.getObsGrid()[fx][p.y], "2.15 explorer reveals the only fog tile");
         // Under 2020 rules the random walk may or may not find it; only the 2.15 behaviour is checked.
         checks++;
+    }
+
+    /** Places a new extra (cityless) unit of tribe 0 at (x, y) with the given last direction. */
+    private static Unit placeUnit(GameState gs, Types.UNIT type, int x, int y, int dx, int dy) {
+        Unit u = Types.UNIT.createUnit(new Vector2d(x, y), 0, false, -1, 0, type);
+        gs.getBoard().addUnit(capital(gs), u);
+        u.setLastDirection(dx, dy);
+        return u;
+    }
+
+    private static GameState emptyBoardGame() {
+        // Climbing makes every Phase 1 tile walkable; remove the starting units so tiles are free.
+        GameState gs = freshGame();
+        gs.getTribe(0).getTechTree().doResearchInit(Types.TECHNOLOGY.CLIMBING);
+        for (Unit u : gs.getUnits(0)) gs.getBoard().removeUnitFromBoard(u);
+        return gs;
+    }
+
+    private static void assertPushedTo(GameState gs, Unit u, int spawner, int ex, int ey, String what) {
+        Vector2d p = u.getPosition().copy();
+        gs.pushUnit(u, p.x, p.y, spawner);
+        assertEq(new Vector2d(ex, ey), u.getPosition(), what);
+    }
+
+    private static void testPushDirections(boolean modern) {
+        // Map is 11x11, centre (5, 5); x is the row, south is +x.
+        GameState gs = emptyBoardGame();
+        Unit u = placeUnit(gs, Types.UNIT.WARRIOR, 2, 3, 0, 0);
+        if (!modern) {
+            // 2020 rules: fixed order, first (0, +1).
+            assertPushedTo(gs, u, 0, 2, 4, "2020 push goes to (0,+1) first");
+            assertEq(0, u.getLastDirX() * 10 + u.getLastDirY(), "2020 rules never set a direction");
+            return;
+        }
+        assertPushedTo(gs, u, 0, 3, 4, "unmoved unit is pushed towards the centre");
+        assertEq(11, u.getLastDirX() * 10 + u.getLastDirY(), "a push sets the direction");
+
+        gs = emptyBoardGame();
+        u = placeUnit(gs, Types.UNIT.WARRIOR, 5, 5, 0, 0);
+        assertPushedTo(gs, u, 0, 6, 5, "unmoved unit on the exact centre is pushed south");
+
+        gs = emptyBoardGame();
+        u = placeUnit(gs, Types.UNIT.WARRIOR, 4, 4, -1, 0);
+        assertPushedTo(gs, u, 0, 3, 4, "friendly unit keeps its direction");
+
+        gs = emptyBoardGame();
+        u = placeUnit(gs, Types.UNIT.WARRIOR, 4, 4, -1, 0);
+        assertPushedTo(gs, u, 1, 5, 4, "enemy unit is pushed back the opposite way");
+
+        gs = emptyBoardGame();
+        u = placeUnit(gs, Types.UNIT.ARCHER, 4, 4, -1, 0);
+        assertPushedTo(gs, u, 1, 3, 4, "ranged unit keeps its direction even when pushed by an enemy");
+
+        gs = emptyBoardGame();
+        u = placeUnit(gs, Types.UNIT.WARRIOR, 4, 4, -1, 0);
+        placeUnit(gs, Types.UNIT.WARRIOR, 3, 4, 0, 0);
+        assertPushedTo(gs, u, 0, 3, 3, "blocked: tries counterclockwise first (north -> north-west)");
+
+        gs = emptyBoardGame();
+        u = placeUnit(gs, Types.UNIT.WARRIOR, 4, 4, -1, 0);
+        placeUnit(gs, Types.UNIT.WARRIOR, 3, 4, 0, 0);
+        placeUnit(gs, Types.UNIT.WARRIOR, 3, 3, 0, 0);
+        assertPushedTo(gs, u, 0, 3, 5, "then clockwise (north -> north-east)");
+
+        // A move sets the direction; a ranged shot is covered in AttackCommand.
+        gs = emptyBoardGame();
+        u = placeUnit(gs, Types.UNIT.WARRIOR, 4, 4, 0, 0);
+        gs.getBoard().moveUnit(u, 4, 4, 4, 6, gs.getRandomGenerator());
+        assertEq(1, u.getLastDirX() * 10 + u.getLastDirY(), "a move east sets direction (0, +1)");
+        assertEq(1, u.copy(false).getLastDirX() * 10 + u.copy(false).getLastDirY(), "copies keep the direction");
     }
 
     private static int meetingStars(int score) {

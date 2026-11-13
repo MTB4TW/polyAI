@@ -26,6 +26,10 @@ All notable changes to this project are documented in this file.
   - Explorers take 12 steps instead of 15 (**unverified**, fandom only) and steer by the game's version-115
     rule: tiles scored by fog revealed (lighthouses first), a 3-step breadth-first search, lowest score
     wins, ties at random, no straight backtracking. Random walk when no fog is within reach.
+  - Push directions for forced spawns (Giant level-up, ruin unit): each unit remembers the direction of its
+    last move, push or ranged shot. Friendly units are pushed that way, enemy units the opposite way, ranged
+    units that way; unmoved units go towards the map centre (south from the exact centre). If blocked, it
+    tries counterclockwise, then clockwise. A unit with nowhere to go is still destroyed (the "Houdini").
 - `PythonEnv.java`: burn-forest and road star costs come from the rules accessors (2 lines).
 - Wrapper: the `PARK` level-up's expected SPT delta feature is +1 under `polytopia_2_15`.
 
@@ -39,7 +43,7 @@ All notable changes to this project are documented in this file.
   5,000 train and 250 validation maps (every map gets the expected two-unit opening).
 
 ### Validation
-- `pol_env/Tribes/tests/java/core/RulesParityTest.java` (223 checks) tests every switched rule under both rule
+- `pol_env/Tribes/tests/java/core/RulesParityTest.java` (235 checks) tests every switched rule under both rule
   sets; the Literacy costs reproduce the fandom cost table. A deliberate mutation (Park +0★) is caught.
 - `pol_env/Tribes/py/tests/test_rules_version.py` (in `run_core_ci_checks.py`): version strings, checkpoint
   rejection across rule sets, JVM consistency check, a short `polytopia_2_15` episode, and the Java test.

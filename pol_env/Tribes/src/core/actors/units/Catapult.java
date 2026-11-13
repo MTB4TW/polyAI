@@ -23,6 +23,7 @@ public class Catapult extends Unit
         c.setMaxHP(getMaxHP());
         c.setActorId(getActorId());
         c.setStatus(getStatus());
+        c.setLastDirection(getLastDirX(), getLastDirY());
         return hideInfo ? (Catapult) c.hide() : c;
     }
 }

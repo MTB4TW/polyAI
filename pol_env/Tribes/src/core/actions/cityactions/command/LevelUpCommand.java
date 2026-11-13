@@ -64,7 +64,7 @@ public class LevelUpCommand implements ActionCommand {
                 Unit unitInCity = gs.getBoard().getUnitAt(cityPos.x, cityPos.y);
                 if(unitInCity != null)
                 {
-                    gs.pushUnit(unitInCity, cityPos.x, cityPos.y);
+                    gs.pushUnit(unitInCity, cityPos.x, cityPos.y, city.getTribeId());
                 }
 
                 Unit superUnit = Types.UNIT.createUnit(cityPos, 0, false, city.getActorId(), city.getTribeId(), Types.UNIT.SUPERUNIT);

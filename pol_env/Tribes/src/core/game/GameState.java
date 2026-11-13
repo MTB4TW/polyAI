@@ -509,8 +509,17 @@ public class GameState {
      */
     public void pushUnit(Unit toPush, int startX, int startY)
     {
+        pushUnit(toPush, startX, startY, toPush.getTribeId());
+    }
+
+    /**
+     * Pushes a unit off (startX, startY) for a forced spawn by spawnerTribeId (used by the 2.15 push rules);
+     * a unit that cannot be pushed anywhere is destroyed.
+     */
+    public void pushUnit(Unit toPush, int startX, int startY, int spawnerTribeId)
+    {
         Tribe tribe = getTribe(toPush.getTribeId());
-        boolean pushed = board.pushUnit(tribe, toPush, startX, startY, rnd);
+        boolean pushed = board.pushUnit(tribe, toPush, startX, startY, spawnerTribeId, rnd);
         if(!pushed)
         {
             killUnit(toPush);
