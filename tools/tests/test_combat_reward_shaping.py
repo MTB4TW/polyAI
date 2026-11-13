@@ -25,7 +25,10 @@ class CombatRewardWeightsTests(unittest.TestCase):
         for env in ({"POLYVISION_COMBAT_REWARD_KILL": "lots"},
                     {"POLYVISION_COMBAT_REWARD_SCORE_PER_1000": "nan"},
                     {"POLYVISION_COMBAT_REWARD_WIN": "-1"},
-                    {"POLYVISION_COMBAT_REWARD_LOSS": "5"}):
+                    {"POLYVISION_COMBAT_REWARD_LOSS": "5"},
+                    {"POLYVISION_COMBAT_REWARD_TIMEOUT": "-10"},
+                    {"POLYVISION_COMBAT_REWARD_TIMEOUT": "10"},
+                    {"POLYVISION_COMBAT_REWARD_TERMINAL_POTENTIAL": "1.5"}):
             with self.assertRaises(ValueError, msg=str(env)):
                 TribesGymWrapper._load_combat_reward_weights(env)
 

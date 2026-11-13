@@ -1480,6 +1480,8 @@ if __name__ == "__main__":
     combat_end_keys = ("combat_end_enemy_cities", "combat_end_own_cities", "combat_end_enemy_capitals_held",
                        "combat_end_min_unit_dist_to_enemy_capital", "combat_first_contact_tick")
     combat_end_windows = {key: deque(maxlen=100) for key in combat_end_keys}
+    # Closest unit to the enemy capital, split by result (a win ends on the capital, so the pooled mean hides timeouts).
+    combat_dist_by_outcome = {o: deque(maxlen=100) for o in ("win", "loss", "timeout")}
     next_action_mask = None
     next_legal_global_ids = None
     next_legal_action_valid_mask = None
@@ -1717,6 +1719,15 @@ if __name__ == "__main__":
                     if isinstance(row, dict) and row.get("combat_end_enemy_cities") is not None:
                         for key in combat_end_keys:
                             combat_end_windows[key].append(float(row.get(key, -1)))
+                        dist = float(row.get("combat_end_min_unit_dist_to_enemy_capital", -1))
+                        if row.get("combat_outcome") in combat_dist_by_outcome and dist >= 0:
+                            combat_dist_by_outcome[row["combat_outcome"]].append(dist)
+                for outcome, dists in combat_dist_by_outcome.items():
+                    if dists:
+                        log_scalar(f"combat/{outcome}_min_dist_to_enemy_capital_last100", float(np.mean(dists)), global_step)
+                if combat_dist_by_outcome["timeout"]:
+                    log_scalar("combat/timeout_within_1_tile_of_enemy_capital_rate_last100",
+                               float(np.mean([d <= 1 for d in combat_dist_by_outcome["timeout"]])), global_step)
                 contact = combat_end_windows["combat_first_contact_tick"]
                 if contact:
                     for key in combat_end_keys[:4]:

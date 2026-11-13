@@ -119,3 +119,26 @@ class CombatIntegrationTests(unittest.TestCase):
         self.assertEqual(info['combat_outcome_reward'], TribesGymWrapper.COMBAT_REWARD_DEFAULTS['loss'])
         self.assertAlmostEqual(reward, info['combat_outcome_reward'] + info['combat_shaping_reward'])
         self.assertEqual(info['combat_outcome'], 'loss')
+
+
+@unittest.skipUnless(os.environ.get('POLYVISION_RUN_JAVA_TESTS') == '1', 'requires local Java gateway')
+class CombatTimeoutRewardOptionTests(CombatIntegrationTests):
+    """Timeout penalty and zero terminal potential (POLYVISION_COMBAT_REWARD_TIMEOUT / _TERMINAL_POTENTIAL)."""
+
+    def setUp(self):
+        extra = patch.dict(os.environ, {'POLYVISION_COMBAT_REWARD_TIMEOUT': '-3',
+                                        'POLYVISION_COMBAT_REWARD_TERMINAL_POTENTIAL': '0'})
+        extra.start()
+        self.addCleanup(extra.stop)
+        super().setUp()
+
+    def test_clock_income_and_timeout(self):
+        self.env.step(self.env._catalog.end_turn_id)
+        potential_before = self.env._combat_prev_potential
+        _, reward, term, trunc, info = self.env.step(self.env._catalog.end_turn_id)
+        self.assertTrue(trunc)
+        self.assertEqual(info['combat_outcome'], 'timeout')
+        self.assertEqual(info['combat_outcome_reward'], -3.0)
+        # Terminal potential 0: the last step cancels the lead built up so far.
+        self.assertAlmostEqual(info['combat_shaping_reward'], -potential_before)
+        self.assertAlmostEqual(reward, -3.0 - potential_before)

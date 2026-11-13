@@ -2,6 +2,25 @@
 
 All notable changes to this project are documented in this file.
 
+## [Phase2-Combat_Timeout_Reward_Options-054] - (2026-11-12)
+
+### Scope
+- Two combat reward options, defaults unchanged (behaviour identical unless set):
+  - `POLYVISION_COMBAT_REWARD_TIMEOUT` (default 0): outcome reward on a turn-limit timeout; must satisfy
+    loss < timeout < win.
+  - `POLYVISION_COMBAT_REWARD_TERMINAL_POTENTIAL` (default 1, range 0–1): share of the final potential paid out
+    at game end. 0 treats Φ as 0 at game end, so the shaping nets about 0 over a game and only the outcome
+    remains (textbook potential shaping, apart from discounting).
+- Trainer logs the closest unit's distance to the enemy capital split by result
+  (`combat/{win,loss,timeout}_min_dist_to_enemy_capital_last100`) and
+  `combat/timeout_within_1_tile_of_enemy_capital_rate_last100`. The pooled mean hid that wins end on the capital.
+
+### Validation
+- `tools/tests/test_combat_reward_shaping.py` rejects out-of-range values; new live test class reruns all combat
+  live tests with timeout −3 and terminal potential 0 and checks the timeout step pays −3 − Φ(before).
+- `tools/run_core_ci_checks.py` and all `tools/tests` (with live JVM tests) pass; trainer smoke run logs the
+  new metrics.
+
 ## [Phase2-Combat_Scaled_Legacy_Scalars-053] - (2026-11-12)
 
 ### Scope

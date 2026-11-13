@@ -104,6 +104,8 @@ changes, e.g. `POLYVISION_COMBAT_REWARD_CITY=2 POLYVISION_COMBAT_REWARD_KILL=0.5
 | `POLYVISION_COMBAT_REWARD_CITY` | 1.0 | potential per city of advantage |
 | `POLYVISION_COMBAT_REWARD_SCORE_PER_1000` | 1.0 | potential per 1000 points of Tribes score advantage |
 | `POLYVISION_COMBAT_REWARD_KILL` | 0.25 | potential per kill of advantage |
+| `POLYVISION_COMBAT_REWARD_TIMEOUT` | 0 | outcome reward on a turn-limit timeout (loss < timeout < win) |
+| `POLYVISION_COMBAT_REWARD_TERMINAL_POTENTIAL` | 1 | share of the final Φ paid at game end; 0 makes the shaping net ~0 per game |
 
 Each step's `info` reports `combat_outcome_reward`, `combat_shaping_reward` and `combat_potential`. The last
 step of a game also reports engine-side diagnostics: `combat_end_enemy_cities`, `combat_end_own_cities`,

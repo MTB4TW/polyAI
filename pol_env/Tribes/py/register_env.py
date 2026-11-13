@@ -1267,9 +1267,16 @@ class TribesGymWrapper(gym.Env):
             # advantage: the agent optimizes outcome + phi(final), not the outcome alone.
             _outcome_sign, outcome = self._combat_result(obs, terminated)
             weights = self._combat_reward_weights
-            outcome_reward = weights["win"] if outcome == "win" else (weights["loss"] if outcome == "loss" else 0.0)
+            if outcome == "win":
+                outcome_reward = weights["win"]
+            elif outcome == "loss":
+                outcome_reward = weights["loss"]
+            else:
+                outcome_reward = weights["timeout"] if truncated else 0.0
             potential = self._combat_potential(self._combat_engine_totals(), weights)
-            shaping = potential - self._combat_prev_potential
+            # At game end only `terminal_potential` of the final lead is paid out (1 = all of it).
+            paid_potential = potential * weights["terminal_potential"] if (terminated or truncated) else potential
+            shaping = paid_potential - self._combat_prev_potential
             self._combat_prev_potential = potential
             reward = float(outcome_reward + shaping)
             info["combat_outcome_reward"] = float(outcome_reward)
@@ -4866,6 +4873,9 @@ class TribesGymWrapper(gym.Env):
         "city": 1.0,              # potential per city of advantage (ours minus theirs)
         "score_per_1000": 1.0,    # potential per 1000 points of Tribes score advantage
         "kill": 0.25,             # potential per unit-kill of advantage
+        "timeout": 0.0,           # outcome reward for reaching the turn limit (must lie between loss and win)
+        "terminal_potential": 1.0,  # share of the final potential paid out at game end: 1 keeps the lead,
+                                    # 0 treats phi as 0 at game end (shaping then nets ~0 over a game)
     }
 
     @classmethod
@@ -4882,6 +4892,10 @@ class TribesGymWrapper(gym.Env):
                 raise ValueError(f"POLYVISION_COMBAT_REWARD_{name.upper()} must be finite, got {raw!r}")
         if weights["win"] <= 0 or weights["loss"] >= 0:
             raise ValueError("Combat reward needs win > 0 and loss < 0")
+        if not weights["loss"] < weights["timeout"] < weights["win"]:
+            raise ValueError("Combat reward needs loss < timeout < win")
+        if not 0.0 <= weights["terminal_potential"] <= 1.0:
+            raise ValueError("POLYVISION_COMBAT_REWARD_TERMINAL_POTENTIAL must be between 0 and 1")
         return weights
 
     @staticmethod
