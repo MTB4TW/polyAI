@@ -37,6 +37,8 @@ except Exception:
 
 from pol_env.Tribes.py.register_env import TribesGymWrapper  # adjust if folder name differs
 from py_rl.cleanrl.cleanrl.gae import compute_gae, per_turn_discounts
+from py_rl.cleanrl.cleanrl.obs_normalization import OBS_NORMALIZATION_VERSION, ObsNormalizedAgent
+from py_rl.cleanrl.cleanrl.return_normalization import ReturnNormalizer
 from pol_env.Tribes.py.environment_contract import (
     compute_level_pool_identity,
     environment_compatibility_metadata,
@@ -105,6 +107,10 @@ class Args:
     """the lambda for the general advantage estimation"""
     gamma_per_turn: bool = False
     """discount only on END_TURN actions, so gamma is a per-turn discount (a game has many actions per turn)"""
+    norm_returns: bool = False
+    """scale rewards by a running std of discounted returns (VecNormalize-style reward scaling; training only)"""
+    norm_obs: bool = False
+    """normalise observations by a running mean/std saved with the checkpoint (changes what the network sees)"""
     num_minibatches: int = 4
     """the number of mini-batches"""
     update_epochs: int = 4
@@ -1616,7 +1622,9 @@ if __name__ == "__main__":
         envs, network_arch=args.network_arch, actor_mode=args.actor_mode,
         max_legal_actions=args.max_legal_actions,
         legal_action_feature_dim=args.legal_action_feature_dim,
+        observation_normalization=OBS_NORMALIZATION_VERSION if args.norm_obs else None,
     ).to(device)
+    return_normalizer = ReturnNormalizer(args.num_envs, args.gamma) if args.norm_returns else None
     optimizer = optim.Adam(agent.parameters(), lr=args.learning_rate, eps=1e-5)
 
     # ALGO Logic: Storage setup
@@ -1704,25 +1712,27 @@ if __name__ == "__main__":
                 device,
             )
             profiler.add("trainer/reset_feature_extract", time.perf_counter() - t0_extract_features)
+    # Structural checks look at the network itself (inside the --norm-obs wrapper, if any).
+    agent_net = agent.policy if isinstance(agent, ObsNormalizedAgent) else agent
     if args.actor_mode == "dense_debug":
-        if agent.actor[-1].out_features != envs.single_action_space.n:
+        if agent_net.actor[-1].out_features != envs.single_action_space.n:
             raise RuntimeError(
-                f"ppo_policy_output_dim={agent.actor[-1].out_features} does not match env.action_space.n={envs.single_action_space.n}"
+                f"ppo_policy_output_dim={agent_net.actor[-1].out_features} does not match env.action_space.n={envs.single_action_space.n}"
             )
     else:
-        if agent.action_embedding is None:
+        if agent_net.action_embedding is None:
             raise RuntimeError("legal action modes require action_embedding to be initialized.")
-        if int(agent.action_embedding.num_embeddings) != int(envs.single_action_space.n):
+        if int(agent_net.action_embedding.num_embeddings) != int(envs.single_action_space.n):
             raise RuntimeError(
-                f"action_embedding.num_embeddings={agent.action_embedding.num_embeddings} "
+                f"action_embedding.num_embeddings={agent_net.action_embedding.num_embeddings} "
                 f"does not match env.action_space.n={envs.single_action_space.n}"
             )
         if args.actor_mode == "legal_features":
-            if agent.action_feature_encoder is None or agent.action_scorer is None:
+            if agent_net.action_feature_encoder is None or agent_net.action_scorer is None:
                 raise RuntimeError("legal_features mode requires action_feature_encoder and action_scorer.")
-            if int(agent.legal_action_feature_dim) != int(args.legal_action_feature_dim):
+            if int(agent_net.legal_action_feature_dim) != int(args.legal_action_feature_dim):
                 raise RuntimeError(
-                    f"agent.legal_action_feature_dim={agent.legal_action_feature_dim} "
+                    f"agent.legal_action_feature_dim={agent_net.legal_action_feature_dim} "
                     f"does not match args.legal_action_feature_dim={args.legal_action_feature_dim}"
                 )
             feature_dim_values = _extract_vector_field(reset_infos, "legal_action_feature_dim", args.num_envs, default_value=None)
@@ -1752,6 +1762,12 @@ if __name__ == "__main__":
         "legal_action_feature_dim": int(args.legal_action_feature_dim),
         "legal_action_feature_version": None,
     }
+    if args.norm_obs:
+        # Load-bearing: evaluators wrap the policy in the same normaliser (stats are in the state_dict).
+        action_interface_meta["observation_normalization"] = OBS_NORMALIZATION_VERSION
+    if args.norm_returns:
+        # Informational only: reward scaling is training-only and does not change inference.
+        action_interface_meta["return_normalization"] = "running_return_std_v1"
     for k in [
         "catalog_version",
         "phase1_opening_version",
@@ -1901,7 +1917,14 @@ if __name__ == "__main__":
                 log_scalar("combat/games_completed", combat_games_completed, global_step)
             next_done = np.logical_or(terminations, truncations)
             t0_step_tensor = time.perf_counter()
-            rewards[step] = torch.tensor(reward, dtype=torch.float32).to(device).view(-1)
+            train_reward = reward
+            if return_normalizer is not None:
+                # Only the training target is scaled; `reward` stays raw for anything that logs it.
+                step_discount = None
+                if args.gamma_per_turn:
+                    step_discount = per_turn_discounts(action_np.reshape(-1).astype(np.int64), args.gamma)
+                train_reward = return_normalizer(reward, next_done, step_discount)
+            rewards[step] = torch.tensor(train_reward, dtype=torch.float32).to(device).view(-1)
             next_obs, next_done = torch.Tensor(next_obs).to(device), torch.Tensor(next_done).to(device)
             profiler.add("trainer/step_tensor_conversion", time.perf_counter() - t0_step_tensor)
             if args.actor_mode == "dense_debug":
@@ -2557,6 +2580,13 @@ if __name__ == "__main__":
             if args.target_kl is not None and approx_kl > args.target_kl:
                 break
         profiler.add("trainer/ppo_update", time.perf_counter() - t0_ppo_update)
+
+        # Observation statistics change only here, after the update, so each rollout and its PPO
+        # update (including the old-logprob recompute check) see one fixed normalisation.
+        if args.norm_obs:
+            agent.obs_normalizer.update(b_obs)
+        if return_normalizer is not None:
+            log_scalar("charts/return_norm_scale", return_normalizer.scale, global_step)
 
         y_pred, y_true = b_values.cpu().numpy(), b_returns.cpu().numpy()
         var_y = np.var(y_true)

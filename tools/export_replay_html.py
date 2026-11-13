@@ -512,8 +512,10 @@ def main():
     feat_dim = meta.get("legal_action_feature_dim", 47) if meta else 47
 
     from py_rl.cleanrl.cleanrl.agent_factory import make_agent
+    from py_rl.cleanrl.cleanrl.obs_normalization import observation_normalization_from_metadata
     agent = make_agent(adapter, network_arch=arch, actor_mode=actor_mode,
-                       max_legal_actions=max_legal, legal_action_feature_dim=feat_dim)
+                       max_legal_actions=max_legal, legal_action_feature_dim=feat_dim,
+                       observation_normalization=observation_normalization_from_metadata(meta))
     agent.load_state_dict(checkpoint)
     agent.to(device)
     agent.eval()

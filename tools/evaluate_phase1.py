@@ -28,6 +28,7 @@ from pol_env.Tribes.py.environment_contract import (  # noqa: E402
 )
 from pol_env.Tribes.py.register_env import TribesGymWrapper  # noqa: E402
 from py_rl.cleanrl.cleanrl.agent_factory import make_agent  # noqa: E402
+from py_rl.cleanrl.cleanrl.obs_normalization import observation_normalization_from_metadata  # noqa: E402
 from tools.phase1_eval_core import (  # noqa: E402
     ALL_POLICIES, SCHEMA_VERSION, PPOPolicy, RandomLegalPolicy, VisibleGreedyPolicy,
     aggregate_results, build_schedule, comparison_rows, json_safe, load_verified_pool,
@@ -230,7 +231,7 @@ def main():
             env_meta=environment_compatibility_metadata(env,actor_mode=checkpoint_meta["actor_mode"],max_legal_actions=checkpoint_meta["max_legal_actions"])
             validate_checkpoint_compatibility(checkpoint_meta,env_meta)
             adapter=SimpleNamespace(single_observation_space=env.observation_space,single_action_space=env.action_space)
-            agent=make_agent(adapter,network_arch=checkpoint_meta.get("network_arch", "mlp"),actor_mode=checkpoint_meta["actor_mode"],max_legal_actions=checkpoint_meta["max_legal_actions"],legal_action_feature_dim=checkpoint_meta["legal_action_feature_dim"]).to(device)
+            agent=make_agent(adapter,network_arch=checkpoint_meta.get("network_arch", "mlp"),actor_mode=checkpoint_meta["actor_mode"],max_legal_actions=checkpoint_meta["max_legal_actions"],legal_action_feature_dim=checkpoint_meta["legal_action_feature_dim"],observation_normalization=observation_normalization_from_metadata(checkpoint_meta)).to(device)
             agent.load_state_dict(torch.load(model_path,map_location=device)); agent.eval()
         started=utc_now(); episodes=[]
         for i,record in enumerate(schedule,1):
