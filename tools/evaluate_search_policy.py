@@ -50,33 +50,29 @@ def load_pool(pool: str, max_maps: int | None, offset: int = 0):
         maps.append(MapRecord(r["filename"], str(path), r["canonical_map_sha256"], r["csv_sha256"], "train"))
     return manifest, maps, manifest_path
 
-FEATURE_NAMES = (
-    "spt", "pop_progress", "stars_usable", "units_on_village", "village_proximity", "techs", "cities",
-    "visible_tiles", "units", "unlocked_pop", "frontier_proximity",
+# Weights, feature order and the lookahead's slot choice live in pol_env/Tribes/py/search_teacher.py, shared with the
+# training-time teacher (POLYVISION_TEACHER=lookahead_visible), so both play identically. DEFAULT_WEIGHTS are the
+# hand-set weights; TUNED_VISIBLE_WEIGHTS were tuned on training-pool maps (see --pool train), never on validation.
+from pol_env.Tribes.py.search_teacher import (  # noqa: E402
+    DEFAULT_WEIGHTS, FEATURE_NAMES, TUNED_VISIBLE_WEIGHTS, decision_seed, java_weight_array, lookahead_scores_seeded,
+    select_lookahead_slot,
 )
-# Hand-set weights. SPT is the target; one population point is worth a fraction of a city level (+1 SPT); stars,
-# units and unlocked population are worth what they can still buy or reach before Turn 10; village distance and
-# vision guide multi-turn movement. Tuned on training-pool maps (see --pool train), never on validation.
-DEFAULT_WEIGHTS = {
-    "spt": 10.0, "pop_progress": 8.0, "stars_usable": 0.5, "units_on_village": 6.0,
-    "village_proximity": 0.5, "techs": 0.0, "cities": 5.0, "visible_tiles": 15.0,
-    "units": 1.5, "unlocked_pop": 0.5, "frontier_proximity": 0.3,
-}
 
 
 class LookaheadSearchPolicy(EvaluationPolicy):
     """One-step heuristic lookahead over the policy-visible legal set."""
 
-    def __init__(self, env, weights: dict, full_information: bool, eps: float = 1e-9):
+    def __init__(self, env, weights: dict, full_information: bool, eps: float = 1e-9, seeded: bool = False):
         self.env = env
+        # seeded=False: PR #11 behaviour (unseeded state copies). seeded=True: the reproducible teacher used for
+        # training (POLYVISION_TEACHER), seeded per decision from the episode seed and the decision index.
+        self.seeded = bool(seeded)
+        self._seed_episode, self._seed_decision = None, 0
         self.full_information = bool(full_information)
         self.name = f"lookahead_{'full' if full_information else 'visible'}"
         tribes = env.tribes_env
         self.java = tribes._env
-        arr = tribes._gateway.new_array(tribes._gateway.jvm.double, len(FEATURE_NAMES))
-        for i, k in enumerate(FEATURE_NAMES):
-            arr[i] = float(weights[k])
-        self.java_weights = arr
+        self.java_weights = java_weight_array(tribes._gateway, weights)
         self.eps = eps
 
     def turns_remaining(self) -> int:
@@ -84,27 +80,18 @@ class LookaheadSearchPolicy(EvaluationPolicy):
 
     def choose_action(self, obs, info):
         ids, valid, feats = legal_tensors(info)
-        slots = np.flatnonzero(valid)
         raw_map = self.env._current_legal_id_to_raw_index
-        scores = list(self.java.lookaheadScores(self.java_weights, self.turns_remaining(), self.full_information))
+        if self.seeded:
+            if self._seed_episode != self.env._episode_index:
+                self._seed_episode, self._seed_decision = self.env._episode_index, 0
+            seed = decision_seed(self.env._last_reset_seed, self._seed_decision)
+            self._seed_decision += 1
+            scores = lookahead_scores_seeded(self.java, self.java_weights, self.turns_remaining(),
+                                             self.full_information, seed)
+        else:
+            scores = list(self.java.lookaheadScores(self.java_weights, self.turns_remaining(), self.full_information))
 
-        end_slots = [int(s) for s in slots if feats[s, FEATURE["is_end_turn"]] > 0.5]
-        best_slot, best_score = None, -np.inf
-        for s in slots:
-            raw = raw_map.get(int(ids[s]))
-            if raw is None or raw >= len(scores):
-                continue
-            v = float(scores[raw])
-            if v > best_score + self.eps:
-                best_slot, best_score = int(s), v
-        if end_slots:
-            end_raw = raw_map.get(int(ids[end_slots[0]]))
-            end_score = float(scores[end_raw]) if end_raw is not None and end_raw < len(scores) else -np.inf
-            # End the turn unless some action strictly improves on stopping now.
-            if best_slot is None or best_score <= end_score + self.eps:
-                best_slot = end_slots[0]
-        if best_slot is None:
-            best_slot = int(slots[0])
+        best_slot = select_lookahead_slot(scores, ids, valid, feats[:, FEATURE["is_end_turn"]] > 0.5, raw_map, self.eps)
         return int(ids[best_slot]), best_slot
 
 
@@ -153,9 +140,13 @@ def parse_args():
     p.add_argument("--ucb-c", type=float, default=0.7)
     p.add_argument("--max-depth", type=int, default=8, help="MCTS: max actions per branch within a turn")
     p.add_argument("--rollout-steps", type=int, default=2, help="MCTS: greedy steps after each expanded leaf")
+    p.add_argument("--search-seeding", choices=["none", "per_decision"], default="none",
+                   help="lookahead only. none: unseeded state copies (PR #11 default, not reproducible when actions "
+                        "have random outcomes); per_decision: the reproducible teacher used by POLYVISION_TEACHER")
     p.add_argument("--max-maps", type=int, default=20)
     p.add_argument("--seed", type=int, default=42)
-    p.add_argument("--weights", type=str, help="JSON object overriding entries of DEFAULT_WEIGHTS")
+    p.add_argument("--weights", type=str,
+                   help="JSON object overriding entries of DEFAULT_WEIGHTS, or 'tuned_visible' for TUNED_VISIBLE_WEIGHTS")
     p.add_argument("--max-steps-per-episode", type=int, default=512)
     p.add_argument("--progress-every", type=int, default=5)
     p.add_argument("--output-root", type=Path, default=REPO_ROOT / "outputs/evaluations")
@@ -166,7 +157,9 @@ def parse_args():
 def main():
     args = parse_args()
     weights = dict(DEFAULT_WEIGHTS)
-    if args.weights:
+    if args.weights == "tuned_visible":
+        weights = dict(TUNED_VISIBLE_WEIGHTS)
+    elif args.weights:
         override = json.loads(args.weights)
         unknown = set(override) - set(weights)
         if unknown:
@@ -201,7 +194,7 @@ def main():
             policy = TurnMCTSPolicy(env, weights, full, args.iterations, args.ucb_c, args.max_depth,
                                     args.rollout_steps, args.seed)
         else:
-            policy = LookaheadSearchPolicy(env, weights, full)
+            policy = LookaheadSearchPolicy(env, weights, full, seeded=args.search_seeding == "per_decision")
         started, episodes = utc_now(), []
         for i, record in enumerate(schedule, 1):
             episodes.append(run_episode(env, policy, record, args.max_steps_per_episode))
@@ -213,7 +206,8 @@ def main():
             "evaluation_id": evaluation_id, "status": "complete", "canonical": False, "classification": label,
             "privileged_information": full, "information_mode": args.information,
             "policy": policy_name, "heuristic_weights": weights,
-            "search": args.search, "mcts": ({"iterations": args.iterations, "ucb_c": args.ucb_c,
+            "search": args.search, "search_seeding": args.search_seeding if args.search == "lookahead" else None,
+            "mcts": ({"iterations": args.iterations, "ucb_c": args.ucb_c,
                                               "max_depth": args.max_depth, "rollout_steps": args.rollout_steps}
                                              if args.search == "mcts" else None), "feature_names": list(FEATURE_NAMES),
             "started_utc": started, "ended_utc": utc_now(), "pool": args.pool, "maps": len(maps),

@@ -475,6 +475,25 @@ public class PythonEnv {
      * Infeasible actions in the (possibly fogged) copy score -Infinity.
      */
     public double[] lookaheadScores(double[] weights, int turnsRemaining, boolean fullInformation) {
+        return lookaheadScoresImpl(weights, turnsRemaining, fullInformation, false, 0L);
+    }
+
+    /**
+     * Same as lookaheadScores, but reproducible and cheap to transfer. State copies are created with an unseeded
+     * java.util.Random, so actions with random outcomes (EXAMINE ruins, LEVEL_UP with EXPLORER, ...) score
+     * differently on every call. Here the copy for action i is reseeded with seed * 1000003 + i before the action is
+     * applied, so equal (state, seed) give equal scores. The scores are returned as big-endian IEEE-754 doubles in
+     * one byte[] (a single Py4J transfer instead of one round trip per element).
+     */
+    public byte[] lookaheadScoresSeededPacked(double[] weights, int turnsRemaining, boolean fullInformation, long seed) {
+        double[] scores = lookaheadScoresImpl(weights, turnsRemaining, fullInformation, true, seed);
+        java.nio.ByteBuffer buf = java.nio.ByteBuffer.allocate(8 * scores.length);
+        for (double v : scores) buf.putDouble(v);
+        return buf.array();
+    }
+
+    private double[] lookaheadScoresImpl(double[] weights, int turnsRemaining, boolean fullInformation,
+                                         boolean seeded, long seed) {
         ArrayList<Action> acts = gs.getAllAvailableActions();
         int me = gs.getActiveTribeID();
         players.heuristics.Phase1SptHeuristic h =
@@ -489,6 +508,7 @@ public class PythonEnv {
             }
             try {
                 GameState s = searchCopy(fullInformation);
+                if (seeded) s.getRandomGenerator().setSeed(seed * 1000003L + i);
                 if (!a.isFeasible(s)) {
                     out[i] = Double.NEGATIVE_INFINITY;
                     continue;

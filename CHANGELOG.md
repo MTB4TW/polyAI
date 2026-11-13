@@ -2,6 +2,70 @@
 
 All notable changes to this project are documented in this file.
 
+## [Phase1-Lookahead_Teacher_Kickstarting-056] - (2026-11-13)
+
+### Scope
+- Opt-in kickstarting (Schmitt et al. 2018) of Phase 1 PPO from the fog-respecting lookahead teacher of entry 052.
+  Training only: network, observation, action space, reward, transitions, checkpoint format and evaluation are
+  unchanged, so no contract bump.
+- Environment (`register_env.py`, Phase 1 only): `POLYVISION_TEACHER=lookahead_visible` makes every decision
+  state's info carry `teacher_slot`, the legal slot the one-step lookahead with the tuned visible-information weights
+  would choose (`-1` after a terminal/truncated step; the autoreset info carries the new episode's slot). The slot
+  survives the compact IPC wrapper unchanged (valid slots keep their order). Unset (default) adds no info keys and
+  makes no Java search call. Rejected in combat mode. `set_teacher_enabled(False)` switches the search off in a
+  running worker.
+- Shared logic in `pol_env/Tribes/py/search_teacher.py` (feature order, hand-set and tuned weights, slot selection);
+  `tools/evaluate_search_policy.py` now imports it, so the evaluator and the env teacher are one code path. The tuned
+  weights are copied bit for bit from the 21.84 SPT evaluation's `config.json` (`--weights tuned_visible`).
+- Reproducibility fix for the search: `GameState.copy` gives each copy an unseeded `java.util.Random`, so actions with
+  random outcomes (EXAMINE ruins, LEVEL_UP with EXPLORER) scored differently on every call and the PR #11 evaluator
+  is not reproducible (a rerun of the first 20 validation maps gave 22 instead of 19 SPT on one map). New
+  `PythonEnv.lookaheadScoresSeededPacked` reseeds the copy for action i with `seed * 1000003 + i` and returns the
+  scores as one big-endian double byte[] (one Py4J transfer instead of one round trip per element; 2.8 -> 0.5 ms
+  median per decision). The env teacher seeds each decision from `sha256(episode seed, decision index)`;
+  `evaluate_search_policy.py --search-seeding per_decision` plays the identical seeded teacher. The default
+  (`none`) keeps PR #11's unseeded behaviour. Existing `lookaheadScores` / `mctsChooseIndex` are unchanged.
+- Trainer (`ppo.py`, code in `py_rl/cleanrl/cleanrl/teacher_kickstart.py`): `--teacher lookahead_visible` sets the
+  env var for the training workers only (not the action-interface validator; a stray `POLYVISION_TEACHER` without the
+  flag is dropped). Teacher slots are stored in the rollout buffer and the loss becomes
+  `pg_loss - ent_coef * entropy + vf_coef * v_loss + coef(t) * mean(-log pi(teacher_slot | s))` over labelled rows,
+  i.e. cross-entropy between the policy's masked distribution over legal slots and the teacher's choice.
+  `coef(t) = --teacher-coef * max(0, 1 - progress / --teacher-decay-frac)` (defaults 1.0 and 0.5; decay 0 keeps it
+  constant). With `--teacher-disable-after-decay` (default on) the workers stop searching once `coef` reaches 0.
+  Logs `losses/teacher_ce`, `charts/teacher_coef`, `charts/teacher_agreement` (sampled action == teacher),
+  `charts/teacher_argmax_agreement` (policy argmax == teacher, during the update) and `charts/teacher_label_coverage`.
+  `get_action_and_value(..., return_distribution=True)` (MLP and ResNet agents; passes through `ObsNormalizedAgent`)
+  returns the distribution as a sixth value; the default call is unchanged. The sidecar records
+  `training_teacher` for information only.
+- `tools/hash_env_trajectory.py --ignore-info-prefix teacher_` checks that the teacher adds only its own keys.
+
+### Validation (diagnostics, not results)
+- Teacher parity, first 20 validation maps (1,574 decisions): `--search-seeding per_decision` evaluator and an env
+  policy that plays `info["teacher_slot"]` chose identical slots at every decision and identical SPT (mean 21.55);
+  the seeded evaluator run twice is identical. Same SPT as the committed 250-map evaluation on 19/20 maps (the
+  unseeded PR #11 evaluator, rerun, differs from its own committed result on the same one map).
+- Trajectory hash (1,500 steps, seed 7): teacher off, before and after this change, identical
+  (`b74639a2...`, features `4511000e...`); teacher on with `teacher_` keys ignored also identical, so the search does
+  not perturb the game.
+- `tools/tests/test_teacher_kickstart.py`: slot selection equals the PR #11 code on 3,000 random cases; tuned weights
+  equal the committed config; feature order equals the Java heuristic; schedule, slot extraction, compact IPC;
+  cross-entropy equals `F.cross_entropy` on the masked logits with gradients, for `mlp`, `spatial_resnet_local`,
+  `spatial_resnet_composed`, each with and without `--norm-obs`; teacher flags survive the `EXTRA_PPO_ARGS` filter;
+  opt-in live tests (`POLYVISION_RUN_JAVA_TESTS=1`): no search call and no teacher key with the teacher off, a valid
+  slot and one search per decision with it on.
+- Cost (this Mac, single env, random legal play via the hash tool): mean step 1.48-1.61 ms off vs 2.11-2.74 ms on
+  (+0.5 to +1.3 ms, +35-85%); median 1.37-1.45 vs 1.85-2.06 ms. For a 4M-step run with the default decay (teacher
+  active for 2M steps) that is about 1,000-2,600 extra env-seconds in total, spread over the env workers (a few
+  minutes of wall time with 8-12 workers if cores are free; scale up for slower cluster CPUs).
+- Smoke runs (diagnostic, 2,048 steps, 2 envs, `--norm-obs`, seed 3): `spatial_resnet_composed` and
+  `spatial_resnet_local` with `--teacher lookahead_visible` train end to end; `charts/teacher_coef` goes
+  1.0/0.75/0.5/0.25/0 and the workers' search switches off at iteration 5; label coverage 1.0 while active;
+  teacher_ce ~2.3. With a constant coefficient (decay 0) argmax agreement with the teacher rises 0.30 -> ~0.5 in 8
+  updates (sampled-action agreement ~0.2). Trainer SPS 130 vs 142 for the no-teacher control at this tiny scale.
+  The sidecar records `training_teacher`; `tools/evaluate_phase1.py` loaded the composed checkpoint and played
+  2 validation maps (1 repeat): ppo_argmax 9.5, ppo_sampled 7.5 SPT (untrained smoke model; not a result, not
+  committed). No model was trained for comparison, so there is no `docs/experiments.md` entry.
+
 ## [Net-Composed_Action_Representation-054] - (2026-11-12)
 
 ### Scope
