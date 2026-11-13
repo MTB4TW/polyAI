@@ -2,6 +2,19 @@
 
 All notable changes to this project are documented in this file.
 
+## [Phase2-Combat_Win_Reward_30-057] - (2026-11-12)
+
+### Scope
+- Default combat win reward 10 → **30** (`POLYVISION_COMBAT_REWARD_WIN`); loss stays −10, timeout 0. Winning is
+  the objective, and at +10 a safe timeout lead (about +3, up to roughly +6 with the extended potential) was
+  worth a third or more of a win while a failed attack risked −10. Against a safe +3 lead, an attack now pays
+  off above about a 33% success rate (p·30 − (1−p)·10 > 3), down from about 65% at +10.
+- Reward-only change; combat environment version unchanged. The W&B run config records the weights
+  (`combat_reward_win`), so runs on either side of this entry can be told apart.
+
+### Validation
+- `tools/tests` (with live JVM tests) and `tools/run_core_ci_checks.py` pass.
+
 ## [Phase2-Combat_Extended_Potential-056] - (2026-11-12)
 
 ### Scope

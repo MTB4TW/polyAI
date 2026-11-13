@@ -78,7 +78,7 @@ Games that reach the turn limit `T` (`POLYVISION_MAX_TURNS`, default 20) are tim
 
 ```text
 reward = outcome + (Φ(s') − Φ(s))
-outcome = win (default +10) on taking the enemy capital, loss (default −10) on losing ours, else 0
+outcome = win (default +30) on taking the enemy capital, loss (default −10) on losing ours, else 0
 Φ(s)   = city            × (our cities − their cities)
        + score_per_1000  × (our Tribes score − their score) / 1000
        + kill            × (our unit kills − their unit kills)
@@ -104,7 +104,7 @@ changes, e.g. `POLYVISION_COMBAT_REWARD_CITY=2 POLYVISION_COMBAT_REWARD_KILL=0.5
 
 | Variable | Default | Meaning |
 |---|---:|---|
-| `POLYVISION_COMBAT_REWARD_WIN` | 10 | terminal reward for a win (must be > 0) |
+| `POLYVISION_COMBAT_REWARD_WIN` | 30 | terminal reward for a win (must be > 0); 10 before entry 057 |
 | `POLYVISION_COMBAT_REWARD_LOSS` | −10 | terminal reward for a loss (must be < 0) |
 | `POLYVISION_COMBAT_REWARD_CITY` | 1.0 | potential per city of advantage |
 | `POLYVISION_COMBAT_REWARD_SCORE_PER_1000` | 1.0 | potential per 1000 points of Tribes score advantage |

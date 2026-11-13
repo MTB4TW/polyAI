@@ -4868,8 +4868,8 @@ class TribesGymWrapper(gym.Env):
 
     # Combat reward weights; each can be overridden with POLYVISION_COMBAT_REWARD_<NAME>.
     COMBAT_REWARD_DEFAULTS = {
-        "win": 10.0,              # terminal reward for eliminating the opponent
-        "loss": -10.0,            # terminal reward for being eliminated
+        "win": 30.0,              # terminal reward for taking the enemy capital; well above any timeout lead
+        "loss": -10.0,            # terminal reward for losing our capital (kept smaller than win on purpose)
         "city": 1.0,              # potential per city of advantage (ours minus theirs)
         "score_per_1000": 1.0,    # potential per 1000 points of Tribes score advantage
         "kill": 0.25,             # potential per unit-kill of advantage
