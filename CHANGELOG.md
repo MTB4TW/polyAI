@@ -2,6 +2,46 @@
 
 All notable changes to this project are documented in this file.
 
+## [Phase1-PPO_Experiment_Options-053] - (2026-11-12)
+
+### Scope
+- `cluster/run_experiment.sh` and `cluster/train_farmshare.sbatch` accept `EXTRA_PPO_ARGS` (as
+  `train_combat_cpu.sbatch` already did): extra `ppo.py` flags, split on whitespace and appended last.
+  `run_experiment.sh` records them as `extra_ppo_args` in `outputs/experiments/NAME.json`, allows only
+  `[A-Za-z0-9 ._=+:,/-]`, and refuses flags it sets itself (`--model-path`, `--exp-name`, `--seed`,
+  `--network-arch`, `--total-timesteps`, `--save-model`). Empty or unset changes nothing.
+- New opt-in `--norm-returns` (training only): rewards are divided by a running std of per-env discounted
+  returns and clipped to ±10 (the VecNormalize / `NormalizeReward` reward path), so value targets are in
+  scaled units. With `--gamma-per-turn` the return accumulator discounts only after END_TURN, matching GAE.
+  Logs `charts/return_norm_scale`. Inference is unaffected; recorded in the sidecar as
+  `return_normalization` for information only. Code: `py_rl/cleanrl/cleanrl/return_normalization.py`.
+- New opt-in `--norm-obs`: the policy is wrapped in `ObsNormalizedAgent`
+  (`py_rl/cleanrl/cleanrl/obs_normalization.py`), which applies a per-dimension running mean/std
+  (`(x - mean) / sqrt(var + 1e-8)`, clipped to ±10) before every policy call. The statistics are registered
+  buffers, so they are saved in the checkpoint's state_dict (`obs_normalizer.*`; network weights move under
+  `policy.*`). They are updated once per iteration, after the PPO update, so each rollout and its update see
+  fixed statistics; the first rollout uses mean 0 / var 1.
+- Checkpoint contract: normalised checkpoints carry `"observation_normalization": "running_mean_std_v1"` in
+  the `.action_interface.json` sidecar. `make_agent(..., observation_normalization=...)` builds the wrapper;
+  `tools/evaluate_phase1.py`, `evaluate_brain.py`, `tools/evaluate_superhuman.py` and
+  `tools/export_replay_html.py` pass the sidecar value. A missing field means no normalisation, so every
+  existing checkpoint loads exactly as before. A mismatch (normalised weights without the field, or the
+  reverse) fails `load_state_dict` because the key sets differ; unknown values are rejected. Tools that load
+  weights without reading the sidecar fail loudly on normalised checkpoints rather than mis-evaluating them.
+- Defaults unchanged: without the flags the agent, sidecar and training loop are identical to before.
+  No environment, observation, action, reward or network change, so no contract version bump.
+
+### Validation
+- New `tools/tests/test_ppo_experiment_options.py` (19 tests): flag defaults and parsing; running-moment
+  merge; return scaling against a reference loop, with and without per-turn discounting; obs-normaliser maths,
+  save/load round trip through checkpoint + sidecar for all three architectures, single normalisation inside
+  nested policy calls, mismatch rejection; `EXTRA_PPO_ARGS` forwarding, recording, rejection, and empty-value
+  no-op for both cluster scripts (stub `sbatch`/`python`).
+- Smoke run (diagnostic, not a result): `spatial_resnet_local --norm-obs --norm-returns`, 2,048 steps, 2 envs,
+  on a Mac CPU: trains, saves a checkpoint whose state_dict holds `obs_normalizer.*` (count 2,048 after 8
+  updates; raw feature means up to ~1,400) and whose sidecar records both fields; `tools/evaluate_phase1.py`
+  loads it through the sidecar and completes a 2-map, 1-repeat validation diagnostic (not committed).
+
 ## [Perf-MPS_Learner_Device-051] - (2026-11-12)
 
 ### Scope
