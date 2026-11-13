@@ -107,7 +107,7 @@ The tiers and every land branch other than Shields match.
 | R2 | Ruin unit reward on water | Battleship carrying a Warrior | Veteran Rammer carrying a Warrior | 2.0.58 → 2.8.0 (Bomber) → 2.8.5 (Rammer) | - (no water) |
 | R3 | Ruin Explorer reward | Always possible | Only if a tile in the 5×5 around the ruin is unexplored | not dated | P1 low |
 | R5 | Lighthouses | absent; the Explorer task (Eye of God) is Navigation plus clearing all fog | A lighthouse on each map corner, always fogged at the start. Revealing one gives the capital (or the oldest city) +1 population; finding all four completes the Explorer task, with no tech needed | 2.8.0, 2.8.5 (always start fogged) | **P1 medium**: an 11×11 corner is reachable by Turn 10, and 113 of the training maps put the capital within view of a corner |
-| R4 | Explorer movement | 15 random steps | 12 steps (**unverified**: fandom only, Feb 2026; reported from play as 11 or 12), and explorers now favour unfound lighthouses (2.15.0 "Improved explorer movement"; the rule is not documented) | 2.15.0 / 2026 | P1 medium (the Explorer level-up and ruin reward) |
+| R4 | Explorer movement | 15 random steps | 12 steps (**unverified**: fandom only, Feb 2026; reported from play as 11 or 12). Since game version 115 the explorer steers (developer description, shared by Devin): every tile that would reveal fog is scored by how many fog tiles it reveals (1/2/3/4+ → 173/163/153/143, or 140/130/120/110 when one of them is a lighthouse); a 3-step breadth-first search gives tiles further out +100 per step; each step goes to the adjacent tile with the lowest score, ties at random, never straight back, and the explorer vanishes if it cannot move | v115, 2.15.0 ("Improved explorer movement"), 2026 | P1 medium (the Explorer level-up and ruin reward) |
 
 Matching: ruin rewards drawn with equal weight (10★, a random researchable tech, +3 pop to the capital, an
 Explorer, a unit); villages and ruins need a unit that started its turn on the tile (`isFresh`).
@@ -175,8 +175,9 @@ POLYVISION_RULES=polytopia_2_15 .venv/bin/python tools/evaluate_phase1.py ...
    all four.
 8. E16 Meeting stars: the tribe being met also gets its stars (fixes a Tribes bug), and the tribe later in
    turn order (in 1v1, the second player) gets 2★ extra (**unverified**, reported from play). Phase 2 only.
-9. R4 Explorer 12 steps (**unverified**). The steering towards lighthouses is not implemented: the game's
-   rule is not documented, so explorers still walk at random.
+9. R4 Explorer: 12 steps (**unverified** count) with the version-115 steering rule above. Mountain fog does not
+   count towards a tile's score. When no fog is within reach the explorer walks at random (the description
+   does not cover that case).
 
 The scripted opening (two animal harvests and a Workshop on 5★) still completes on every train and validation
 map under these rules (opening audit, 5,250 maps), so `phase1_opening_version` can stay. The Phase 1 reference numbers (24.5 SPT, 20.52) would need re-running under

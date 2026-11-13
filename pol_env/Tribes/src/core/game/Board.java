@@ -473,6 +473,11 @@ public class Board {
      */
     public void launchExplorer(int x0, int y0, int tribeId, Random rnd) {
 
+        if (core.RulesVersion.modern()) {
+            launchExplorerModern(x0, y0, tribeId, rnd);
+            return;
+        }
+
         Vector2d currentPos = new Vector2d(x0, y0);
         for (int i = 0; i < TribesConfig.explorerSteps(); ++i) {
             int j = 0;
@@ -503,6 +508,106 @@ public class Board {
 
         }
 
+    }
+
+    // 2.15 rules: explorer tile scores (lower is better), by fog tiles revealed (1, 2, 3, 4+).
+    private static final int[] EXPLORER_SCORE_LIGHTHOUSE = {140, 130, 120, 110};
+    private static final int[] EXPLORER_SCORE_PLAIN = {173, 163, 153, 143};
+    private static final int EXPLORER_BFS_STEP = 100;
+    private static final int EXPLORER_BFS_ITERATIONS = 3;
+
+    /**
+     * Explorer movement under the 2.15 rules (game version 115 onwards, as described by the game's developers):
+     * each step goes to the adjacent tile with the lowest score, where a tile that would reveal fog scores by how
+     * many fog tiles it reveals (up to 4, lighthouses first) and tiles up to three steps further away score +100
+     * per step. Ties are broken at random, the explorer avoids stepping straight back, and it stops if it has
+     * nowhere to go. With no fog within reach it walks at random.
+     */
+    private void launchExplorerModern(int x0, int y0, int tribeId, Random rnd) {
+        Vector2d currentPos = new Vector2d(x0, y0);
+        Vector2d previousPos = null;
+        for (int i = 0; i < TribesConfig.explorerSteps(); ++i) {
+            Vector2d next = nextExplorerStep(currentPos, previousPos, tribeId, rnd);
+            if (next == null) return; // no available steps at all: the explorer disappears
+            previousPos = currentPos.copy();
+            currentPos.x = next.x;
+            currentPos.y = next.y;
+            boolean updateNetwork = tribes[tribeId].clearView(currentPos.x, currentPos.y, TribesConfig.EXPLORER_CLEAR_RANGE, rnd, this);
+            tribes[tribeId].applyDeferredViewEffects(this);
+            if (updateNetwork)
+                tradeNetwork.computeTradeNetworkTribe(this, tribes[tribeId]);
+        }
+    }
+
+    /** Explorer tile scores for the 2.15 rules; Integer.MAX_VALUE for unscored tiles. Public for tests. */
+    public int[][] explorerScores(int tribeId) {
+        boolean[][] obs = tribes[tribeId].getObsGrid();
+        int[][] score = new int[size][size];
+        LinkedList<Vector2d> frontier = new LinkedList<>();
+        for (int x = 0; x < size; x++) {
+            for (int y = 0; y < size; y++) {
+                score[x][y] = Integer.MAX_VALUE;
+                if (!traversable(x, y, tribeId)) continue;
+                Vector2d t = new Vector2d(x, y);
+                LinkedList<Vector2d> area = t.neighborhood(EXPLORER_CLEAR_RANGE_FOR_SCORE, 0, size);
+                area.add(t);
+                int fog = 0;
+                boolean lighthouse = false;
+                for (Vector2d a : area) {
+                    if (!obs[a.x][a.y]) {
+                        fog++;
+                        if (Tribe.isLighthouseTile(a.x, a.y, size)) lighthouse = true;
+                    }
+                }
+                if (fog == 0) continue;
+                int idx = Math.min(fog, 4) - 1;
+                score[x][y] = lighthouse ? EXPLORER_SCORE_LIGHTHOUSE[idx] : EXPLORER_SCORE_PLAIN[idx];
+                frontier.add(t);
+            }
+        }
+        for (int it = 0; it < EXPLORER_BFS_ITERATIONS && !frontier.isEmpty(); it++) {
+            LinkedList<Vector2d> nextFrontier = new LinkedList<>();
+            int[][] updated = new int[size][];
+            for (int x = 0; x < size; x++) updated[x] = score[x].clone();
+            for (Vector2d f : frontier) {
+                int candidate = score[f.x][f.y] + EXPLORER_BFS_STEP;
+                for (Vector2d n : f.neighborhood(1, 0, size)) {
+                    if (score[n.x][n.y] != Integer.MAX_VALUE || !traversable(n.x, n.y, tribeId)) continue;
+                    if (candidate < updated[n.x][n.y]) {
+                        if (updated[n.x][n.y] == Integer.MAX_VALUE) nextFrontier.add(n);
+                        updated[n.x][n.y] = candidate;
+                    }
+                }
+            }
+            score = updated;
+            frontier = nextFrontier;
+        }
+        return score;
+    }
+
+    // The explorer reveals one tile around it; climbing a mountain does not count for the score.
+    private static final int EXPLORER_CLEAR_RANGE_FOR_SCORE = TribesConfig.EXPLORER_CLEAR_RANGE;
+
+    private Vector2d nextExplorerStep(Vector2d current, Vector2d previous, int tribeId, Random rnd) {
+        int[][] score = explorerScores(tribeId);
+        ArrayList<Vector2d> steps = new ArrayList<>();
+        for (Vector2d n : current.neighborhood(1, 0, size)) {
+            if (traversable(n.x, n.y, tribeId)) steps.add(n);
+        }
+        if (steps.isEmpty()) return null;
+        ArrayList<Vector2d> forward = new ArrayList<>();
+        for (Vector2d n : steps) if (previous == null || !n.equals(previous)) forward.add(n);
+        ArrayList<Vector2d> options = forward.isEmpty() ? steps : forward;
+
+        int best = Integer.MAX_VALUE;
+        ArrayList<Vector2d> bestSteps = new ArrayList<>();
+        for (Vector2d n : options) {
+            int sc = score[n.x][n.y];
+            if (sc < best) { best = sc; bestSteps.clear(); }
+            if (sc == best) bestSteps.add(n);
+        }
+        // With no scored tile in reach, bestSteps holds every option (all unscored): a random walk.
+        return bestSteps.get(rnd.nextInt(bestSteps.size()));
     }
 
     /**

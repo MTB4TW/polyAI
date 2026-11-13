@@ -63,6 +63,8 @@ public final class RulesParityTest {
                 testLighthousesStartFogged(modern);
                 testLighthouseDiscovery(modern);
                 testMeetingStars(modern);
+                if (modern) testExplorerScores();
+                testExplorerSeeksFog(modern);
             }
             testRulesIds();
         } finally {
@@ -352,6 +354,52 @@ public final class RulesParityTest {
         assertEq(modern, other.getTribesMet().contains(0), "tribe 1 met tribe 0");
         // Tribe 1 moves second, so under 2.15 rules it also gets the +2 second-player bonus.
         assertEq(otherStars + (modern ? meetingStars(myScore) + 2 : 0), other.getStars(), "stars for the tribe being met");
+    }
+
+    /** A game where everything is visible except the given tiles, with Climbing so every land tile is walkable. */
+    private static GameState gameWithFog(int[][] fogged) {
+        GameState gs = freshGame();
+        Tribe t = gs.getTribe(0);
+        t.getTechTree().doResearchInit(Types.TECHNOLOGY.CLIMBING);
+        boolean[][] g = t.getObsGrid();
+        for (boolean[] row : g) java.util.Arrays.fill(row, true);
+        for (int[] f : fogged) g[f[0]][f[1]] = false;
+        return gs;
+    }
+
+    private static void testExplorerScores() {
+        // Phase 1 maps are all land, so every tile is walkable with Climbing.
+        GameState gs = gameWithFog(new int[][]{{0, 0}, {6, 8}});
+        Board b = gs.getBoard();
+        int[][] sc = b.explorerScores(0);
+        assertEq(140, sc[1][1], "score: 1 fog tile that is a lighthouse");
+        assertEq(173, sc[5][7], "score: 1 plain fog tile");
+        assertEq(240, sc[2][2], "score: one step from a lighthouse tile");
+        assertEq(273, sc[4][6], "score: one step from a plain fog tile");
+        assertEq(440, sc[4][4], "score: three steps from a lighthouse tile (BFS limit)");
+        assertEq(Integer.MAX_VALUE, sc[10][0], "score: out of BFS reach");
+
+        // Four or more fog tiles share the best score; a lighthouse beats any plain count.
+        gs = gameWithFog(new int[][]{{4, 4}, {4, 5}, {4, 6}, {5, 4}, {5, 6}, {10, 10}});
+        sc = gs.getBoard().explorerScores(0);
+        assertEq(143, sc[5][5], "score: 5 fog tiles counts as 4+");
+        assertEq(153, sc[3][5], "score: 3 fog tiles");
+        assertEq(140, sc[9][9], "score: lighthouse with 1 tile beats 4+ plain tiles");
+    }
+
+    private static void testExplorerSeeksFog(boolean modern) {
+        // One fogged tile three steps from the capital: the 2.15 explorer walks straight to it.
+        GameState gs = freshGame();
+        City c = capital(gs);
+        Vector2d p = c.getPosition();
+        int n = gs.getBoard().getSize();
+        int fx = p.x + 3 < n ? p.x + 3 : p.x - 3;
+        GameState g2 = gameWithFog(new int[][]{{fx, p.y}});
+        Tribe t = g2.getTribe(0);
+        g2.getBoard().launchExplorer(p.x, p.y, 0, new java.util.Random(5));
+        if (modern) assertEq(true, t.getObsGrid()[fx][p.y], "2.15 explorer reveals the only fog tile");
+        // Under 2020 rules the random walk may or may not find it; only the 2.15 behaviour is checked.
+        checks++;
     }
 
     private static int meetingStars(int score) {
