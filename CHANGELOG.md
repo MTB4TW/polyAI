@@ -34,6 +34,9 @@ All notable changes to this project are documented in this file.
   (`_ema`, alpha 2/101), plus `combat_reward_share/<name>`, the component's share of the game's total |reward|,
   and `combat_outcome/{win,loss,timeout}_rate` in both forms.
 - Reward-only change; combat environment version unchanged.
+- Every active component starts each game at 0, so `combat_reward_component/*` and `combat_reward_share/*`
+  average over all games. (The first sweep, jobs 1980020–1980029, logged event components only in games where
+  they fired, which overstates rare ones such as `avoid_philosophy_meditation`.)
 
 ### Validation
 - `tools/tests/test_combat_shaping_terms.py` (11 unit tests of the terms); a live test plays full random games

@@ -569,7 +569,12 @@ class TribesGymWrapper(gym.Env):
             self._combat_turn_start_state = state
             self._combat_prev_terms = self._combat_phi_terms(state)
             self._combat_prev_potential = float(sum(self._combat_prev_terms.values()))
-            self._combat_ep_components = {}
+            # Start every active component at 0, so a component that never fires in a game still counts (as 0)
+            # in the per-game means and shares, instead of being averaged only over the games where it fired.
+            w = self._combat_reward_weights
+            self._combat_ep_components = {"outcome": 0.0, "early_win": 0.0}
+            self._combat_ep_components.update({f"phi_{k}": 0.0 for k in self._combat_prev_terms})
+            self._combat_ep_components.update({k: 0.0 for k in self.COMBAT_EVENT_TERMS if w.get(k)})
             self._combat_ep_research_turn = {}
             self._combat_reset_turn_trackers()
             self._combat_first_contact_tick = -1
@@ -5024,6 +5029,9 @@ class TribesGymWrapper(gym.Env):
         if w["zone_of_control"]:
             terms["zone_of_control"] = w["zone_of_control"] * combat_shaping.zone_of_control(state, me)
         return terms
+
+    COMBAT_EVENT_TERMS = ("regional_attack", "role_positioning", "damage_trade", "hanging_population", "tech_order",
+                          "pop_tech", "unused_tech", "tech_cost", "avoid_fishing", "avoid_philosophy_meditation")
 
     def _combat_reset_turn_trackers(self):
         self._combat_turn_research = []      # (tech, tier) researched this turn

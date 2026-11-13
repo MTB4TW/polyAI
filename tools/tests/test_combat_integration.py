@@ -190,6 +190,7 @@ class CombatAllTermsEpisodeTests(unittest.TestCase):
                     comps = {k: v for k, v in info.items() if k.startswith('combat_end_component_')}
                     self.assertIn('combat_end_component_phi_capital_proximity', comps)
                     self.assertIn('combat_end_component_role_positioning', comps)
+                    self.assertIn('combat_end_component_avoid_philosophy_meditation', comps)  # present even if it never fired
                     self.assertAlmostEqual(sum(comps.values()), total, places=6)
                     self.assertIn('combat_end_raw_giants_ours', info)
                     self.assertEqual(sum(1 for k in info if k.startswith('combat_end_raw_tech_')), 24)
