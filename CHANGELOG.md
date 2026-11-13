@@ -2,6 +2,44 @@
 
 All notable changes to this project are documented in this file.
 
+## [Net-Composed_Action_Representation-054] - (2026-11-12)
+
+### Scope
+- New experimental `--network-arch spatial_resnet_composed`. It is the ResNet agent with the per-action-ID
+  embedding table (`nn.Embedding(n_actions, 64)`, 93% of `spatial_resnet`'s parameters) removed. Each legal
+  slot is scored from parts instead:
+  - an action-type embedding (64-d) over the catalog's (family, variant) blocks, e.g. `MOVE`,
+    `CAPTURE/VILLAGE`, `TRAIN/WARRIOR`, `BUILD/SAWMILL`, `RESEARCH_TECH/ORGANIZATION`, `LEVEL_UP/WORKSHOP`
+    (73 types in Phase 1, 75 with combat's `ATTACK`/`RECOVER`);
+  - the ResNet grid features at the source and target tiles (2 x 64-d, as in `spatial_resnet_local`),
+    zeroed for tile-less types (`END_TURN`, `RESEARCH_TECH`) so they do not read tile (0,0);
+  - the 47 legal-action features through the existing 32-d encoder, plus the 64-d state vector.
+  The scorer is unchanged in form (Linear 288 -> 64, Tanh, Linear 64 -> 1).
+- The type comes from the global ID: `py_rl/cleanrl/cleanrl/action_types.py` rebuilds the environment's
+  `GlobalActionCatalog` from `Types.java` (no Java), checks its size against the action space, and the agent
+  maps IDs to types with `torch.bucketize` over the block start offsets (stored as a state_dict buffer).
+- Parameters: 327,330 (Phase 1) and 327,458 (combat), versus 4,404,898 / 5,349,666 for `spatial_resnet` and
+  4,413,090 / 5,357,858 for `spatial_resnet_local`. The count no longer grows with the action catalog.
+- Wired into `agent_factory.py`, `local/playground.py --arch`, `cluster/run_experiment.sh`, the experiment
+  skill and docs. Evaluators already read `network_arch` from the checkpoint sidecar.
+- No environment, observation, action-space, reward, or feature change; no contract bump. Existing
+  `spatial_resnet` / `spatial_resnet_local` / `mlp` code paths are unchanged. The sidecar records
+  `network_arch`, and strict `load_state_dict` rejects loading a checkpoint under the other architecture.
+
+### Validation
+- `tools/tests/test_composed_action_arch.py`: the rebuilt catalog's fingerprint equals the environment's for
+  Phase 1 and combat; every global ID maps to its catalog block; forward/backward shapes; masked slots get
+  zero probability; tile-less types ignore tile (0,0); parameter counts; checkpoint round trip and cross-arch
+  rejection; old architectures keep their state_dict layout.
+- Old architectures checked against `origin/main`: identical parameter names, seeded initial weights and
+  logits; all `spatial_resnet` / `spatial_resnet_local` checkpoints under `runs/` load strictly and round-trip
+  bit-for-bit.
+- Smoke only (diagnostic, not a result): 2,048-step CPU training (2 envs, train pool) ran end to end, saved
+  a checkpoint whose sidecar records `network_arch: spatial_resnet_composed`, and `tools/evaluate_phase1.py`
+  loaded it and played 2 validation maps (1 repeat, PPO policies only). No model was trained for comparison,
+  so there is no `docs/experiments.md` entry; the architecture needs a full training run and canonical
+  evaluation before any claim about quality.
+
 ## [Perf-MPS_Learner_Device-051] - (2026-11-12)
 
 ### Scope

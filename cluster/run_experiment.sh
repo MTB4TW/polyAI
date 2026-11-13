@@ -6,7 +6,7 @@
 #   cluster/run_experiment.sh NAME ARCH STEPS [SEED]
 #
 #   NAME   letters, digits, . _ - only; e.g. resnet-local-16m-seed1
-#   ARCH   mlp | spatial_resnet | spatial_resnet_local
+#   ARCH   mlp | spatial_resnet | spatial_resnet_local | spatial_resnet_composed
 #   STEPS  total environment steps, e.g. 16000000
 #   SEED   training seed (default 1)
 #
@@ -38,7 +38,7 @@ SEED=${4:-1}
 
 [[ "$NAME" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "Invalid NAME: $NAME" >&2; usage; }
 case "$ARCH" in
-    mlp|spatial_resnet|spatial_resnet_local) ;;
+    mlp|spatial_resnet|spatial_resnet_local|spatial_resnet_composed) ;;
     *) echo "Invalid ARCH: $ARCH" >&2; usage ;;
 esac
 [[ "$STEPS" =~ ^[0-9]+$ ]] || { echo "Invalid STEPS: $STEPS" >&2; usage; }
