@@ -34,6 +34,20 @@ class CombatRewardWeightsTests(unittest.TestCase):
 
 
 class CombatPotentialTests(unittest.TestCase):
+    def test_new_terms(self):
+        # unit 0.1, unit_value 0.05 per star, giant 0.5, tile 0.05, road 0.05 (defaults), ours minus theirs.
+        me = {"units": 5, "unitValue": 14, "giants": 1, "tiles": 18, "roads": 4}
+        them = {"units": 3, "unitValue": 6, "giants": 0, "tiles": 9, "roads": 0}
+        expected = 0.1 * 2 + 0.05 * 8 + 0.5 * 1 + 0.05 * 9 + 0.05 * 4
+        got = TribesGymWrapper._combat_potential({"tribes": {"0": me, "1": them}}, W)
+        self.assertAlmostEqual(got, expected)
+        self.assertAlmostEqual(TribesGymWrapper._combat_potential({"tribes": {"0": them, "1": me}}, W), -expected)
+
+    def test_new_term_overrides(self):
+        weights = TribesGymWrapper._load_combat_reward_weights(
+            {"POLYVISION_COMBAT_REWARD_TILE": "0", "POLYVISION_COMBAT_REWARD_GIANT": "2"})
+        self.assertEqual((weights["tile"], weights["giant"]), (0.0, 2.0))
+
     def potential(self, me, *others):
         tribes = {"0": me, **{str(i + 1): t for i, t in enumerate(others)}}
         return TribesGymWrapper._combat_potential({"tribes": tribes}, W)

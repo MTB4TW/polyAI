@@ -82,6 +82,11 @@ outcome = win (default +10) on taking the enemy capital, loss (default −10) on
 Φ(s)   = city            × (our cities − their cities)
        + score_per_1000  × (our Tribes score − their score) / 1000
        + kill            × (our unit kills − their unit kills)
+       + unit            × (our units − their units)
+       + unit_value      × (our total unit star cost − theirs)
+       + giant           × (our giants − their giants)
+       + tile            × (our territory tiles − theirs)
+       + road            × (our road tiles in territory − theirs)
 ```
 
 The second term rewards changes in a weighted "who is ahead" score. Its sum over an episode is
@@ -104,6 +109,11 @@ changes, e.g. `POLYVISION_COMBAT_REWARD_CITY=2 POLYVISION_COMBAT_REWARD_KILL=0.5
 | `POLYVISION_COMBAT_REWARD_CITY` | 1.0 | potential per city of advantage |
 | `POLYVISION_COMBAT_REWARD_SCORE_PER_1000` | 1.0 | potential per 1000 points of Tribes score advantage |
 | `POLYVISION_COMBAT_REWARD_KILL` | 0.25 | potential per kill of advantage |
+| `POLYVISION_COMBAT_REWARD_UNIT` | 0.1 | potential per unit of advantage |
+| `POLYVISION_COMBAT_REWARD_UNIT_VALUE` | 0.05 | potential per star of unit-cost advantage |
+| `POLYVISION_COMBAT_REWARD_GIANT` | 0.5 | potential per giant of advantage (on top of unit value) |
+| `POLYVISION_COMBAT_REWARD_TILE` | 0.05 | potential per territory tile of advantage |
+| `POLYVISION_COMBAT_REWARD_ROAD` | 0.05 | potential per road tile (in own territory) of advantage |
 | `POLYVISION_COMBAT_REWARD_TIMEOUT` | 0 | outcome reward on a turn-limit timeout (loss < timeout < win) |
 | `POLYVISION_COMBAT_REWARD_TERMINAL_POTENTIAL` | 1 | share of the final Φ paid at game end; 0 makes the shaping net ~0 per game |
 

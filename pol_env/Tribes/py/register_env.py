@@ -4873,6 +4873,11 @@ class TribesGymWrapper(gym.Env):
         "city": 1.0,              # potential per city of advantage (ours minus theirs)
         "score_per_1000": 1.0,    # potential per 1000 points of Tribes score advantage
         "kill": 0.25,             # potential per unit-kill of advantage
+        "unit": 0.1,              # potential per unit of advantage (unit count)
+        "unit_value": 0.05,       # potential per star of total unit cost advantage (warrior 2, knight 8, ...)
+        "giant": 0.5,             # potential per giant (super unit) of advantage, on top of its unit value
+        "tile": 0.05,             # potential per territory tile of advantage (a 3x3 city is 9 tiles)
+        "road": 0.05,             # potential per road tile of advantage inside own territory
         "timeout": 0.0,           # outcome reward for reaching the turn limit (must lie between loss and win)
         "terminal_potential": 1.0,  # share of the final potential paid out at game end: 1 keeps the lead,
                                     # 0 treats phi as 0 at game end (shaping then nets ~0 over a game)
@@ -4900,7 +4905,8 @@ class TribesGymWrapper(gym.Env):
 
     @staticmethod
     def _combat_potential(obs, weights, me="0"):
-        """Weighted advantage of tribe `me` over all other tribes (cities, Tribes score, kills).
+        """Weighted advantage of tribe `me` over all other tribes (cities, Tribes score, kills, units,
+        unit value, giants, territory tiles, roads).
 
         `obs` is {"tribes": {id: {...}}}. Pass engine totals (`_combat_engine_totals`), not the policy
         observation: the observation is fog-limited, so enemy cities and kills there are undercounted
@@ -4914,23 +4920,34 @@ class TribesGymWrapper(gym.Env):
         def stats(t):
             t = t if isinstance(t, dict) else {}
             cities = t["numCities"] if "numCities" in t else len(t.get("citiesID") or [])
-            return (float(cities), float(t.get("score") or 0.0), float(t.get("nKills") or 0.0))
+            return (float(cities), float(t.get("score") or 0.0), float(t.get("nKills") or 0.0),
+                    float(t.get("units") or 0.0), float(t.get("unitValue") or 0.0), float(t.get("giants") or 0.0),
+                    float(t.get("tiles") or 0.0), float(t.get("roads") or 0.0))
 
         mine = stats(tribes.get(me))
         others = [stats(t) for key, t in tribes.items() if str(key) != str(me)]
-        theirs = tuple(sum(o[i] for o in others) for i in range(3)) if others else (0.0, 0.0, 0.0)
-        return (weights["city"] * (mine[0] - theirs[0])
-                + weights["score_per_1000"] * (mine[1] - theirs[1]) / 1000.0
-                + weights["kill"] * (mine[2] - theirs[2]))
+        theirs = tuple(sum(o[i] for o in others) for i in range(len(mine))) if others else (0.0,) * len(mine)
+        d = [m - t for m, t in zip(mine, theirs)]
+        return (weights["city"] * d[0]
+                + weights["score_per_1000"] * d[1] / 1000.0
+                + weights["kill"] * d[2]
+                + weights.get("unit", 0.0) * d[3]
+                + weights.get("unit_value", 0.0) * d[4]
+                + weights.get("giant", 0.0) * d[5]
+                + weights.get("tile", 0.0) * d[6]
+                + weights.get("road", 0.0) * d[7])
 
     def _combat_engine_totals(self):
-        """True per-tribe totals from the engine's game state (not fog-limited), as {"tribes": {...}}."""
-        gs = self.tribes_env._env.getGameState()
+        """True per-tribe totals from the engine's game state (not fog-limited), as {"tribes": {...}}.
+
+        One Java call (`PythonEnv.combatTotalsJson`) per step; keys match `_combat_potential`.
+        """
+        raw = json.loads(str(self.tribes_env._env.combatTotalsJson()))
         tribes = {}
-        for tid in range(len(gs.getTribes())):
-            t = gs.getTribe(tid)
-            tribes[str(tid)] = {"numCities": int(t.getNumCities()), "score": int(t.getScore()),
-                                "nKills": int(t.getnKills())}
+        for tid, t in raw.items():
+            tribes[str(tid)] = {"numCities": int(t["cities"]), "score": int(t["score"]), "nKills": int(t["kills"]),
+                                "units": int(t["units"]), "unitValue": int(t["unitValue"]),
+                                "giants": int(t["giants"]), "tiles": int(t["tiles"]), "roads": int(t["roads"])}
         return {"tribes": tribes}
 
     @staticmethod

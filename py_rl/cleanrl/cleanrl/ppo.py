@@ -1354,11 +1354,18 @@ if __name__ == "__main__":
         import wandb
         import os
         import sys
+        run_config = dict(vars(args))
+        if str(os.environ.get("POLYVISION_COMBAT_MODE", "0")).strip() in ("1", "true") or \
+                str(os.environ.get("POLYVISION_PHASE", "1")).strip() == "2":
+            # Combat reward weights come from POLYVISION_COMBAT_REWARD_* env vars; record them with the run.
+            run_config.update({f"combat_reward_{k}": v
+                               for k, v in TribesGymWrapper._load_combat_reward_weights().items()})
+            run_config["combat_max_turns"] = int(os.environ.get("POLYVISION_MAX_TURNS", "20"))
         wandb_run = wandb.init(
             project=args.wandb_project_name,
             entity=args.wandb_entity,
             sync_tensorboard=False,
-            config=vars(args),
+            config=run_config,
             name=run_name,
             monitor_gym=True,
             save_code=True,

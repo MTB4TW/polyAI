@@ -670,6 +670,51 @@ public class PythonEnv {
     }
 
     /**
+     * Per-tribe totals from the true (not fog-limited) game state, for the combat shaping potential.
+     * Never part of the policy observation. Keys per tribe id: cities, score, kills, units, unitValue
+     * (sum of unit star costs), giants (super units), tiles (territory tiles owned through cities) and
+     * roads (road tiles inside that territory). Used only in combat mode.
+     */
+    public String combatTotalsJson() {
+        Board board = gs.getBoard();
+        Tribe[] tribes = gs.getTribes();
+        int n = tribes.length, size = board.getSize();
+        int[] units = new int[n], unitValue = new int[n], giants = new int[n], tiles = new int[n], roads = new int[n];
+        for (int x = 0; x < size; x++) {
+            for (int y = 0; y < size; y++) {
+                Unit u = board.getUnitAt(x, y);
+                if (u != null && u.getTribeId() >= 0 && u.getTribeId() < n) {
+                    units[u.getTribeId()]++;
+                    unitValue[u.getTribeId()] += u.getType().getCost();
+                    if (u.getType() == Types.UNIT.SUPERUNIT) giants[u.getTribeId()]++;
+                }
+                int cityId = board.getCityIdAt(x, y);
+                if (cityId >= 0 && gs.getActor(cityId) instanceof City) {
+                    int owner = gs.getActor(cityId).getTribeId();
+                    if (owner >= 0 && owner < n) {
+                        tiles[owner]++;
+                        if (board.isRoad(x, y)) roads[owner]++;
+                    }
+                }
+            }
+        }
+        JSONObject out = new JSONObject();
+        for (int i = 0; i < n; i++) {
+            JSONObject t = new JSONObject();
+            t.put("cities", tribes[i].getNumCities());
+            t.put("score", tribes[i].getScore());
+            t.put("kills", tribes[i].getnKills());
+            t.put("units", units[i]);
+            t.put("unitValue", unitValue[i]);
+            t.put("giants", giants[i]);
+            t.put("tiles", tiles[i]);
+            t.put("roads", roads[i]);
+            out.put(String.valueOf(i), t);
+        }
+        return out.toString();
+    }
+
+    /**
      * Diagnostic-only full-visibility observation built from runtime state.
      * This bypasses POV fog and should not be used for training.
      */

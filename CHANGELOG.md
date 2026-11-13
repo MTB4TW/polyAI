@@ -2,6 +2,36 @@
 
 All notable changes to this project are documented in this file.
 
+## [Phase2-Combat_Extended_Potential-056] - (2026-11-12)
+
+### Scope
+- The combat potential Φ gains five terms, each ours minus theirs from the engine's true game state
+  (weights via `POLYVISION_COMBAT_REWARD_<NAME>`):
+
+  | Term | Default weight | Counts |
+  |---|---:|---|
+  | `unit` | 0.1 | units on the board |
+  | `unit_value` | 0.05 | sum of unit star costs (warrior 2, archer/defender/rider 3, swordsman 5, knight/catapult 8, giant 10) |
+  | `giant` | 0.5 | giants (super units), on top of their unit value |
+  | `tile` | 0.05 | territory tiles owned through cities |
+  | `road` | 0.05 | road tiles inside own territory |
+
+- New Java method `PythonEnv.combatTotalsJson()` returns all per-tribe totals in one call; combat only, never
+  part of the observation. `_combat_engine_totals` uses it.
+- The trainer now records the combat reward weights and turn limit in the W&B run config
+  (`combat_reward_*`, `combat_max_turns`); before, they were only in the job log.
+- Reward-only change: what a checkpoint observes and does is unchanged, so the combat environment version stays
+  `combat_v5_scaled_scalars_horizon_<T>`. Runs before this entry used the three-term potential.
+
+### Validation
+- 12 random-play games: the new terms contribute on average |0.55| (units), |0.87| (unit value), |0.25| (giants)
+  and |1.13| (tiles) to the final Φ, against |1.75| (cities) and |1.18| (score). Roads stayed 0 (random play
+  never built one). Φ at reset is within ±0.06 of 0. Engine unit count matched the observation's own units at
+  all 1,334 steps.
+- New tests: term arithmetic and overrides (`test_combat_reward_shaping.py`), engine totals at reset (live).
+  `tools/run_core_ci_checks.py`, all `tools/tests` with live JVM tests, and a trainer smoke run pass. Phase 1
+  observation and reward hashes unchanged.
+
 ## [Phase2-Combat_Timeout_Reward_Options-055] - (2026-11-12)
 
 ### Scope
