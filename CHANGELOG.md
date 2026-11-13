@@ -2,6 +2,27 @@
 
 All notable changes to this project are documented in this file.
 
+## [Phase2-Combat_Scaled_Legacy_Scalars-053] - (2026-11-12)
+
+### Scope
+- Combat divides the six legacy scalars of the observation (stars, Tribes score, cities, kills, tick, active
+  tribe) by `(50, 1000, 6, 10, MAX_TURNS, 1)`. Raw score (about 500–3,000), stars and tick drove the value
+  head's first tanh layer into saturation: 98% of its units were at ±1 on a freshly initialised network,
+  and 100% in the trained combat checkpoints, so the critic output one constant for every state (explained
+  variance exactly 0 in runs `s2ccxirq`, `lg0047jk`, `4jek7992`, `txiwiofg`). Value clipping and a lower
+  learning rate did not help, because the inputs, not the weights (max |W| about 0.4), were the problem.
+- Phase 1 keeps the raw values, so its observation contract is unchanged. Note: the Phase 1 ResNet
+  checkpoint `farmshare_resnet_5m` shows the same saturation (its critic outputs 90.88 for every state);
+  the Phase 1 MLP critic also takes the raw observation through tanh and is probably affected. Not fixed here.
+- Combat environment version → `combat_v5_scaled_scalars_horizon_<T>`.
+
+### Validation
+- Fresh network on combat observations: largest input 2,875 → 5; first critic layer saturation 98% → 17%;
+  value std across 300 states 0.003 → 0.126.
+- Phase 1 observations and rewards hash identically before and after (151 random-play steps, 3 maps).
+- New live test `test_legacy_scalars_are_scaled_in_combat`; `tools/run_core_ci_checks.py` and all
+  `tools/tests` (with live JVM tests) pass.
+
 ## [Phase2-Combat_Capitals_Win_and_Engine_Potential-052] - (2026-11-12)
 
 ### Scope

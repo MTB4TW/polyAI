@@ -328,13 +328,15 @@ class TribesGymWrapper(gym.Env):
             if self.MAX_TURNS < 1:
                 raise ValueError("POLYVISION_MAX_TURNS must be positive")
             self.PHASE1_OPENING_VERSION = "combat_no_scripted_opening_v1"
-            self.PHASE1_ENVIRONMENT_VERSION = f"combat_v4_capitals_engine_potential_horizon_{self.MAX_TURNS}"
+            self.PHASE1_ENVIRONMENT_VERSION = f"combat_v5_scaled_scalars_horizon_{self.MAX_TURNS}"
             self._combat_reward_weights = self._load_combat_reward_weights()
             self._combat_prev_potential = 0.0
             self._combat_first_contact_tick = -1
         # Combat is won by holding every capital (in 1v1: taking the enemy capital while keeping ours);
         # SCORE mode would require taking every enemy city. Phase 1 keeps SCORE.
         self._engine_game_mode = "CAPITALS" if self._is_combat_mode else "SCORE"
+        # Divisors for the six legacy scalars (stars, score, cities, kills, tick, active tribe) in combat.
+        self.COMBAT_LEGACY_SCALAR_SCALES = (50.0, 1000.0, 6.0, 10.0, float(getattr(self, "MAX_TURNS", 20)), 1.0)
         self.tribes_env = make_default_env()
         if self._is_combat_mode:
             self.tribes_env._env.setSoloNoOpponentMode(False)
@@ -5486,12 +5488,19 @@ class TribesGymWrapper(gym.Env):
         # 7. Legacy Scalars (6 values)
         tribes_info = obs_dict.get("tribes", {})
         tribe0 = tribes_info.get(str(controlled_tribe), {}) if isinstance(tribes_info, dict) else {}
-        features.append(float(tribe0.get("star", 0)))
-        features.append(float(tribe0.get("score", 0)))
-        features.append(float(len(tribe0.get("citiesID", []))))
-        features.append(float(tribe0.get("nKills", 0)))
-        features.append(float(obs_dict.get("tick", 0)))
-        features.append(float(obs_dict.get("activeTribeID", 0)))
+        legacy = [
+            float(tribe0.get("star", 0)),
+            float(tribe0.get("score", 0)),
+            float(len(tribe0.get("citiesID", []))),
+            float(tribe0.get("nKills", 0)),
+            float(obs_dict.get("tick", 0)),
+            float(obs_dict.get("activeTribeID", 0)),
+        ]
+        if getattr(self, "_is_combat_mode", False):
+            # Raw score (~500-3000), stars and tick saturated the value head's tanh layer, so the critic
+            # output a constant. Combat scales them to roughly [0, 1]; Phase 1 keeps the raw values.
+            legacy = [v / s for v, s in zip(legacy, self.COMBAT_LEGACY_SCALAR_SCALES)]
+        features.extend(legacy)
 
         # 8. Economy / State Scalars (12 values)
         current_stars = float(self._get_bardur_stars(obs_dict))

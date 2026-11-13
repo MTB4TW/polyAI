@@ -71,7 +71,7 @@ Enabling the non-stepwise Terminal-SPT bonus established a strong terminal credi
 
 ## Phase 2 combat reward
 
-Combat mode (`POLYVISION_COMBAT_MODE=1`, environment version `combat_v4_capitals_engine_potential_horizon_<T>`)
+Combat mode (`POLYVISION_COMBAT_MODE=1`, environment version `combat_v5_scaled_scalars_horizon_<T>`)
 replaces the Phase 1 reward entirely. Combat runs in the engine's CAPITALS mode: a tribe wins as soon as it
 holds every capital (in 1v1, taking the enemy capital while keeping its own), and losing its own capital loses.
 Games that reach the turn limit `T` (`POLYVISION_MAX_TURNS`, default 20) are timeouts. Each step pays

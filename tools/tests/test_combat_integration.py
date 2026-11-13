@@ -77,6 +77,14 @@ class CombatIntegrationTests(unittest.TestCase):
         self.assertEqual(info['combat_end_enemy_cities'], 1)
         self.assertFalse(any(info['legal_action_valid_mask']))
 
+    def test_legacy_scalars_are_scaled_in_combat(self):
+        # Raw score (~500-3000) saturated the critic; combat divides the six legacy scalars.
+        vec = self.env._dict_to_array(self.env.tribes_env._last_obs)
+        legacy = vec[6292:6298]
+        tribe0 = self.env.tribes_env._last_obs['tribes']['0']
+        self.assertAlmostEqual(float(legacy[1]), float(tribe0['score']) / 1000.0, places=5)
+        self.assertLess(float(abs(vec).max()), 10.0)
+
     def test_potential_counts_enemy_cities_hidden_by_fog(self):
         obs_enemy = len(self.env.tribes_env._last_obs['tribes']['1']['citiesID'])
         totals = self.env._combat_engine_totals()['tribes']
