@@ -79,7 +79,7 @@ Phase columns: **P1** = Phase 1 solo Bardur economy (11×11 Drylands, Turn 10); 
 | E12 | Burn Forest | 5★, Chivalry | 3★, Construction | 2.8.5 (tech), 2.14.0 (cost) | P2 (not a Phase 1 action) |
 | E13 | Destroy | Construction | Chivalry | 2.8.5 | P2 (not a Phase 1 action) |
 | E14 | Embassies, Peace Treaty, Diplomacy tech | absent | present | 2.2 | P2 |
-| E16 | Stars for meeting a tribe | Score table already modernised by PolyVision: 3★ below 1,000 points, then +2★ per 1,000, max 11★ at 4,000+. **Bug:** the tribe being met never gets stars (`meetTribe` is called with the meeting tribe's own ID and returns early) | 1★ + 2★ per 1,000 of the other tribe's score, rounded up to the next thousand, max 11★ (official wiki). Equal to the engine's table except exactly at multiples of 1,000. Reported from play (**unverified**, no written source): the second player gets 2★ extra | 2.0.58 | P2 (no other tribes in Phase 1) |
+| E16 | Stars for meeting a tribe | Score table already modernised by PolyVision: 3★ below 1,000 points, then +2★ per 1,000, max 11★ at 4,000+. **Bug:** the tribe being met never gets stars (`meetTribe` is called with the meeting tribe's own ID and returns early) | 1★ + 2★ per 1,000 of the other tribe's score, rounded up to the next thousand, max 11★ (official wiki). Equal to the engine's table except exactly at multiples of 1,000. Reported from play: a tribe meets another only by seeing its unit or city on its own turn; the second player gets 2★ extra (**unverified**, no written source) | 2.0.58 | P2 (no other tribes in Phase 1) |
 | E15 | Starting stars | 5★ for every tribe | 5★ default (Bardur 5★); some tribes 6-7★, Luxidoor 2★ plus a level-3 capital | 2.14.0 | P2 only if the opponent is one of those tribes |
 
 Unchanged and matching: harvest fruit/animal 2★ +1 pop; Farm and Mine 5★ +2; Sawmill and Windmill 5★, +1 per
@@ -175,8 +175,11 @@ POLYVISION_RULES=polytopia_2_15 .venv/bin/python tools/evaluate_phase1.py ...
 6. E7 Forge allowed on forest.
 7. R5 Lighthouses: corners start fogged, +1 population to the capital per lighthouse found, Eye of God for
    all four.
-8. E16 Meeting stars: the tribe being met also gets its stars (fixes a Tribes bug), and the tribe later in
-   turn order (in 1v1, the second player) gets 2★ extra (**unverified**, reported from play). Phase 2 only.
+8. E16 Meeting: a tribe meets another only when it sees that tribe's unit or territory on its own turn: when
+   its view clears during its turn, or at the start of its turn for anything already visible. Being seen is
+   not meeting. The tribe later in turn order (in 1v1, the second player) gets 2★ extra (**unverified**,
+   reported from play). A tribe never meets itself (under `tribes_2020` it does, while the level loads; the
+   start-of-game star reset hides it). Phase 2 only.
 9. R4 Explorer: 12 steps (**unverified** count) with the version-115 steering rule above. Mountain fog does not
    count towards a tile's score. When no fog is within reach the explorer walks at random (the description
    does not cover that case).

@@ -69,8 +69,6 @@ public class Tribe extends Actor {
     private int pendingLighthousePop = 0;
     // False while the level is being set up, so corners revealed by the starting view give nothing.
     private boolean lighthousesActive = false;
-    // 2.15 rules: tribes that saw this tribe and still have to "meet" it (and get their stars); see applyDeferredViewEffects.
-    private ArrayList<Integer> pendingReverseMeetings = new ArrayList<>();
 
     // Number to track the number of stars sent in a turn
     private int starsSent;
@@ -179,7 +177,6 @@ public class Tribe extends Actor {
         tribeCopy.nPacifistCount = hideInfo ? 0 : this.nPacifistCount;
         tribeCopy.pendingLighthousePop = hideInfo ? 0 : this.pendingLighthousePop;
         tribeCopy.lighthousesActive = this.lighthousesActive;
-        tribeCopy.pendingReverseMeetings = new ArrayList<>(this.pendingReverseMeetings);
         tribeCopy.starsSent = this.starsSent;
         tribeCopy.hasDeclaredWar = this.hasDeclaredWar;
         tribeCopy.nWarsDeclared = this.nWarsDeclared;
@@ -245,23 +242,23 @@ public class Tribe extends Actor {
             Unit u = b.getUnitAt(tile.x,tile.y);
             City c = b.getCityInBorders(tile.x,tile.y);
 
-            //This tribe meets other tribe when clearing view if other tribe's unit or city is visible
-            if( u !=null){
+            //This tribe meets other tribe when clearing view if other tribe's unit or city is visible.
+            //2.15 rules: a tribe only meets others when it sees them on its own turn (a view cleared during
+            //another tribe's turn, e.g. by a push, does not count; the start-of-turn check catches it).
+            boolean canMeet = !RulesVersion.modern() || b.getActiveTribeID() == this.tribeId;
+            if( u !=null && canMeet){
                 meetTribe(r,b.getTribes(),u.getTribeId());
                 //other tribe meets this tribe if moving into visible area
-                if(b.getTribe(u.tribeId).obsGrid[tile.x][tile.y]){
-                    //2020 rules: this call is on this tribe with its own id, so it does nothing (Tribes bug).
-                    //2.15 rules: the other tribe meets this one and gets its stars (applied on the real board).
-                    if(RulesVersion.modern()) queueReverseMeeting(u.getTribeId());
-                    else meetTribe(r,b.getTribes(),this.tribeId);
+                //(2020 rules: this meets the tribe with its own id, so it does nothing; being seen is not meeting)
+                if(!RulesVersion.modern() && b.getTribe(u.tribeId).obsGrid[tile.x][tile.y]){
+                    meetTribe(r,b.getTribes(),this.tribeId);
                 }
             }
-            if(c !=null){
+            if(c !=null && canMeet){
                 meetTribe(r,b.getTribes(),c.getTribeId());
                 //other tribe meets this tribe if moving into visible area
-                if(b.getTribe(c.tribeId).obsGrid[tile.x][tile.y]){
-                    if(RulesVersion.modern()) queueReverseMeeting(c.getTribeId());
-                    else meetTribe(r,b.getTribes(),this.tribeId);
+                if(!RulesVersion.modern() && b.getTribe(c.tribeId).obsGrid[tile.x][tile.y]){
+                    meetTribe(r,b.getTribes(),this.tribeId);
                 }
             }
         }
@@ -293,9 +290,22 @@ public class Tribe extends Actor {
     }
 
 
-    private void queueReverseMeeting(int otherTribeId) {
-        if (otherTribeId != tribeId && !pendingReverseMeetings.contains(otherTribeId))
-            pendingReverseMeetings.add(otherTribeId);
+    /**
+     * 2.15 rules: at the start of its turn a tribe meets every tribe whose unit or territory it can see.
+     * No-op under the 2020 rules.
+     */
+    public void meetVisibleTribes(Board b) {
+        if (!RulesVersion.modern()) return;
+        int size = obsGrid.length;
+        for (int x = 0; x < size; x++) {
+            for (int y = 0; y < size; y++) {
+                if (!obsGrid[x][y]) continue;
+                Unit u = b.getUnitAt(x, y);
+                if (u != null && u.getTribeId() != tribeId) meetTribe(null, b.getTribes(), u.getTribeId());
+                City c = b.getCityInBorders(x, y);
+                if (c != null && c.getTribeId() != tribeId) meetTribe(null, b.getTribes(), c.getTribeId());
+            }
+        }
     }
 
     /** Lighthouses stand on the four corners of the map (2.15 rules). */
@@ -320,15 +330,6 @@ public class Tribe extends Actor {
      * No-op under the 2020 rules.
      */
     public void applyDeferredViewEffects(Board b) {
-        // 2.15 rules: tribes that saw this one meet it now, on the real board, so their stars are kept.
-        if (!pendingReverseMeetings.isEmpty()) {
-            Tribe[] tribes = b.getTribes();
-            for (int otherId : pendingReverseMeetings) {
-                if (otherId >= 0 && otherId < tribes.length && tribes[otherId] != null && otherId != tribeId)
-                    tribes[otherId].meetTribe(null, tribes, tribeId);
-            }
-            pendingReverseMeetings.clear();
-        }
         if (pendingLighthousePop == 0 || !lighthousesActive) return;
         int cityId = controlsCapital() ? capitalID : (citiesID.isEmpty() ? -1 : citiesID.get(0));
         Actor actor = cityId >= 0 ? b.getActor(cityId) : null;
@@ -493,6 +494,9 @@ public class Tribe extends Actor {
     }
 
     private void meetTribe(Random r, Tribe[] tribes, int tribeID) {
+        // 2.15 rules: a tribe never meets itself. (Under 2020 rules the check below misses this while tribesMet is
+        // empty, so a tribe meets itself while the level loads; the start-of-game star reset hides the 3 stars.)
+        if (RulesVersion.modern() && tribeID == this.tribeId) return;
 
         for (Integer tribeMetId : tribesMet) {
             // if tribes not in tribes met or tribe is itself then do nothing else add to tribesmet arraylist

@@ -20,9 +20,10 @@ All notable changes to this project are documented in this file.
   - Lighthouses (2.8.0): the four map corners start fogged even inside the capital's starting view; revealing
     one gives the capital (or the oldest city) +1 population; finding all four makes Eye of God available,
     with no Navigation needed (replacing "clear all fog").
-  - Meeting stars: the tribe being met now also gets its stars. Under `tribes_2020` that call meets the tribe
-    with itself and does nothing (a Tribes bug, kept). The score table itself is unchanged. The tribe later in
-    turn order (in 1v1, the second player) gets 2★ extra (**unverified**, reported from play).
+  - Meeting: a tribe meets another only when it sees that tribe's unit or territory on its own turn (its view
+    clearing during its turn, or a start-of-turn check); being seen is not meeting, and a tribe never meets
+    itself. The score table is unchanged. The tribe later in turn order (in 1v1, the second player) gets 2★
+    extra (**unverified**, reported from play).
   - Explorers take 12 steps instead of 15 (**unverified**, fandom only) and steer by the game's version-115
     rule: tiles scored by fog revealed (lighthouses first), a 3-step breadth-first search, lowest score
     wins, ties at random, no straight backtracking. Random walk when no fog is within reach.
@@ -43,7 +44,7 @@ All notable changes to this project are documented in this file.
   5,000 train and 250 validation maps (every map gets the expected two-unit opening).
 
 ### Validation
-- `pol_env/Tribes/tests/java/core/RulesParityTest.java` (235 checks) tests every switched rule under both rule
+- `pol_env/Tribes/tests/java/core/RulesParityTest.java` (246 checks) tests every switched rule under both rule
   sets; the Literacy costs reproduce the fandom cost table. A deliberate mutation (Park +0★) is caught.
 - `pol_env/Tribes/py/tests/test_rules_version.py` (in `run_core_ci_checks.py`): version strings, checkpoint
   rejection across rule sets, JVM consistency check, a short `polytopia_2_15` episode, and the Java test.

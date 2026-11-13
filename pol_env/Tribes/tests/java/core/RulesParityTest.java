@@ -66,6 +66,7 @@ public final class RulesParityTest {
                 if (modern) testExplorerScores();
                 testExplorerSeeksFog(modern);
                 testPushDirections(modern);
+                testNoSelfMeeting(modern);
             }
             testRulesIds();
         } finally {
@@ -228,7 +229,7 @@ public final class RulesParityTest {
             ArrayList<Unit> units = gs.getUnits(0);
             if (units.isEmpty()) throw new AssertionError("level has no starting unit");
             Unit explorer = units.get(0);
-            Vector2d pos = explorer.getPosition();
+            Vector2d pos = explorer.getPosition().copy();
             if (gs.getBoard().getTerrainAt(pos.x, pos.y).isWater()) continue;
             gs.getBoard().setResourceAt(pos.x, pos.y, Types.RESOURCE.RUINS);
             explorer.setStatus(Types.TURN_STATUS.FRESH);
@@ -240,7 +241,10 @@ public final class RulesParityTest {
             assertEq(true, new ExamineCommand().execute(ex, gs), "Examine executes");
             Unit added = null;
             for (Unit u : gs.getUnits(0)) if (!before.contains(u.getActorId()) && u.getPosition().equals(pos)) added = u;
-            if (added == null || t.getStars() != stars || t.getTechTree().getNumResearched() != techs) continue;
+            if (added == null) continue;
+            // The unit reward gives nothing else (in particular no meeting stars from the pushed unit's view).
+            assertEq(stars, t.getStars(), "stars after the ruin unit reward");
+            assertEq(techs, t.getTechTree().getNumResearched(), "techs after the ruin unit reward");
             if (modern) {
                 assertEq(Types.UNIT.SWORDMAN, added.getType(), "ruin unit on land");
                 assertEq(true, added.isVeteran(), "ruin Swordsman is veteran");
@@ -339,22 +343,43 @@ public final class RulesParityTest {
         Board b = gs.getBoard();
         Tribe me = gs.getTribe(0);
         Tribe other = gs.getTribe(1);
+        assertEq(0, b.getActiveTribeID(), "tribe 0 is to move");
         assertEq(false, me.getTribesMet().contains(1), "tribes have not met at the start");
         assertEq(false, other.getTribesMet().contains(0), "tribes have not met at the start (other side)");
         City otherCapital = (City) gs.getActor(other.getCapitalID());
-        Vector2d pos = otherCapital.getPosition();
+        Vector2d cap = otherCapital.getPosition();
+
+        // Off-turn: under 2.15 rules a view cleared during the other tribe's turn does not meet anyone.
+        b.setActiveTribeID(1);
         int myStars = me.getStars();
+        me.clearView(cap.x, cap.y, 1, gs.getRandomGenerator(), b);
+        assertEq(!modern, me.getTribesMet().contains(1), "tribe 0 meets tribe 1 off-turn");
+        b.setActiveTribeID(0);
+        if (modern) {
+            // On tribe 0's turn, seeing tribe 1's territory meets it.
+            int otherScore = other.getScore();
+            me.clearView(cap.x, cap.y, 1, gs.getRandomGenerator(), b);
+            assertEq(true, me.getTribesMet().contains(1), "tribe 0 meets tribe 1 on its turn");
+            assertEq(myStars + meetingStars(otherScore), me.getStars(), "stars for tribe 0 (moves first: no bonus)");
+        }
+
+        // Being seen is not meeting: tribe 1 has not met tribe 0 yet.
+        assertEq(false, other.getTribesMet().contains(0), "being seen does not meet");
+
+        // Put a tribe-0 unit next to tribe 1's capital, then start tribe 1's turn: under 2.15 rules it meets.
+        Unit mine = gs.getUnits(0).get(0);
+        Vector2d spot = null;
+        for (Vector2d n : cap.neighborhood(1, 0, b.getSize()))
+            if (b.getUnitAt(n.x, n.y) == null && b.getTerrainAt(n.x, n.y) != Types.TERRAIN.MOUNTAIN
+                    && !b.getTerrainAt(n.x, n.y).isWater()) { spot = n; break; }
+        if (spot == null) throw new AssertionError("no free tile next to tribe 1's capital");
+        b.moveUnit(mine, mine.getPosition().x, mine.getPosition().y, spot.x, spot.y, gs.getRandomGenerator());
         int otherStars = other.getStars();
-        int otherScore = other.getScore();
         int myScore = me.getScore();
-        // Tribe 0 sees tribe 1's capital, which tribe 1 can see: both should meet.
-        me.clearView(pos.x, pos.y, 1, gs.getRandomGenerator(), b);
-        me.applyDeferredViewEffects(b);
-        assertEq(true, me.getTribesMet().contains(1), "tribe 0 met tribe 1");
-        assertEq(myStars + meetingStars(otherScore), me.getStars(), "stars for the meeting tribe");
-        assertEq(modern, other.getTribesMet().contains(0), "tribe 1 met tribe 0");
+        other.meetVisibleTribes(b);
+        assertEq(modern, other.getTribesMet().contains(0), "tribe 1 meets tribe 0 at the start of its turn");
         // Tribe 1 moves second, so under 2.15 rules it also gets the +2 second-player bonus.
-        assertEq(otherStars + (modern ? meetingStars(myScore) + 2 : 0), other.getStars(), "stars for the tribe being met");
+        assertEq(otherStars + (modern ? meetingStars(myScore) + 2 : 0), other.getStars(), "stars for tribe 1");
     }
 
     /** A game where everything is visible except the given tiles, with Climbing so every land tile is walkable. */
@@ -479,6 +504,23 @@ public final class RulesParityTest {
         if (score >= 2000) return 7;
         if (score >= 1000) return 5;
         return 3;
+    }
+
+    private static void testNoSelfMeeting(boolean modern) {
+        // Solo Phase 1 game: moving a unit must never give meeting stars.
+        GameState gs = freshGame();
+        Tribe t = gs.getTribe(0);
+        t.getTechTree().doResearchInit(Types.TECHNOLOGY.CLIMBING);
+        Unit u = gs.getUnits(0).get(0);
+        Vector2d p = u.getPosition();
+        int stars = t.getStars();
+        for (Vector2d n : p.neighborhood(1, 0, gs.getBoard().getSize())) {
+            if (gs.getBoard().getUnitAt(n.x, n.y) != null) continue;
+            gs.getBoard().moveUnit(u, p.x, p.y, n.x, n.y, gs.getRandomGenerator());
+            break;
+        }
+        assertEq(stars, t.getStars(), "stars after a move in a solo game");
+        if (modern) assertEq(false, t.getTribesMet().contains(0), "a tribe does not meet itself");
     }
 
     private static void testRulesIds() {

@@ -436,6 +436,8 @@ public class GameState {
      */
     void initTurn(Tribe tribe)
     {
+        // 2.15 rules: meet every tribe visible at the start of this tribe's turn (no-op under 2020 rules).
+        tribe.meetVisibleTribes(board);
         //Get all cities of this tribe
         ArrayList<Integer> tribeCities = tribe.getCitiesID();
         ArrayList<Integer> allTribeUnits = new ArrayList<>();
