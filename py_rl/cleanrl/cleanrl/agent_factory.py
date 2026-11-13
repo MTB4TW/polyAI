@@ -6,4 +6,7 @@ def make_agent(envs, *, network_arch="mlp", **kwargs):
     if network_arch in ("spatial_resnet", "spatial_resnet_local"):
         from py_rl.cleanrl.cleanrl.spatial_agent import SpatialResNetAgent
         return SpatialResNetAgent(envs, local_action_features=network_arch == "spatial_resnet_local", **kwargs)
+    if network_arch == "spatial_resnet_composed":
+        from py_rl.cleanrl.cleanrl.spatial_agent import SpatialResNetAgent
+        return SpatialResNetAgent(envs, composed_actions=True, **kwargs)
     raise ValueError(f"Unknown network architecture: {network_arch}")

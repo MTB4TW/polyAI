@@ -145,6 +145,10 @@ measure timeout frequency before committing to a long training run.
 `NETWORK_ARCH=spatial_resnet_local` selects the experimental source/target
 spatial-feature architecture. Existing `spatial_resnet` checkpoints still load
 unchanged. The local variant requires a new training run and `legal_features`.
+`NETWORK_ARCH=spatial_resnet_composed` goes further and drops the per-action-ID
+embedding table (about 93% of the ResNet's parameters): actions are scored from
+an action-type embedding, the grid features at their tiles, and the legal-action
+features. It also requires a new training run and `legal_features`.
 Compare both architectures at equal budgets on validation maps. Do not tune
 against the held-out test pool or historical human reference scores.
 
