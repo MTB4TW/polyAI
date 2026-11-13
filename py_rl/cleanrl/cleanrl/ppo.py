@@ -61,11 +61,13 @@ class Args:
     seed: int = 1
     """seed of the experiment"""
     torch_deterministic: bool = True
+    """if toggled, `torch.backends.cudnn.deterministic=False`"""
     torch_threads: int = 0
     """CPU threads for the learner's PyTorch ops (0 = PyTorch default). Env workers stay single-threaded via OMP_NUM_THREADS."""
-    """if toggled, `torch.backends.cudnn.deterministic=False`"""
     cuda: bool = True
     """if toggled, cuda will be enabled by default"""
+    mps: bool = False
+    """if toggled and CUDA is not in use, run the learner on the Apple-silicon GPU (MPS backend)"""
     track: bool = False
     """if toggled, this experiment will be tracked with Weights and Biases"""
     wandb_project_name: str = "cleanRL"
@@ -1390,7 +1392,12 @@ if __name__ == "__main__":
     if args.torch_threads > 0:
         torch.set_num_threads(int(args.torch_threads))
 
-    device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
+    if torch.cuda.is_available() and args.cuda:
+        device = torch.device("cuda")
+    elif args.mps and torch.backends.mps.is_available():
+        device = torch.device("mps")
+    else:
+        device = torch.device("cpu")
 
     if args.validate_action_interface:
         _validate_action_interface(
@@ -1710,7 +1717,7 @@ if __name__ == "__main__":
                 log_scalar("combat/games_completed", combat_games_completed, global_step)
             next_done = np.logical_or(terminations, truncations)
             t0_step_tensor = time.perf_counter()
-            rewards[step] = torch.tensor(reward).to(device).view(-1)
+            rewards[step] = torch.tensor(reward, dtype=torch.float32).to(device).view(-1)
             next_obs, next_done = torch.Tensor(next_obs).to(device), torch.Tensor(next_done).to(device)
             profiler.add("trainer/step_tensor_conversion", time.perf_counter() - t0_step_tensor)
             if args.actor_mode == "dense_debug":

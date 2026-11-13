@@ -2,6 +2,22 @@
 
 All notable changes to this project are documented in this file.
 
+## [Perf-MPS_Learner_Device-051] - (2026-11-12)
+
+### Scope
+- New opt-in `--mps` trainer flag: when CUDA is not in use, the learner (policy forward and PPO update) runs on
+  the Apple-silicon GPU. Default device selection is unchanged (CUDA if available and `--cuda`, else CPU).
+- `local/playground.py` smoke/train now pass `--mps`; they fall back to CPU where MPS is unavailable.
+- Rollout rewards are cast to float32 before moving to the device (MPS has no float64). The rewards buffer was
+  already float32, so CPU/CUDA results are unchanged.
+- Fixed the `--torch-deterministic` / `--torch-threads` help strings, which were attached to the wrong flags.
+
+### Validation
+- Mac M5 profile (`POLYVISION_PROFILE_SPS=1`, spatial_resnet, 8 envs x 128 steps, 20,480 steps, diagnostic):
+  on CPU the PPO update was 68% of wall time (~5.2 s per iteration); on MPS it was ~0.7 s. Under equal machine
+  load, throughput went from 80 to 225 SPS. Measured on the pre-049 environment; not a training-quality result.
+- No contract or checkpoint change: no observation, action, reward, or network change.
+
 ## [Phase2-CPU_Combat_Run_and_PPO_Options-050] - (2026-11-12)
 
 ### Scope
