@@ -305,7 +305,11 @@ public class Types {
             this.technologyRequirement = technologyRequirement;
             this.terrainRequirements = terrainRequirements;
         }
-        public TECHNOLOGY getTechnologyRequirement() { return technologyRequirement; }
+        public TECHNOLOGY getTechnologyRequirement() {
+            // 2.8.0: the Explorer task is finding the lighthouses; it no longer needs Navigation.
+            if (this == EYE_OF_GOD && RulesVersion.modern()) return null;
+            return technologyRequirement;
+        }
         public HashSet<TERRAIN> getTerrainRequirements() {
             // 2.14.0: Forges can also be built on forest.
             if (this == FORGE && RulesVersion.modern()) return FORGE_TERRAIN_2_15;

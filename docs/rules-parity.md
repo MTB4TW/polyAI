@@ -70,7 +70,7 @@ Phase columns: **P1** = Phase 1 solo Bardur economy (11×11 Drylands, Turn 10); 
 | E3 | Literacy discount (needs Philosophy) | `cost * 0.2`, i.e. you pay **20%** of the cost. This is a bug: Tribes meant "20% off" | 33% off, rounded up (Literacy, Philosophy) | 2.0.44 (was 20% off before) | **P1 low**, P2 |
 | E4 | Lumber Hut terrain | Building it turns the forest tile into plain (`BuildCommand`) | The tile stays forest | never was plain in the game | **P1 medium**: changes the observation, and allows plain-only buildings and Grow Forest on that tile afterwards |
 | E5 | Park level-up reward (level 5+) | 250 points only | +1★ per turn and 250 points | 2.8.0 | **P1 low** (level 5 by Turn 10 is rare) |
-| E6 | Customs House → Market (Trade) | Customs House 5★, +2★ per adjacent Port | Market 5★: +1★ per level of each adjacent Sawmill, Windmill and Forge, capped at 8★ | 2.8.0 (Market added), 2.8.5 (current income rule) | **P1 low/medium**: with no ports the Customs House is useless on our maps, while the Market is a real star source once Trade is reached. Also P2 |
+| E6 | Customs House → Market (Trade) | Customs House 5★, +2★ per adjacent Port | Market 5★: +1★ per level of each adjacent Sawmill, Windmill and Forge, capped at level 8 (the official wiki's Star page says 2★ per level; the per-level value is from fandom and play) | 2.8.0 (Market added), 2.8.5 (current income rule) | **P1 low/medium**: with no ports the Customs House is useless on our maps, while the Market is a real star source once Trade is reached. Also P2 |
 | E7 | Forge placement | Plains only | Plains or forest | 2.14.0 | **P1 low** (Smithery is tier 3) |
 | E8 | Negative population | City production equals its (negative) population | Each negative pop removes 1★, floor 0 per city | not dated | - (needs trade-network losses) |
 | E9 | Port | 10★, +2 pop, Sailing | 7★, +1 pop, Fishing | 2.8.0 (cost/pop), 2.8.5 (tech) | P2 / - (no water in Phase 1) |
@@ -79,6 +79,7 @@ Phase columns: **P1** = Phase 1 solo Bardur economy (11×11 Drylands, Turn 10); 
 | E12 | Burn Forest | 5★, Chivalry | 3★, Construction | 2.8.5 (tech), 2.14.0 (cost) | P2 (not a Phase 1 action) |
 | E13 | Destroy | Construction | Chivalry | 2.8.5 | P2 (not a Phase 1 action) |
 | E14 | Embassies, Peace Treaty, Diplomacy tech | absent | present | 2.2 | P2 |
+| E16 | Stars for meeting a tribe | Score table already modernised by PolyVision: 3★ below 1,000 points, then +2★ per 1,000, max 11★ at 4,000+. **Bug:** the tribe being met never gets stars (`meetTribe` is called with the meeting tribe's own ID and returns early) | 1★ + 2★ per 1,000 of the other tribe's score, rounded up to the next thousand, max 11★ (official wiki). Equal to the engine's table except exactly at multiples of 1,000. Reported from play (**unverified**, no written source): the second player gets 2★ extra | 2.0.58 | P2 (no other tribes in Phase 1) |
 | E15 | Starting stars | 5★ for every tribe | 5★ default (Bardur 5★); some tribes 6-7★, Luxidoor 2★ plus a level-3 capital | 2.14.0 | P2 only if the opponent is one of those tribes |
 
 Unchanged and matching: harvest fruit/animal 2★ +1 pop; Farm and Mine 5★ +2; Sawmill and Windmill 5★, +1 per
@@ -105,7 +106,8 @@ The tiers and every land branch other than Shields match.
 | R1 | Ruin unit reward on land | Giant (super unit) | Veteran Swordsman | 2.0.58 | **P1 medium**: 4 ruins per map, 1-in-5 chance each. A Giant also fills a unit slot |
 | R2 | Ruin unit reward on water | Battleship carrying a Warrior | Veteran Rammer carrying a Warrior | 2.0.58 → 2.8.0 (Bomber) → 2.8.5 (Rammer) | - (no water) |
 | R3 | Ruin Explorer reward | Always possible | Only if a tile in the 5×5 around the ruin is unexplored | not dated | P1 low |
-| R4 | Explorer movement | 15 steps | 12 steps (**unverified**, fandom only, Feb 2026) | 2026? | P1 low |
+| R5 | Lighthouses | absent; the Explorer task (Eye of God) is Navigation plus clearing all fog | A lighthouse on each map corner, always fogged at the start. Revealing one gives the capital (or the oldest city) +1 population; finding all four completes the Explorer task, with no tech needed | 2.8.0, 2.8.5 (always start fogged) | **P1 medium**: an 11×11 corner is reachable by Turn 10, and 113 of the training maps put the capital within view of a corner |
+| R4 | Explorer movement | 15 random steps | 12 steps (**unverified**: fandom only, Feb 2026; reported from play as 11 or 12), and explorers now favour unfound lighthouses (2.15.0 "Improved explorer movement"; the rule is not documented) | 2.15.0 / 2026 | P1 medium (the Explorer level-up and ruin reward) |
 
 Matching: ruin rewards drawn with equal weight (10★, a random researchable tech, +3 pop to the capital, an
 Explorer, a unit); villages and ruins need a unit that started its turn on the tile (`isFresh`).
@@ -169,23 +171,28 @@ POLYVISION_RULES=polytopia_2_15 .venv/bin/python tools/evaluate_phase1.py ...
 4. R1 Ruin land unit: veteran Swordsman instead of a Giant.
 5. E5 Park: +1★ per turn.
 6. E7 Forge allowed on forest.
+7. R5 Lighthouses: corners start fogged, +1 population to the capital per lighthouse found, Eye of God for
+   all four.
+8. E16 Meeting stars: the tribe being met also gets its stars (fixes a Tribes bug), and the tribe later in
+   turn order (in 1v1, the second player) gets 2★ extra (**unverified**, reported from play). Phase 2 only.
+9. R4 Explorer 12 steps (**unverified**). The steering towards lighthouses is not implemented: the game's
+   rule is not documented, so explorers still walk at random.
 
-The scripted opening (two animal harvests and a Workshop on 5★) does not depend on any of these, so
-`phase1_opening_version` can stay. The Phase 1 reference numbers (24.5 SPT, 20.52) would need re-running under
+The scripted opening (two animal harvests and a Workshop on 5★) still completes on every train and validation
+map under these rules (opening audit, 5,250 maps), so `phase1_opening_version` can stay. The Phase 1 reference numbers (24.5 SPT, 20.52) would need re-running under
 the new rules before comparing.
 
 **Step 2: Phase 1, larger or less certain (needs a decision)** (not implemented)
 
-7. E4 Lumber Huts stay on forest. Changes the observation and which actions are legal on that tile.
-8. E6 Market replacing the Customs House. A new building with its own income rule.
-9. R3 Ruin Explorer only when unexplored tiles are nearby.
-10. R4 Explorer 12 steps (unverified, so I would skip it until confirmed).
-11. T1 Shields → Strategy rename (names only, unless we also add Diplomacy).
+10. E4 Lumber Huts stay on forest. Changes the observation and which actions are legal on that tile.
+11. E6 Market replacing the Customs House. A new building with its own income rule.
+12. R3 Ruin Explorer only when unexplored tiles are nearby.
+13. T1 Shields → Strategy rename (names only, unless we also add Diplomacy).
 
 **Step 3: Phase 2 combat (Kevin's area)** (implemented; please review, Kevin)
 
-12. C1 Knight 10 HP; C2 Swordsman no fortify; C3 mountain defence from Climbing.
-13. E11-E13 roads 3★, Burn Forest 3★/Construction, Destroy/Chivalry.
+14. C1 Knight 10 HP; C2 Swordsman no fortify; C3 mountain defence from Climbing.
+15. E11-E13 roads 3★, Burn Forest 3★/Construction, Destroy/Chivalry.
 
 **Not proposed:** the naval rework (C4, C5, E9, E10, T2), Diplomacy/Cloak/Dagger (C6, E14), out-of-order
 research (T3) and tribe-specific starting stars (E15). Each is a large feature with no effect on Phase 1 and

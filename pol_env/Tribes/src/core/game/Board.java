@@ -459,6 +459,7 @@ public class Board {
             partialObsRangeClear += 1;
         }
         boolean networkUpdate = t.clearView(xF, yF, partialObsRangeClear, r, this);
+        t.applyDeferredViewEffects(this);
         if(networkUpdate)
             tradeNetwork.computeTradeNetworkTribe(this, t);
     }
@@ -473,11 +474,11 @@ public class Board {
     public void launchExplorer(int x0, int y0, int tribeId, Random rnd) {
 
         Vector2d currentPos = new Vector2d(x0, y0);
-        for (int i = 0; i < TribesConfig.NUM_STEPS; ++i) {
+        for (int i = 0; i < TribesConfig.explorerSteps(); ++i) {
             int j = 0;
             boolean moved = false;
 
-            while (!moved && j < TribesConfig.NUM_STEPS * 3) {
+            while (!moved && j < TribesConfig.explorerSteps() * 3) {
                 //Pick a neighbour tile at random
                 LinkedList<Vector2d> neighs = currentPos.neighborhood(1,0, size);
                 Vector2d next = neighs.get(rnd.nextInt(neighs.size()));
@@ -487,6 +488,7 @@ public class Board {
                     currentPos.x = next.x;
                     currentPos.y = next.y;
                     boolean updateNetwork = tribes[tribeId].clearView(currentPos.x, currentPos.y, TribesConfig.EXPLORER_CLEAR_RANGE, rnd, this);
+                    tribes[tribeId].applyDeferredViewEffects(this);
                     if(updateNetwork)
                         tradeNetwork.computeTradeNetworkTribe(this, tribes[tribeId]);
                 }
@@ -825,6 +827,7 @@ public class Board {
 
         //cities provide visibility, which needs updating
         tribes[c.getTribeId()].clearView(c.getPosition().x, c.getPosition().y, TribesConfig.NEW_CITY_CLEAR_RANGE, r, this.copy());
+        tribes[c.getTribeId()].applyDeferredViewEffects(this);
 
         //By default, cities are considered to be roads for trade network purposes.
         tradeNetwork.setTradeNetwork(this, c.getPosition().x, c.getPosition().y, true);

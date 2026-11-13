@@ -31,6 +31,10 @@ TRIBES_ROOT = REPO_ROOT / "pol_env" / "Tribes"
 OUT_DIR = TRIBES_ROOT / "out"
 JSON_JAR = TRIBES_ROOT / "lib" / "json.jar"
 JAVA_TEST = TRIBES_ROOT / "tests" / "java" / "core" / "RulesParityTest.java"
+# A training map whose capital (2, 2) sees the (0, 0) corner at the start, for the lighthouse fog rule.
+CORNER_LEVEL = str(TRIBES_ROOT / "levels" / "phase1_pool_bardur_real" / "train" / "map_000132.csv")
+# A two-tribe Phase 2 map whose tribes have not met at the start, for the meeting-stars rule.
+DUEL_LEVEL = str(TRIBES_ROOT / "levels" / "phase2_pool_1v1" / "train" / "map_2p_010000.csv")
 PHASE1_ENV = {
     "POLYVISION_LEVEL_POOL_GLOB": "levels/phase1_pool_bardur_real/train/*.csv",
     "POLYVISION_SOLO_NO_OPPONENT_MODE": "1",
@@ -148,7 +152,7 @@ class JavaRulesParityTests(unittest.TestCase):
                 text=True,
             )
             result = subprocess.run(
-                ["java", "-cp", os.pathsep.join([classpath, tmp]), "core.RulesParityTest", levels[0]],
+                ["java", "-cp", os.pathsep.join([classpath, tmp]), "core.RulesParityTest", levels[0], CORNER_LEVEL, DUEL_LEVEL],
                 cwd=TRIBES_ROOT,
                 capture_output=True,
                 text=True,

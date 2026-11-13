@@ -17,6 +17,14 @@ All notable changes to this project are documented in this file.
     burn, grow) are refused on tiles that carry a building. Phase 2 basics: Knight 10 HP (was 15),
     Swordsman cannot fortify, mountain defence from Climbing (was Meditation), roads 3★ (was 2★), Burn Forest
     3★ with Construction (was 5★ with Chivalry), Destroy needs Chivalry (was Construction).
+  - Lighthouses (2.8.0): the four map corners start fogged even inside the capital's starting view; revealing
+    one gives the capital (or the oldest city) +1 population; finding all four makes Eye of God available,
+    with no Navigation needed (replacing "clear all fog").
+  - Meeting stars: the tribe being met now also gets its stars. Under `tribes_2020` that call meets the tribe
+    with itself and does nothing (a Tribes bug, kept). The score table itself is unchanged. The tribe later in
+    turn order (in 1v1, the second player) gets 2★ extra (**unverified**, reported from play).
+  - Explorers take 12 steps instead of 15 (**unverified**, fandom only). The game's newer steering towards
+    lighthouses is undocumented and not implemented.
 - `PythonEnv.java`: burn-forest and road star costs come from the rules accessors (2 lines).
 - Wrapper: the `PARK` level-up's expected SPT delta feature is +1 under `polytopia_2_15`.
 
@@ -26,10 +34,11 @@ All notable changes to this project are documented in this file.
   and the combat version gets the same `+rules_polytopia_2_15` suffix, so checkpoints never cross rule sets.
 - The wrapper asks the JVM which rules it plays (`core.RulesVersion.activeId()`) and fails closed on a
   mismatch; an unknown `POLYVISION_RULES` value fails in both Python and Java.
-- `phase1_opening_version` is unchanged: the scripted opening (two hunts and a Workshop) uses no changed rule.
+- `phase1_opening_version` is unchanged: `tools/audit_phase1_opening.py` under `polytopia_2_15` passes on all
+  5,000 train and 250 validation maps (every map gets the expected two-unit opening).
 
 ### Validation
-- `pol_env/Tribes/tests/java/core/RulesParityTest.java` (168 checks) tests every switched rule under both rule
+- `pol_env/Tribes/tests/java/core/RulesParityTest.java` (211 checks) tests every switched rule under both rule
   sets; the Literacy costs reproduce the fandom cost table. A deliberate mutation (Park +0★) is caught.
 - `pol_env/Tribes/py/tests/test_rules_version.py` (in `run_core_ci_checks.py`): version strings, checkpoint
   rejection across rule sets, JVM consistency check, a short `polytopia_2_15` episode, and the Java test.

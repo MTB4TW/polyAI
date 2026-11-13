@@ -276,6 +276,13 @@ public class TribesConfig
     public static final int BURN_FOREST_COST_2_15 = 3;          // 2.14.0
     public static final int KNIGHT_MAX_HP_2_15 = 10;            // 2.2
     public static final int CITY_LEVEL_UP_PARK_PROD_2_15 = 1;   // 2.8.0: Park gives +1 star per turn
+    public static final int EXPLORER_STEPS_2_15 = 12;           // UNVERIFIED: fandom only (Feb 2026)
+    public static final int MEETING_SECOND_PLAYER_BONUS_2_15 = 2; // UNVERIFIED: reported from play, no source
+
+    /** Steps an explorer takes: 15 in 2020; 12 under 2.15 rules (unverified). */
+    public static int explorerSteps() {
+        return RulesVersion.modern() ? EXPLORER_STEPS_2_15 : NUM_STEPS;
+    }
 
     public static int clearForestStars() {
         return RulesVersion.modern() ? CLEAR_FOREST_STAR_2_15 : CLEAR_FOREST_STAR;

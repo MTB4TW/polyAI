@@ -28,18 +28,25 @@ import java.util.Set;
  * Checks every rule switched by RulesVersion (docs/rules-parity.md) under both rule sets.
  *
  * Run from pol_env/Tribes with the compiled engine on the classpath:
- *   java -cp out:lib/json.jar:<test classes> core.RulesParityTest levels/.../map.csv
+ *   java -cp out:lib/json.jar:<test classes> core.RulesParityTest levels/.../map.csv levels/.../corner_map.csv
+ * The second level must have its capital within two tiles of a map corner; the third must have two tribes.
  */
 public final class RulesParityTest {
 
     private static String levelFile;
+    private static String cornerLevelFile;
+    private static String duelLevelFile;
     private static int checks = 0;
 
     private RulesParityTest() {}
 
     public static void main(String[] args) {
-        if (args.length < 1) throw new IllegalArgumentException("usage: RulesParityTest <phase1 level csv>");
+        if (args.length < 3)
+            throw new IllegalArgumentException(
+                    "usage: RulesParityTest <phase1 level csv> <level with capital next to a corner> <two-tribe level csv>");
         levelFile = args[0];
+        cornerLevelFile = args[1];
+        duelLevelFile = args[2];
         RulesVersion original = RulesVersion.active();
         try {
             for (RulesVersion v : RulesVersion.values()) {
@@ -53,6 +60,9 @@ public final class RulesParityTest {
                 testPark(modern);
                 testRuinUnit(modern);
                 testTechRequirements(modern);
+                testLighthousesStartFogged(modern);
+                testLighthouseDiscovery(modern);
+                testMeetingStars(modern);
             }
             testRulesIds();
         } finally {
@@ -67,6 +77,7 @@ public final class RulesParityTest {
         assertEq(modern ? 3 : 2, Types.BUILDING.LUMBER_HUT.getCost(), "Lumber Hut cost");
         assertEq(modern ? 1 : 2, TribesConfig.clearForestStars(), "Clear Forest stars");
         assertEq(modern ? 3 : 2, TribesConfig.roadCost(), "Road cost");
+        assertEq(modern ? 12 : 15, TribesConfig.explorerSteps(), "Explorer steps");
         assertEq(modern ? 3 : 5, TribesConfig.burnForestCost(), "Burn Forest cost");
         assertEq(modern ? 10 : 15, new Knight(new Vector2d(0, 0), 0, false, -1, 0).getMaxHP(), "Knight max HP");
         assertEq(!modern, Types.UNIT.SWORDMAN.canFortify(), "Swordsman fortify");
@@ -268,6 +279,87 @@ public final class RulesParityTest {
         Destroy destroy = new Destroy(c.getActorId());
         destroy.setTargetPos(plain);
         assertEq(!modern, destroy.isFeasible(gs), "Destroy with Construction only");
+    }
+
+    private static boolean[] cornersVisible(Tribe t) {
+        boolean[][] g = t.getObsGrid();
+        int n = g.length;
+        return new boolean[]{g[0][0], g[0][n - 1], g[n - 1][0], g[n - 1][n - 1]};
+    }
+
+    private static void testLighthousesStartFogged(boolean modern) {
+        PythonEnv env = new PythonEnv();
+        env.initFromLevel(cornerLevelFile, 1234L, Types.GAME_MODE.SCORE);
+        GameState gs = env.getGameState();
+        Tribe t = gs.getTribe(0);
+        boolean anyVisible = false;
+        for (boolean v : cornersVisible(t)) anyVisible |= v;
+        // The capital's starting view covers a corner: visible under 2020 rules, fogged under 2.15 rules.
+        assertEq(!modern, anyVisible, "a corner is visible at the start");
+        if (modern) assertEq(0, t.countLighthousesFound(), "lighthouses found at the start");
+        assertEq(0, capital(gs).getPopulation(), "capital population at the start");
+    }
+
+    private static void testLighthouseDiscovery(boolean modern) {
+        GameState gs = freshGame();
+        Tribe t = gs.getTribe(0);
+        Board b = gs.getBoard();
+        City c = capital(gs);
+        int n = b.getSize();
+        int[][] corners = {{0, 0}, {0, n - 1}, {n - 1, 0}, {n - 1, n - 1}};
+        int pop = c.getPopulation();
+        assertEq(Types.BUILDING.MONUMENT_STATUS.UNAVAILABLE, t.getMonuments().get(Types.BUILDING.EYE_OF_GOD),
+                "Eye of God before the lighthouses");
+        int found = 0;
+        for (int[] corner : corners) {
+            boolean wasVisible = t.getObsGrid()[corner[0]][corner[1]];
+            t.clearView(corner[0], corner[1], 1, gs.getRandomGenerator(), b);
+            t.applyDeferredViewEffects(b);
+            if (!wasVisible) found++;
+            assertEq(pop + (modern ? found : 0), c.getPopulation(), "capital population after lighthouse " + found);
+            // Seeing the same corner again gives nothing more.
+            t.clearView(corner[0], corner[1], 1, gs.getRandomGenerator(), b);
+            t.applyDeferredViewEffects(b);
+            assertEq(pop + (modern ? found : 0), c.getPopulation(), "capital population after re-seeing a lighthouse");
+        }
+        assertEq(4, found, "all corners were fogged");
+        assertEq(modern ? Types.BUILDING.MONUMENT_STATUS.AVAILABLE : Types.BUILDING.MONUMENT_STATUS.UNAVAILABLE,
+                t.getMonuments().get(Types.BUILDING.EYE_OF_GOD), "Eye of God after all four lighthouses");
+        assertEq(modern ? null : Types.TECHNOLOGY.NAVIGATION, Types.BUILDING.EYE_OF_GOD.getTechnologyRequirement(),
+                "Eye of God tech");
+    }
+
+    private static void testMeetingStars(boolean modern) {
+        PythonEnv env = new PythonEnv();
+        env.initFromLevel(duelLevelFile, 1234L, Types.GAME_MODE.CAPITALS);
+        GameState gs = env.getGameState();
+        Board b = gs.getBoard();
+        Tribe me = gs.getTribe(0);
+        Tribe other = gs.getTribe(1);
+        assertEq(false, me.getTribesMet().contains(1), "tribes have not met at the start");
+        assertEq(false, other.getTribesMet().contains(0), "tribes have not met at the start (other side)");
+        City otherCapital = (City) gs.getActor(other.getCapitalID());
+        Vector2d pos = otherCapital.getPosition();
+        int myStars = me.getStars();
+        int otherStars = other.getStars();
+        int otherScore = other.getScore();
+        int myScore = me.getScore();
+        // Tribe 0 sees tribe 1's capital, which tribe 1 can see: both should meet.
+        me.clearView(pos.x, pos.y, 1, gs.getRandomGenerator(), b);
+        me.applyDeferredViewEffects(b);
+        assertEq(true, me.getTribesMet().contains(1), "tribe 0 met tribe 1");
+        assertEq(myStars + meetingStars(otherScore), me.getStars(), "stars for the meeting tribe");
+        assertEq(modern, other.getTribesMet().contains(0), "tribe 1 met tribe 0");
+        // Tribe 1 moves second, so under 2.15 rules it also gets the +2 second-player bonus.
+        assertEq(otherStars + (modern ? meetingStars(myScore) + 2 : 0), other.getStars(), "stars for the tribe being met");
+    }
+
+    private static int meetingStars(int score) {
+        if (score >= 4000) return 11;
+        if (score >= 3000) return 9;
+        if (score >= 2000) return 7;
+        if (score >= 1000) return 5;
+        return 3;
     }
 
     private static void testRulesIds() {

@@ -1,6 +1,7 @@
 package core.actors;
 
 import core.Constants;
+import core.RulesVersion;
 import core.TechnologyTree;
 import core.TribesConfig;
 import core.Types;
@@ -64,6 +65,13 @@ public class Tribe extends Actor {
     //Turns since the last attack of this tribe if Meditation is reseached.
     private int nPacifistCount;
 
+    // 2.15 rules: lighthouses found by clearView whose +1 population has not been given yet (see applyDeferredViewEffects).
+    private int pendingLighthousePop = 0;
+    // False while the level is being set up, so corners revealed by the starting view give nothing.
+    private boolean lighthousesActive = false;
+    // 2.15 rules: tribes that saw this tribe and still have to "meet" it (and get their stars); see applyDeferredViewEffects.
+    private ArrayList<Integer> pendingReverseMeetings = new ArrayList<>();
+
     // Number to track the number of stars sent in a turn
     private int starsSent;
 
@@ -112,6 +120,7 @@ public class Tribe extends Actor {
         }
         stars = obj.getInt("star");
         monuments = Types.BUILDING.initMonuments(obj.getJSONObject("monuments"));
+        lighthousesActive = true; // a saved game has already started
         nPacifistCount = obj.getInt("nPacifistCount");
         techTree = new TechnologyTree(obj.getJSONObject("technology"));
         connectedCities = new ArrayList<>();
@@ -168,6 +177,9 @@ public class Tribe extends Actor {
         tribeCopy.capitalID = this.capitalID;
         tribeCopy.nKills = hideInfo ? 0 : this.nKills;
         tribeCopy.nPacifistCount = hideInfo ? 0 : this.nPacifistCount;
+        tribeCopy.pendingLighthousePop = hideInfo ? 0 : this.pendingLighthousePop;
+        tribeCopy.lighthousesActive = this.lighthousesActive;
+        tribeCopy.pendingReverseMeetings = new ArrayList<>(this.pendingReverseMeetings);
         tribeCopy.starsSent = this.starsSent;
         tribeCopy.hasDeclaredWar = this.hasDeclaredWar;
         tribeCopy.nWarsDeclared = this.nWarsDeclared;
@@ -219,6 +231,10 @@ public class Tribe extends Actor {
                 obsGrid[tile.x][tile.y] = true;
                 this.score += TribesConfig.CLEAR_VIEW_POINTS;
 
+                //2.15 rules (2.8.0 Path of the Ocean): revealing a map corner discovers its lighthouse.
+                if(RulesVersion.modern() && isLighthouseTile(tile.x, tile.y, size))
+                    pendingLighthousePop++;
+
                 //Network updates for this tribe, only if a road or a water tile has been revealed.
                 Types.TERRAIN terr = b.getTerrainAt(tile.x, tile.y);
                 if(b.isRoad(tile.x, tile.y) || ((terr != null) && terr.isWater()))
@@ -234,16 +250,29 @@ public class Tribe extends Actor {
                 meetTribe(r,b.getTribes(),u.getTribeId());
                 //other tribe meets this tribe if moving into visible area
                 if(b.getTribe(u.tribeId).obsGrid[tile.x][tile.y]){
-                    meetTribe(r,b.getTribes(),this.tribeId);
+                    //2020 rules: this call is on this tribe with its own id, so it does nothing (Tribes bug).
+                    //2.15 rules: the other tribe meets this one and gets its stars (applied on the real board).
+                    if(RulesVersion.modern()) queueReverseMeeting(u.getTribeId());
+                    else meetTribe(r,b.getTribes(),this.tribeId);
                 }
             }
             if(c !=null){
                 meetTribe(r,b.getTribes(),c.getTribeId());
                 //other tribe meets this tribe if moving into visible area
                 if(b.getTribe(c.tribeId).obsGrid[tile.x][tile.y]){
-                    meetTribe(r,b.getTribes(),this.tribeId);
+                    if(RulesVersion.modern()) queueReverseMeeting(c.getTribeId());
+                    else meetTribe(r,b.getTribes(),this.tribeId);
                 }
             }
+        }
+
+        //2.15 rules: the Explorer task (Eye of God) is finding all four lighthouses.
+        if(RulesVersion.modern())
+        {
+            if(!Constants.PLAY_WITH_FULL_OBS && monuments.get(EYE_OF_GOD) == MONUMENT_STATUS.UNAVAILABLE
+                    && countLighthousesFound() == 4)
+                monuments.put(EYE_OF_GOD, MONUMENT_STATUS.AVAILABLE);
+            return requiresNetworkUpdate;
         }
 
         //We may be clearing the last tiles of the board, which grants a monument.
@@ -263,6 +292,69 @@ public class Tribe extends Actor {
         return requiresNetworkUpdate;
     }
 
+
+    private void queueReverseMeeting(int otherTribeId) {
+        if (otherTribeId != tribeId && !pendingReverseMeetings.contains(otherTribeId))
+            pendingReverseMeetings.add(otherTribeId);
+    }
+
+    /** Lighthouses stand on the four corners of the map (2.15 rules). */
+    public static boolean isLighthouseTile(int x, int y, int size) {
+        return (x == 0 || x == size - 1) && (y == 0 || y == size - 1);
+    }
+
+    /** Lighthouses this tribe has found: a corner is found once it is no longer fogged. */
+    public int countLighthousesFound() {
+        int size = obsGrid.length;
+        int found = 0;
+        if (obsGrid[0][0]) found++;
+        if (obsGrid[0][size - 1]) found++;
+        if (obsGrid[size - 1][0]) found++;
+        if (obsGrid[size - 1][size - 1]) found++;
+        return found;
+    }
+
+    /**
+     * Gives the capital (or, without one, the oldest city) +1 population per lighthouse found since the last
+     * call. Called with the real board after each clearView, since some callers clear view on a board copy.
+     * No-op under the 2020 rules.
+     */
+    public void applyDeferredViewEffects(Board b) {
+        // 2.15 rules: tribes that saw this one meet it now, on the real board, so their stars are kept.
+        if (!pendingReverseMeetings.isEmpty()) {
+            Tribe[] tribes = b.getTribes();
+            for (int otherId : pendingReverseMeetings) {
+                if (otherId >= 0 && otherId < tribes.length && tribes[otherId] != null && otherId != tribeId)
+                    tribes[otherId].meetTribe(null, tribes, tribeId);
+            }
+            pendingReverseMeetings.clear();
+        }
+        if (pendingLighthousePop == 0 || !lighthousesActive) return;
+        int cityId = controlsCapital() ? capitalID : (citiesID.isEmpty() ? -1 : citiesID.get(0));
+        Actor actor = cityId >= 0 ? b.getActor(cityId) : null;
+        if (actor instanceof City) {
+            ((City) actor).addPopulation(this, pendingLighthousePop);
+        }
+        pendingLighthousePop = 0;
+    }
+
+    /**
+     * 2.15 rules: lighthouses always start fogged, even inside the capital's starting view. Re-fogs any corner
+     * revealed while the game was being set up and drops its discovery. Called once, at game start.
+     */
+    public void hideLighthousesAtStart() {
+        if (!RulesVersion.modern() || Constants.PLAY_WITH_FULL_OBS) return;
+        int size = obsGrid.length;
+        int[][] corners = {{0, 0}, {0, size - 1}, {size - 1, 0}, {size - 1, size - 1}};
+        for (int[] c : corners) {
+            if (obsGrid[c[0]][c[1]]) {
+                obsGrid[c[0]][c[1]] = false;
+                this.score -= TribesConfig.CLEAR_VIEW_POINTS;
+            }
+        }
+        pendingLighthousePop = 0;
+        lighthousesActive = true;
+    }
 
     public void addCity(int id) {
         citiesID.add(id);
@@ -431,6 +523,9 @@ public class Tribe extends Actor {
             } else if (oppScore >= 1000) {
                 meetingStars = 5;
             }
+            // 2.15 rules (UNVERIFIED, reported from play): the tribe later in turn order gets 2 extra stars.
+            if (RulesVersion.modern() && this.tribeId > tribeID)
+                meetingStars += TribesConfig.MEETING_SECOND_PLAYER_BONUS_2_15;
             this.addStars(meetingStars);
         }
     }

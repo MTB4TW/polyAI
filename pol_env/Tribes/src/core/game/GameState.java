@@ -141,6 +141,8 @@ public class GameState {
             City c = (City) board.getActor(startingCityId);
             Vector2d cityPos = c.getPosition();
             tribe.clearView(cityPos.x, cityPos.y, TribesConfig.FIRST_CITY_CLEAR_RANGE, rnd, board);
+            // 2.15 rules: lighthouses start fogged even inside the starting view (no-op under 2020 rules).
+            tribe.hideLighthousesAtStart();
         }
 
         canEndTurn = new boolean[tribes.length];
