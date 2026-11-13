@@ -52,8 +52,6 @@ Current reference: **v5 PARITY002 MLP, 16M, seed 3** (validation 20.52, test 20.
 | 2026-08-23 | Seed 2 | mlp | — | 2 | PolyVision upstream | 15.34 | — | 15.28 | `20260823T161131Z_validation_canonical` | Corrected two-unit opening. |
 | 2026-08-14 | Seed 1 | mlp | — | 1 | PolyVision upstream | 14.58 | — | — | `20260814T110912Z_validation_canonical` | Older mixed opening; shelved. |
 
-
-
 ### 2026-11-13: combined winners at 1M steps, plus PPO update size
 
 Combined `--norm-obs --no-clip-vloss --norm-returns --gamma-per-turn` on `spatial_resnet_local`, 1M steps, CPU.
