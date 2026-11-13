@@ -37,6 +37,7 @@ except Exception:
 
 from pol_env.Tribes.py.register_env import TribesGymWrapper  # adjust if folder name differs
 from py_rl.cleanrl.cleanrl.gae import compute_gae, per_turn_discounts
+from py_rl.cleanrl.cleanrl.init_from import apply_init_from, format_report, load_checkpoint
 from pol_env.Tribes.py.environment_contract import (
     compute_level_pool_identity,
     environment_compatibility_metadata,
@@ -68,6 +69,12 @@ class Args:
     """if toggled, cuda will be enabled by default"""
     mps: bool = False
     """if toggled and CUDA is not in use, run the learner on the Apple-silicon GPU (MPS backend)"""
+    init_from: Optional[str] = None
+    """warm start: copy compatible weights from this .cleanrl_model (needs its sidecar); optimizer and schedule start fresh"""
+    init_from_reset: str = "auto"
+    """with --init-from: key prefixes to keep freshly initialised ("auto" = critic when the environment version differs, "none", or e.g. "critic.,actor.")"""
+    init_from_fold_scalars: bool = True
+    """with --init-from: fold the combat legacy-scalar scaling into the copied weights when it differs between checkpoint and run"""
     track: bool = False
     """if toggled, this experiment will be tracked with Weights and Biases"""
     wandb_project_name: str = "cleanRL"
@@ -1392,6 +1399,9 @@ if __name__ == "__main__":
     )
 
     # TRY NOT TO MODIFY: seeding
+    if args.init_from:
+        # Fail before the slow action-interface validation and env startup if the checkpoint is unusable.
+        load_checkpoint(args.init_from)
     random.seed(args.seed)
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
@@ -1618,6 +1628,16 @@ if __name__ == "__main__":
         f"action_space_n={envs.single_action_space.n} "
         f"max_legal_actions={args.max_legal_actions}"
     )
+    if args.init_from:
+        init_report = apply_init_from(
+            agent, args.init_from, target_meta=action_interface_meta, network_arch=args.network_arch,
+            reset=args.init_from_reset, fold_scalars=bool(args.init_from_fold_scalars),
+        )
+        for line in format_report(init_report):
+            print(line)
+        # Recorded with every checkpoint so a warm-started model's lineage is visible.
+        action_interface_meta["init_from"] = {k: v for k, v in init_report.items() if k != "kept_fresh"}
+        action_interface_meta["init_from"]["kept_fresh_count"] = len(init_report["kept_fresh"])
     writer.add_text("meta/action_interface", json.dumps(action_interface_meta, sort_keys=True, default=str))
 
     for iteration in range(1, args.num_iterations + 1):

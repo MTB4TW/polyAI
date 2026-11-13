@@ -2,6 +2,36 @@
 
 All notable changes to this project are documented in this file.
 
+## [Train-Init_From_Checkpoint-058] - (2026-11-13)
+
+### Scope
+- New `ppo.py --init-from PATH`: warm-start a fresh run from an existing `.cleanrl_model` (its sidecar is
+  required). Weights only; the optimizer, learning-rate schedule and step counter start fresh. Intended for
+  starting combat (Phase 2) runs from a trained Phase 1 economy policy.
+- Strict checks: same `network_arch`, `actor_mode`, `observation_dim`, `legal_action_feature_dim`,
+  `legal_action_feature_version` and board size, and both or neither using `--norm-obs`.
+- Action-indexed tensors (the per-id action embedding, a dense actor head, a composed action-type table) copy
+  their first rows when the run's catalog extends the checkpoint's. The combat catalog is the Phase 1 catalog
+  with ATTACK and RECOVER appended, so all 63,913 Phase 1 ids keep their meaning among combat's 78,675; this is
+  verified by rebuilding both catalogs, and anything else is rejected.
+- `--init-from-reset` (default `auto`): re-initialise the critic when the environment version differs
+  (Phase 1 -> combat values are in different rewards). Accepts `none` or a comma list of key prefixes.
+- `--init-from-fold-scalars` (default on): combat divides the six legacy scalars (flat indices 6292..6297) by
+  (50, 1000, 6, 10, MAX_TURNS, 1) while Phase 1 keeps raw values. The scale is folded into the copied
+  first-layer weights that read those inputs (or into the observation-normalisation statistics), so the
+  copied network computes the same function of the game state.
+- The report (copied, extended, reset, folded, kept fresh, unused) is printed and recorded under `init_from`
+  in every saved checkpoint's sidecar, with the source path and SHA-256.
+- No contract change: what a checkpoint sees and does is unchanged; only the starting weights differ.
+
+### Validation
+- `tools/tests/test_init_from.py` (12 tests): the combat catalog extends Phase 1 and not the reverse; the warm-started policy gives the same move probabilities as the checkpoint on Phase 1 actions for the same game state; scale
+  constants match `register_env.py`; Phase 1 -> combat transfer for `spatial_resnet_local` (prefix rows,
+  fresh combat rows, critic reset, exact copies elsewhere); folding preserves the scalar branch's output for
+  the ResNet and the MLP; folding goes into the normaliser stats for `--norm-obs` checkpoints; mismatched
+  architecture, catalog, normalisation and a missing sidecar are rejected.
+- Combat smoke run warm-started from `farmshare_resnet_5m` (Phase 1, 5M steps): see the PR.
+
 ## [Phase2-Combat_Win_Reward_30-057] - (2026-11-12)
 
 ### Scope
