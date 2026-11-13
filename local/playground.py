@@ -57,7 +57,7 @@ def main():
         smoke = args.task == "smoke"
         run([python, "py_rl/cleanrl/cleanrl/ppo.py", "--total-timesteps",
              "512" if smoke else str(args.steps), "--num-envs", "1" if smoke else "2",
-             "--num-steps", "128", "--no-cuda", "--save-model",
+             "--num-steps", "128", "--no-cuda", "--mps", "--save-model",
              "--network-arch", args.arch,
              "--exp-name", "mac_smoke" if smoke else f"mac_economy_{args.arch}",
              "--validation-states", "100" if smoke else "10000"])

@@ -2,7 +2,7 @@
 
 All notable changes to this project are documented in this file.
 
-## [Phase2-Combat_Timeout_Reward_Options-054] - (2026-11-12)
+## [Phase2-Combat_Timeout_Reward_Options-055] - (2026-11-12)
 
 ### Scope
 - Two combat reward options, defaults unchanged (behaviour identical unless set):
@@ -21,7 +21,7 @@ All notable changes to this project are documented in this file.
 - `tools/run_core_ci_checks.py` and all `tools/tests` (with live JVM tests) pass; trainer smoke run logs the
   new metrics.
 
-## [Phase2-Combat_Scaled_Legacy_Scalars-053] - (2026-11-12)
+## [Phase2-Combat_Scaled_Legacy_Scalars-054] - (2026-11-12)
 
 ### Scope
 - Combat divides the six legacy scalars of the observation (stars, Tribes score, cities, kills, tick, active
@@ -42,7 +42,7 @@ All notable changes to this project are documented in this file.
 - New live test `test_legacy_scalars_are_scaled_in_combat`; `tools/run_core_ci_checks.py` and all
   `tools/tests` (with live JVM tests) pass.
 
-## [Phase2-Combat_Capitals_Win_and_Engine_Potential-052] - (2026-11-12)
+## [Phase2-Combat_Capitals_Win_and_Engine_Potential-053] - (2026-11-12)
 
 ### Scope
 - **Win condition:** combat resets the engine in CAPITALS mode (`TribesGymWrapper._engine_game_mode`). A tribe
@@ -74,7 +74,7 @@ All notable changes to this project are documented in this file.
   only ends a game in SCORE mode.
 - `tools/tests/test_combat_reward_shaping.py` passes unchanged.
 
-## [Phase2-Combat_Legal_Capacity-051] - (2026-11-12)
+## [Phase2-Combat_Legal_Capacity-052] - (2026-11-12)
 
 ### Scope
 - Both combat training jobs (`cluster/train_combat_cpu.sbatch`, `cluster/train_farmshare_combat.sbatch`) now pass
@@ -92,6 +92,21 @@ All notable changes to this project are documented in this file.
   Neither reached 256, so the 257 seen in training comes from states a learning agent reaches and random play
   does not. 512 is about twice the largest count observed; it is a margin, not a proven bound.
 - `bash -n` on both scripts; `tools/run_core_ci_checks.py` passes.
+## [Perf-MPS_Learner_Device-051] - (2026-11-12)
+
+### Scope
+- New opt-in `--mps` trainer flag: when CUDA is not in use, the learner (policy forward and PPO update) runs on
+  the Apple-silicon GPU. Default device selection is unchanged (CUDA if available and `--cuda`, else CPU).
+- `local/playground.py` smoke/train now pass `--mps`; they fall back to CPU where MPS is unavailable.
+- Rollout rewards are cast to float32 before moving to the device (MPS has no float64). The rewards buffer was
+  already float32, so CPU/CUDA results are unchanged.
+- Fixed the `--torch-deterministic` / `--torch-threads` help strings, which were attached to the wrong flags.
+
+### Validation
+- Mac M5 profile (`POLYVISION_PROFILE_SPS=1`, spatial_resnet, 8 envs x 128 steps, 20,480 steps, diagnostic):
+  on CPU the PPO update was 68% of wall time (~5.2 s per iteration); on MPS it was ~0.7 s. Under equal machine
+  load, throughput went from 80 to 225 SPS. Measured on the pre-049 environment; not a training-quality result.
+- No contract or checkpoint change: no observation, action, reward, or network change.
 
 ## [Phase2-CPU_Combat_Run_and_PPO_Options-050] - (2026-11-12)
 
