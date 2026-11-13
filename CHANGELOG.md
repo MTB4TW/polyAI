@@ -137,6 +137,30 @@ All notable changes to this project are documented in this file.
   single-env step over the 3,000-step trajectories 5.0-5.6 ms -> 3.9-4.3 ms. Synthetic 2-env
   `AsyncVectorEnv` step plus trainer extraction 0.97 -> 0.67-0.84 ms.
 
+## [Phase1-Search_Teacher_Heuristic_and_MCTS-052] - (2026-11-12)
+
+### Scope
+- New Phase 1 state heuristic `players/heuristics/Phase1SptHeuristic.java`: a weighted sum of SPT, population
+  progress, usable stars, village capture/proximity, techs, cities, vision, units, population unlocked by researched
+  techs, and proximity to the fog frontier. Weights are passed in from Python.
+- New within-turn MCTS `players/heuristics/Phase1TurnMCTS.java`: searches the current turn's action sequence,
+  values leaves with the heuristic, max-backup, greedy leaf rollouts.
+- `PythonEnv` gains search-only bridge methods (`heuristicFeatures`, `lookaheadScores`, `mctsChooseIndex`). They act
+  on copies of the state; `stepByIndex`, observations, actions and rewards are unchanged, so no contract bump.
+  `fullInformation=false` copies with the player's fog applied (`GameState.copy(player)`); `true` is a privileged oracle.
+  `PLAY_WITH_FULL_OBS` is untouched.
+- `tools/evaluate_search_policy.py`: runs lookahead or MCTS through the canonical episode runner (same scripted
+  opening, legal set, `env.step(global_id)`, Turn-10 checks); outputs are always labelled diagnostics, and the test
+  pool is not offered. `tools/tune_search_heuristic.py`: parallel coordinate-ascent weight tuning on training maps.
+
+### Validation (diagnostics, not canonical)
+- Weights tuned on 60 training maps only. On all 250 validation maps, paired against the v5 PPO reference (20.52):
+  visible-information lookahead 21.84 (+1.33 [+0.69, +1.96], 136 W / 30 T / 84 L,
+  `20261112_lookahead_visible_tuned_validation250_visible-search-diagnostic`); privileged lookahead 27.51
+  (+6.99 [+6.40, +7.57], `20261112_lookahead_full_tuned_validation250_oracle-diagnostic`).
+- Visible-information MCTS (200 iterations, depth 8) on the first 50 validation maps: 22.32 vs lookahead 20.70
+  (+1.62 [+0.20, +3.08]) and PPO 19.26 on the same maps. About 21 s per map on a Mac.
+
 ## [Perf-MPS_Learner_Device-051] - (2026-11-12)
 
 ### Scope
