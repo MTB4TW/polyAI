@@ -400,6 +400,9 @@ public class GameState {
      */
     void endTurn(Tribe tribe)
     {
+        // 2.15 rules: peace treaties offered to this tribe and not accepted this turn lapse.
+        if (core.RulesVersion.modern()) board.getRelations().endTurn(tribe.getTribeId());
+
         //For all units that didn't execute any action, a Recover action is executed.
         ArrayList<Integer> allTribeUnits = new ArrayList<>();
         ArrayList<Integer> tribeCities = tribe.getCitiesID();
@@ -434,10 +437,42 @@ public class GameState {
      * Inits the turn for this player
      * @param tribe whose turn is starting
      */
+    /**
+     * 2.15 rules, start of a tribe's turn: clears its treaty-breaking flags, records which of its Cloaks start the
+     * turn hidden (Hide and Dash conflict), and with Diplomacy researched reveals the capitals of tribes it met.
+     */
+    private void initTurnDiplomacy(Tribe tribe)
+    {
+        board.getRelations().startTurn(tribe.getTribeId());
+        for (Actor a : board.getActors()) {
+            if (a instanceof core.actors.units.Cloak && a.getTribeId() == tribe.getTribeId()) {
+                core.actors.units.Cloak c = (core.actors.units.Cloak) a;
+                c.setHiddenAtTurnStart(c.isHidden());
+            }
+        }
+        revealMetCapitals(tribe);
+    }
+
+    /** Diplomacy's capital vision: a tribe with Diplomacy sees the capital tiles of the tribes it has met. */
+    public void revealMetCapitals(Tribe tribe)
+    {
+        if (!core.RulesVersion.modern() || !tribe.getTechTree().isResearched(Types.TECHNOLOGY.DIPLOMACY)) return;
+        for (int other : tribe.getTribesMet()) {
+            if (other == tribe.getTribeId()) continue;
+            int capitalId = board.getCapitalIDs()[other];
+            Actor capital = getActor(capitalId);
+            if (capital == null) continue;
+            Vector2d p = capital.getPosition();
+            tribe.clearView(p.x, p.y, 0, getRandomGenerator(), board);
+            tribe.applyDeferredViewEffects(board);
+        }
+    }
+
     void initTurn(Tribe tribe)
     {
         // 2.15 rules: meet every tribe visible at the start of this tribe's turn (no-op under 2020 rules).
         tribe.meetVisibleTribes(board);
+        if (core.RulesVersion.modern()) initTurnDiplomacy(tribe);
         //Get all cities of this tribe
         ArrayList<Integer> tribeCities = tribe.getCitiesID();
         ArrayList<Integer> allTribeUnits = new ArrayList<>();
@@ -457,8 +492,17 @@ public class GameState {
                 produces = (u.getTribeId() == tribe.getTribeId());
             }
 
+            // 2.15 rules: an infiltrated city produces nothing on its owner's next turn. Market income is paid
+            // regardless (it is not city income).
+            if (city.isInfiltrated()) {
+                produces = false;
+                city.setInfiltrated(false);
+            }
+
             if (produces)
                 acumProd += city.getProduction();
+            else if (city.getPopulation() >= 0)
+                acumProd += city.getMarketIncome();
 
             allTribeUnits.addAll(city.getUnitsID());
 
@@ -475,8 +519,9 @@ public class GameState {
 
         if(tick == 0)
         {
-            tribe.setStars(TribesConfig.INITIAL_STARS);
+            tribe.setStars(TribesConfig.initialStars(tribe.getType()));
         }else{
+            if (core.RulesVersion.modern()) acumProd += board.getRelations().embassyIncome(tribe.getTribeId());
             acumProd = Math.max(0, acumProd); //Never have a negative amount of stars.
             tribe.addStars(acumProd);
         }

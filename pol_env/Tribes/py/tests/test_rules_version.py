@@ -15,6 +15,10 @@ from unittest import mock
 
 from pol_env.Tribes.py.environment_contract import (
     DEFAULT_RULES_VERSION,
+    DIPLOMACY_SCALAR_DIM,
+    DIPLOMACY_TRIBE_ACTION_TYPES,
+    filter_vocab_for_rules,
+    observation_layout,
     PHASE1_ENVIRONMENT_VERSION,
     SUPPORTED_RULES_VERSIONS,
     CheckpointCompatibilityError,
@@ -22,7 +26,7 @@ from pol_env.Tribes.py.environment_contract import (
     validate_checkpoint_compatibility,
     versioned_for_rules,
 )
-from pol_env.Tribes.py.register_env import TribesGymWrapper
+from pol_env.Tribes.py.register_env import GlobalActionCatalog, TribesGymWrapper
 from pol_env.Tribes.py.tests.test_environment_contract import compatibility_metadata
 
 
@@ -64,11 +68,11 @@ class RulesVersionContractTests(unittest.TestCase):
     def test_modern_rules_change_environment_versions(self):
         self.assertEqual(
             versioned_for_rules(PHASE1_ENVIRONMENT_VERSION, "polytopia_2_15"),
-            "v5_human_information_parity+rules_polytopia_2_15",
+            "v5_human_information_parity+rules_polytopia_2_15_r2",
         )
         self.assertEqual(
             versioned_for_rules("combat_v3_potential_shaping_horizon_20", "polytopia_2_15"),
-            "combat_v3_potential_shaping_horizon_20+rules_polytopia_2_15",
+            "combat_v3_potential_shaping_horizon_20+rules_polytopia_2_15_r2",
         )
 
     def test_checkpoints_do_not_cross_rule_sets(self):
@@ -82,6 +86,49 @@ class RulesVersionContractTests(unittest.TestCase):
             validate_checkpoint_compatibility(old, new)
         with self.assertRaisesRegex(CheckpointCompatibilityError, "phase1_environment_version"):
             validate_checkpoint_compatibility(new, old)
+
+
+class DiplomacyInterfaceTests(unittest.TestCase):
+    """Observation, vocabulary and catalog additions of the 2.15 rules (Diplomacy); none under 2020 rules."""
+
+    def test_observation_layout_per_rules(self):
+        old = observation_layout(11, 11, "tribes_2020")
+        new = observation_layout(11, 11, "polytopia_2_15")
+        self.assertEqual(old.expected_obs_dim, 6424)
+        self.assertEqual((old.spatial_channels, old.scalar_dim), (52, 132))
+        self.assertEqual(old.diplomacy_units_start, old.diplomacy_units_end)
+        self.assertEqual(old.diplomacy_scalar_start, old.diplomacy_scalar_end)
+        self.assertEqual((new.spatial_channels, new.scalar_dim), (54, 132 + DIPLOMACY_SCALAR_DIM))
+        self.assertEqual(new.expected_obs_dim, 54 * 121 + 132 + DIPLOMACY_SCALAR_DIM)
+        # Every 2020 block keeps its size; the spatial block stays contiguous before the scalars.
+        for name in ("terrain", "unit_types", "city_territory", "unit_home_city", "road", "buildings", "resource"):
+            self.assertEqual(getattr(old, name + "_start"), getattr(new, name + "_start"), name)
+        self.assertEqual(new.diplomacy_units_end, new.legacy_scalar_start)
+        self.assertEqual(new.diplomacy_scalar_end, new.expected_obs_dim)
+
+    def test_vocab_filter(self):
+        vocab = {"TECHNOLOGY": ["PHILOSOPHY", "DIPLOMACY"], "UNIT": ["SUPERUNIT", "CLOAK", "DAGGER"], "BUILDING": ["PORT"]}
+        self.assertEqual(filter_vocab_for_rules(vocab, "tribes_2020"),
+                         {"TECHNOLOGY": ["PHILOSOPHY"], "UNIT": ["SUPERUNIT"], "BUILDING": ["PORT"]})
+        self.assertEqual(filter_vocab_for_rules(vocab, "polytopia_2_15"), vocab)
+
+    def _catalog(self, combat, diplomacy):
+        return GlobalActionCatalog(11, 11, ["DIPLOMACY"], ["CLOAK"], ["ANIMAL"], ["PORT"], ["WORKSHOP"],
+                                   enable_combat=combat, enable_diplomacy=diplomacy)
+
+    def test_catalog_diplomacy_families(self):
+        plain = self._catalog(True, False)
+        dip = self._catalog(True, True)
+        self.assertNotIn("INFILTRATE", plain.offsets)
+        self.assertNotIn("INFILTRATE", self._catalog(False, True).offsets, "Diplomacy families need combat")
+        self.assertEqual(dip.total_size, plain.total_size + 121 * 121 + 4 * len(DIPLOMACY_TRIBE_ACTION_TYPES))
+        self.assertEqual(dip.id_infiltrate(0, 1), dip.offsets["INFILTRATE"] + 1)
+        self.assertEqual(dip.id_diplomacy("OFFER_PEACE", 1), dip.offsets["OFFER_PEACE"] + 1)
+        self.assertIsNone(dip.id_diplomacy("OFFER_PEACE", 4))
+        self.assertIsNone(plain.id_diplomacy("OFFER_PEACE", 1))
+        ids = {dip.id_diplomacy(t, j) for t in DIPLOMACY_TRIBE_ACTION_TYPES for j in range(4)}
+        self.assertEqual(len(ids), 4 * len(DIPLOMACY_TRIBE_ACTION_TYPES))
+        self.assertTrue(all(i < dip.total_size for i in ids))
 
 
 @unittest.skipUnless((OUT_DIR / "core" / "RulesVersion.class").exists(), "compile pol_env/Tribes/out first")
@@ -112,7 +159,7 @@ class RulesVersionWrapperTests(unittest.TestCase):
             self.assertEqual(str(wrapper.tribes_env._jvm.core.RulesVersion.activeId()), "polytopia_2_15")
             obs, info = wrapper.reset(seed=42)
             self.assertEqual(
-                info["phase1_environment_version"], "v5_human_information_parity+rules_polytopia_2_15"
+                info["phase1_environment_version"], "v5_human_information_parity+rules_polytopia_2_15_r2"
             )
             self.assertEqual(wrapper.tribes_env._jvm.core.Types.BUILDING.LUMBER_HUT.getCost(), 3)
             # A short episode runs end to end under the new rules.
@@ -124,6 +171,38 @@ class RulesVersionWrapperTests(unittest.TestCase):
                 obs, _, terminated, truncated, info = wrapper.step(int(rng.choice(legal)))
                 if terminated or truncated:
                     obs, info = wrapper.reset()
+        finally:
+            wrapper.close()
+
+    def test_modern_combat_wrapper_has_diplomacy(self):
+        env = {
+            "POLYVISION_RULES": "polytopia_2_15",
+            "POLYVISION_PHASE": "2",
+            "POLYVISION_COMBAT_MODE": "1",
+            "POLYVISION_SOLO_NO_OPPONENT_MODE": "0",
+            "POLYVISION_LEVEL_POOL_GLOB": "levels/phase2_pool_1v1/train/*.csv",
+            "POLYVISION_MAX_TURNS": "20",
+        }
+        with mock.patch.dict(os.environ, env, clear=False):
+            wrapper = TribesGymWrapper()
+            try:
+                self.assertEqual(wrapper.observation_space.shape, (observation_layout(11, 11, "polytopia_2_15").expected_obs_dim,))
+                for family in ("INFILTRATE",) + DIPLOMACY_TRIBE_ACTION_TYPES:
+                    self.assertIn(family, wrapper._catalog.offsets)
+                self.assertIn("CLOAK", wrapper._catalog.train_unit_types)
+                self.assertNotIn("DAGGER", wrapper._catalog.train_unit_types)
+                self.assertIn("DIPLOMACY", wrapper._catalog.tech_types)
+                obs, info = wrapper.reset(seed=3)
+                self.assertEqual(obs.shape, wrapper.observation_space.shape)
+            finally:
+                wrapper.close()
+
+    def test_default_catalog_has_no_diplomacy(self):
+        wrapper = self._wrapper(None)
+        try:
+            self.assertNotIn("DIPLOMACY", wrapper._catalog.tech_types)
+            self.assertNotIn("CLOAK", wrapper._catalog.train_unit_types)
+            self.assertEqual(wrapper.observation_space.shape, (6424,))
         finally:
             wrapper.close()
 

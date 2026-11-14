@@ -20,7 +20,7 @@ public class MakeVeteran extends UnitAction
     @Override
     public boolean isFeasible(final GameState gs) {
         Unit unit = (Unit) gs.getActor(this.unitId);
-        if(unit.getType() == Types.UNIT.SUPERUNIT)
+        if(unit.getType() == Types.UNIT.SUPERUNIT || unit.getType().isStatic())  // Static: Cloak, Dagger
             return false;
         return unit.getKills() >= TribesConfig.VETERAN_KILLS && !unit.isVeteran();
     }

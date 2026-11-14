@@ -26,7 +26,7 @@ public class MoveFactory implements ActionFactory {
                 if (!gs.getBoard().isInBounds(tile.getX(), tile.getY())) {
                     continue;
                 }
-                if(gs.getBoard().getUnitAt(tile.getX(), tile.getY()) == null) {
+                if(core.DiplomacyRules.looksVacant(gs, unit, tile.getX(), tile.getY())) {
                     Move action = new Move(unit.getActorId());
                     action.setDestination(tile.getPosition());
                     moves.add(action);

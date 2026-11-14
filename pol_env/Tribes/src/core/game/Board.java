@@ -59,6 +59,9 @@ public class Board {
     //Diplomacy of the board
     private Diplomacy diplomacy;
 
+    //Tribe relations of the 2.1 Diplomacy update (2.15 rules only; untouched under 2020 rules)
+    private core.TribeRelations relations;
+
     //Indicate if this model is native (not a copy of the game one) or not.
     private boolean isNative;
 
@@ -120,6 +123,7 @@ public class Board {
 
         tradeNetwork = new TradeNetwork(networkTiles);
         diplomacy = new Diplomacy(tribes.length);
+        relations = new core.TribeRelations(tribes.length);
     }
 
 
@@ -139,6 +143,7 @@ public class Board {
         tileCityId = new int[size][size];
         tradeNetwork = new TradeNetwork(size);
         diplomacy = new Diplomacy(tribes.length);
+        relations = new core.TribeRelations(tribes.length);
         isNative = true;
 
         for(Tribe t : tribes)
@@ -181,6 +186,7 @@ public class Board {
         copyBoard.actorIDcounter = actorIDcounter;
         copyBoard.tradeNetwork = new TradeNetwork(size);
         copyBoard.diplomacy = diplomacy.copy();
+        copyBoard.relations = relations.copy();
         copyBoard.isNative = false;
         copyBoard.capitalIDs = new int[tribes.length];
 
@@ -218,9 +224,16 @@ public class Board {
             int id = act.getActorId();
             int actTribeId = act.getTribeId();
             boolean actorVisible = playerId == -1 || tribes[playerId].isVisible(act.getPosition().x, act.getPosition().y);
+            // 2.15 rules: a hidden Cloak is invisible to other tribes, unless they are at peace with its owner.
+            boolean hiddenFromPlayer = partialObs && actTribeId != playerId && act instanceof Unit
+                    && ((Unit) act).isHidden() && !relations.isAtPeace(actTribeId, playerId);
+            if (hiddenFromPlayer) {
+                actorVisible = false;
+                copyBoard.units[act.getPosition().x][act.getPosition().y] = 0;
+            }
 
             //When do we copy? if it's the tribe (id==playerId), full observable or actor visible if part. obs.
-            if(actTribeId == playerId || !partialObs || actorVisible)
+            if(actTribeId == playerId || !partialObs || (actorVisible && !hiddenFromPlayer))
             {
                 boolean hideInfo = (actTribeId != playerId) && partialObs;
                 Actor actorCopy = act.copy(hideInfo);
@@ -507,7 +520,8 @@ public class Board {
         Tribe t = tribes[unit.getTribeId()];
 
         int partialObsRangeClear = 1;
-        if (getTerrainAt(xF, yF) == Types.TERRAIN.MOUNTAIN || unit.getType() == Types.UNIT.BATTLESHIP) {
+        if (getTerrainAt(xF, yF) == Types.TERRAIN.MOUNTAIN || unit.getType() == Types.UNIT.BATTLESHIP
+                || unit.getType() == Types.UNIT.CLOAK) {  // Cloak: Scout skill (5x5), 2.15 rules only
             partialObsRangeClear += 1;
         }
         boolean networkUpdate = t.clearView(xF, yF, partialObsRangeClear, r, this);
@@ -1208,9 +1222,15 @@ public class Board {
      */
     public void setCityIdAt(int x, int y, int cityId) { tileCityId[x][y] = cityId; }
     public int[] getCapitalIDs() {return capitalIDs;}
+
+    /** All actors on the board (cities and units). */
+    public java.util.Collection<Actor> getActors() { return gameActors.values(); }
     boolean isNative() { return isNative; }
     public int getActorIDcounter() {
         return actorIDcounter;
     }
     public Diplomacy getDiplomacy(){ return diplomacy; }
+
+    /** Tribe relations of the 2.1 Diplomacy update (2.15 rules). */
+    public core.TribeRelations getRelations(){ return relations; }
 }

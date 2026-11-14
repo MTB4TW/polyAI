@@ -22,6 +22,8 @@ public class ResearchTechCommand implements ActionCommand {
             tribe.subtractStars(techCost);
             tribe.getTechTree().doResearch(tech);
             tribe.addScore(tech.getPoints());
+            // 2.15 rules: Diplomacy gives vision of the capitals of the tribes met.
+            if (tech == Types.TECHNOLOGY.DIPLOMACY) gs.revealMetCapitals(tribe);
 
             //Flag if research tree is completed.
             if (tribe.getTechTree().isEverythingResearched())

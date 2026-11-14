@@ -47,10 +47,25 @@ public class CaptureCommand implements ActionCommand {
                 //the unit that captures exhausts their turn
                 unit.setStatus(Types.TURN_STATUS.FINISHED);
 
-                return b.capture(gs, thisTribe, targetCity.getPosition().x, targetCity.getPosition().y);
+                // 2.15 rules: a hostile act. Embassies hosted in a captured capital are lost (an embassy needs
+                // the capital to be held by its original owner).
+                core.DiplomacyRules.recordHostility(gs, thisTribe.getTribeId(), targetTribe.getTribeId());
+                if (core.RulesVersion.modern() && targetCity.isCapital()) {
+                    core.TribeRelations rel = b.getRelations();
+                    for (int owner = 0; owner < rel.getNumTribes(); owner++) rel.removeEmbassy(owner, targetTribe.getTribeId());
+                }
+
+                boolean captured = b.capture(gs, thisTribe, targetCity.getPosition().x, targetCity.getPosition().y);
+                if (core.RulesVersion.modern()) {
+                    core.game.MarketIncome.refresh(gs, thisTribe.getTribeId());
+                    core.game.MarketIncome.refresh(gs, targetTribe.getTribeId());
+                }
+                return captured;
             } else if (captureType == Types.TERRAIN.VILLAGE) {
                 //the unit that captures exhausts their turn
                 unit.setStatus(Types.TURN_STATUS.FINISHED);
+                // 2.15 rules: capturing a village reveals a Cloak.
+                if (unit instanceof core.actors.units.Cloak) ((core.actors.units.Cloak) unit).setHidden(false);
 
                 Vector2d unitPos = unit.getPosition();
                 return b.capture(gs, thisTribe, unitPos.x, unitPos.y);

@@ -32,13 +32,22 @@ from .environment_contract import (
     PHASE1_ENVIRONMENT_VERSION as CONTRACT_PHASE1_ENVIRONMENT_VERSION,
     resolve_rules_version,
     versioned_for_rules,
+    filter_vocab_for_rules,
+    DEFAULT_RULES_VERSION,
+    DIPLOMACY_ACTION_TYPES,
+    DIPLOMACY_MAX_TRIBES,
+    DIPLOMACY_RELATION_FEATURES,
+    DIPLOMACY_TECHNOLOGIES,
+    DIPLOMACY_TRIBE_ACTION_TYPES,
+    DIPLOMACY_UNIT_TYPES,
+    rules_have_diplomacy,
 )
 
 
 class GlobalActionCatalog:
     """Deterministic flat global action-ID catalog for fixed map dimensions."""
 
-    def __init__(self, width, height, tech_types, train_unit_types, resource_types, building_types, levelup_choices, enable_combat=False):
+    def __init__(self, width, height, tech_types, train_unit_types, resource_types, building_types, levelup_choices, enable_combat=False, enable_diplomacy=False):
         self.width = int(width)
         self.height = int(height)
         self.n_tiles = int(width * height)
@@ -48,6 +57,8 @@ class GlobalActionCatalog:
         self.building_types = sorted(set(building_types))
         self.levelup_choices = sorted(set(levelup_choices))
         self.enable_combat = bool(enable_combat)
+        # 2.15 rules Diplomacy families (combat only); absent from every other catalog.
+        self.enable_diplomacy = bool(enable_diplomacy) and self.enable_combat
 
         self.tech_to_idx = {k: i for i, k in enumerate(self.tech_types)}
         self.unit_to_idx = {k: i for i, k in enumerate(self.train_unit_types)}
@@ -98,6 +109,15 @@ class GlobalActionCatalog:
             self.offsets["RECOVER"] = cur
             cur += self.n_tiles
 
+        if self.enable_diplomacy:
+            # Cloak source tile x target city tile.
+            self.offsets["INFILTRATE"] = cur
+            cur += self.n_tiles * self.n_tiles
+            # One slot per target tribe id.
+            for a_type in DIPLOMACY_TRIBE_ACTION_TYPES:
+                self.offsets[a_type] = cur
+                cur += DIPLOMACY_MAX_TRIBES
+
         self.total_size = int(cur)
         self.end_turn_id = int(self.offsets["END_TURN"])
 
@@ -110,6 +130,20 @@ class GlobalActionCatalog:
         if unit_tile is None or "RECOVER" not in self.offsets:
             return None
         return int(self.offsets["RECOVER"] + unit_tile)
+
+    def id_infiltrate(self, src_tile, city_tile):
+        if src_tile is None or city_tile is None or "INFILTRATE" not in self.offsets:
+            return None
+        return int(self.offsets["INFILTRATE"] + src_tile * self.n_tiles + city_tile)
+
+    def id_diplomacy(self, action_type, target_tribe_id):
+        a_type = str(action_type or "").upper()
+        if a_type not in self.offsets or a_type not in DIPLOMACY_TRIBE_ACTION_TYPES or target_tribe_id is None:
+            return None
+        target = int(target_tribe_id)
+        if target < 0 or target >= DIPLOMACY_MAX_TRIBES:
+            return None
+        return int(self.offsets[a_type] + target)
 
     def tile_id(self, x, y):
         x = int(x)
@@ -336,6 +370,9 @@ class TribesGymWrapper(gym.Env):
         # Game rules (POLYVISION_RULES). The default leaves the version strings untouched.
         self.RULES_VERSION = resolve_rules_version()
         self.PHASE1_ENVIRONMENT_VERSION = versioned_for_rules(self.PHASE1_ENVIRONMENT_VERSION, self.RULES_VERSION)
+        self._has_diplomacy = rules_have_diplomacy(self.RULES_VERSION)
+        if self._is_combat_mode and self._has_diplomacy:
+            self.ALLOWED_ACTION_TYPES = set(self.ALLOWED_ACTION_TYPES) | set(DIPLOMACY_ACTION_TYPES)
         self.tribes_env = make_default_env()
         if self._is_combat_mode:
             self.tribes_env._env.setSoloNoOpponentMode(False)
@@ -473,11 +510,12 @@ class TribesGymWrapper(gym.Env):
                 width=width,
                 height=height,
                 tech_types=vocab["TECHNOLOGY"],
-                train_unit_types=[u for u in vocab["UNIT"] if u not in ("BOAT", "SHIP", "BATTLESHIP", "SUPERUNIT")],
+                train_unit_types=[u for u in vocab["UNIT"] if u not in ("BOAT", "SHIP", "BATTLESHIP", "SUPERUNIT", "DAGGER")],
                 resource_types=[r for r in vocab["RESOURCE"] if r in ("ANIMAL", "FISH", "WHALES", "FRUIT", "CROPS", "ORE")],
                 building_types=vocab["BUILDING"],
                 levelup_choices=vocab["CITY_LEVEL_UP"],
                 enable_combat=bool(getattr(self, "_is_combat_mode", False)),
+                enable_diplomacy=bool(getattr(self, "_has_diplomacy", False)),
             )
             self._tech_name_to_obs_idx = {
                 str(name).upper(): int(i)
@@ -2736,7 +2774,7 @@ class TribesGymWrapper(gym.Env):
         }
         for enum_name in list(out.keys()):
             out[enum_name] = self._extract_enum_names_from_types_java(types_path, enum_name)
-        return out
+        return filter_vocab_for_rules(out, getattr(self, "RULES_VERSION", DEFAULT_RULES_VERSION))
 
     def _extract_enum_names_from_types_java(self, path, enum_name):
         if not os.path.exists(path):
@@ -3547,6 +3585,20 @@ class TribesGymWrapper(gym.Env):
             tile = self._catalog.tile_id(src_x, src_y)
             gid = self._catalog.id_recover(tile)
             return gid, "missing_recover_coords" if gid is None else None
+
+        if a_type == "INFILTRATE":
+            src_x = self._action_int(action, "src_x", None)
+            src_y = self._action_int(action, "src_y", None)
+            dst_x = self._action_int(action, "dst_x", None)
+            dst_y = self._action_int(action, "dst_y", None)
+            if None in (src_x, src_y, dst_x, dst_y):
+                return None, "missing_infiltrate_coords"
+            gid = self._catalog.id_infiltrate(self._catalog.tile_id(src_x, src_y), self._catalog.tile_id(dst_x, dst_y))
+            return gid, "missing_infiltrate_coords" if gid is None else None
+
+        if a_type in DIPLOMACY_TRIBE_ACTION_TYPES:
+            gid = self._catalog.id_diplomacy(a_type, self._action_int(action, "target_tribe_id", None))
+            return gid, "missing_diplomacy_target" if gid is None else None
 
         return None, f"unsupported_action_type:{a_type}"
 
@@ -5302,7 +5354,7 @@ class TribesGymWrapper(gym.Env):
             width, height = int(dims[0]), int(dims[1])
         else:
             width, height = 0, 0
-        layout = observation_layout(width, height)
+        layout = observation_layout(width, height, getattr(self, "RULES_VERSION", None))
 
         # 1. Terrain Channel (1 channel: width x height)
         terrain_raw = np.asarray(board.get("terrain", []), dtype=np.int16)
@@ -5449,6 +5501,10 @@ class TribesGymWrapper(gym.Env):
         resource_norm[fog_mask] = 0.0  # explicit fog defense
         features.extend(resource_norm.flatten())
 
+        # 6b. 2.15 rules only: Cloak and Dagger channels (signed; an own hidden Cloak is +0.5).
+        if layout.diplomacy_units_end > layout.diplomacy_units_start:
+            features.extend(self._diplomacy_unit_channels(unit_map, fog_mask, width, height, controlled_tribe))
+
         # 7. Legacy Scalars (6 values)
         tribes_info = obs_dict.get("tribes", {})
         tribe0 = tribes_info.get(str(controlled_tribe), {}) if isinstance(tribes_info, dict) else {}
@@ -5507,6 +5563,10 @@ class TribesGymWrapper(gym.Env):
         city_slot_features = encode_owned_city_slots(canonical_cities, width=width, height=height)
         features.extend(city_slot_features)
 
+        # 11. 2.15 rules only: Diplomacy researched and the controlled tribe's relations with each tribe id.
+        if layout.diplomacy_scalar_end > layout.diplomacy_scalar_start:
+            features.extend(self._diplomacy_scalars(obs_dict, controlled_tribe, effective_techs))
+
         if len(features) != layout.expected_obs_dim:
             raise ObservationContractError(
                 f"Constructed observation vector length {len(features)} != expected {layout.expected_obs_dim}"
@@ -5514,6 +5574,47 @@ class TribesGymWrapper(gym.Env):
 
         return np.array(features, dtype=np.float32)
     
+    # Java unit-type keys of the 2.15 Diplomacy units (core.Types.UNIT).
+    DIPLOMACY_UNIT_TYPE_KEYS = {"CLOAK": 12, "DAGGER": 13}
+
+    def _diplomacy_unit_channels(self, unit_map, fog_mask, width, height, controlled_tribe):
+        channels = {name: np.zeros((width, height), dtype=np.float32) for name in DIPLOMACY_UNIT_TYPES}
+        key_to_name = {self.DIPLOMACY_UNIT_TYPE_KEYS[n]: n for n in DIPLOMACY_UNIT_TYPES}
+        if isinstance(unit_map, dict):
+            for u_rec in unit_map.values():
+                if not isinstance(u_rec, dict):
+                    continue
+                try:
+                    ux, uy = int(u_rec.get("x", -1)), int(u_rec.get("y", -1))
+                    name = key_to_name.get(int(u_rec.get("type", -1)))
+                    tribe = int(u_rec.get("tribeId", -1))
+                except Exception:
+                    continue
+                if name is None or not (0 <= ux < width and 0 <= uy < height) or fog_mask[ux, uy]:
+                    continue
+                if tribe == int(controlled_tribe):
+                    channels[name][ux, uy] = 0.5 if bool(u_rec.get("hidden", False)) else 1.0
+                else:
+                    channels[name][ux, uy] = -1.0
+        out = []
+        for name in DIPLOMACY_UNIT_TYPES:
+            chan = channels[name]
+            chan[fog_mask] = 0.0
+            out.extend(chan.flatten())
+        return out
+
+    def _diplomacy_scalars(self, obs_dict, controlled_tribe, effective_techs):
+        out = [1.0 if t in effective_techs else 0.0 for t in DIPLOMACY_TECHNOLOGIES]
+        tribes_info = obs_dict.get("tribes", {}) if isinstance(obs_dict, dict) else {}
+        me = tribes_info.get(str(int(controlled_tribe)), {}) if isinstance(tribes_info, dict) else {}
+        rel = me.get("diplomacy", {}) if isinstance(me, dict) else {}
+        for tribe_id in range(DIPLOMACY_MAX_TRIBES):
+            for feature in DIPLOMACY_RELATION_FEATURES:
+                values = rel.get(feature, []) if isinstance(rel, dict) else []
+                flag = bool(values[tribe_id]) if tribe_id < len(values) and tribe_id != int(controlled_tribe) else False
+                out.append(1.0 if flag else 0.0)
+        return out
+
     def close(self):
         """Close the underlying environment"""
         if hasattr(self.tribes_env, 'close'):

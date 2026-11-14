@@ -45,13 +45,43 @@ def resolve_rules_version(environ: Mapping[str, str] | None = None) -> str:
     return raw
 
 
+# Revision of each non-default rule set. Bump it whenever what the rule set plays, shows or allows changes, so
+# checkpoints trained under an earlier revision are rejected. Revision 1 carries no suffix.
+#   polytopia_2_15 r1: Step 1 and combat basics (CHANGELOG 052).
+#   polytopia_2_15 r2: Step 2, Diplomacy, starting stars, backwards research (CHANGELOG 053).
+RULES_REVISIONS = {"polytopia_2_15": 2}
+
+
 def versioned_for_rules(environment_version: str, rules_version: str) -> str:
-    """Fold a non-default rules version into an environment version string."""
+    """Fold a non-default rules version (and its revision) into an environment version string."""
     if rules_version not in SUPPORTED_RULES_VERSIONS:
         raise ValueError(f"Unsupported rules version {rules_version!r}")
     if rules_version == DEFAULT_RULES_VERSION:
         return str(environment_version)
-    return f"{environment_version}+rules_{rules_version}"
+    revision = int(RULES_REVISIONS.get(rules_version, 1))
+    suffix = f"_r{revision}" if revision > 1 else ""
+    return f"{environment_version}+rules_{rules_version}{suffix}"
+
+# Enum constants the Java engine defines only for the 2.15 rules (core.Types ... isActive()). They are appended
+# to their enums, so dropping them under other rule sets leaves every older index and catalog unchanged.
+RULES_ONLY_VOCAB = {
+    "polytopia_2_15": {
+        "TECHNOLOGY": ("DIPLOMACY",),
+        "UNIT": ("CLOAK", "DAGGER"),
+    },
+}
+
+
+def filter_vocab_for_rules(vocab: Mapping[str, Sequence[str]], rules_version: str) -> dict:
+    """Drop enum names that do not exist under ``rules_version`` from a Types.java vocabulary."""
+    excluded: dict[str, set[str]] = {}
+    for rules, per_enum in RULES_ONLY_VOCAB.items():
+        if rules == rules_version:
+            continue
+        for enum_name, names in per_enum.items():
+            excluded.setdefault(enum_name, set()).update(names)
+    return {k: [n for n in v if n not in excluded.get(k, set())] for k, v in vocab.items()}
+
 
 ACTION_STAR_COST_SCALE = 50.0
 
@@ -137,6 +167,26 @@ TECHNOLOGY_ORDER = (
     "PHILOSOPHY",
 )
 NUM_TECHNOLOGIES = len(TECHNOLOGY_ORDER)  # 24
+
+# 2.15 rules only (Diplomacy): extra observation blocks, appended so the 2020 layout is unchanged.
+# - DIPLOMACY_UNIT_TYPES: one spatial channel each, placed after the resource channel (still inside the spatial
+#   part). Own units are +1 (an own hidden Cloak is +0.5), visible enemy units -1.
+# - Diplomacy scalars, placed after the city block: DIPLOMACY researched, then for each tribe id below
+#   DIPLOMACY_MAX_TRIBES the controlled tribe's relation flags DIPLOMACY_RELATION_FEATURES (0 for itself).
+DIPLOMACY_UNIT_TYPES = ("CLOAK", "DAGGER")
+DIPLOMACY_TECHNOLOGIES = ("DIPLOMACY",)
+DIPLOMACY_MAX_TRIBES = 4
+DIPLOMACY_RELATION_FEATURES = ("peace", "war", "offer_to", "offer_from", "embassy_in", "embassy_from", "broke_peace")
+DIPLOMACY_SCALAR_DIM = len(DIPLOMACY_TECHNOLOGIES) + DIPLOMACY_MAX_TRIBES * len(DIPLOMACY_RELATION_FEATURES)  # 29
+# Action families the 2.15 rules add to the combat catalog (after RECOVER).
+DIPLOMACY_TRIBE_ACTION_TYPES = ("OFFER_PEACE", "ACCEPT_PEACE", "BREAK_PEACE", "BUILD_EMBASSY")
+DIPLOMACY_ACTION_TYPES = ("INFILTRATE",) + DIPLOMACY_TRIBE_ACTION_TYPES
+
+
+def rules_have_diplomacy(rules_version: str | None = None) -> bool:
+    rules_version = resolve_rules_version() if rules_version is None else rules_version
+    return rules_version == "polytopia_2_15"
+
 
 NUM_CITY_TERRITORY_CHANNELS = MAX_OWNED_CITIES  # 9
 NUM_UNIT_HOME_CITY_CHANNELS = MAX_OWNED_CITIES  # 9
@@ -332,9 +382,25 @@ class ObservationLayout:
     expected_obs_dim: int
     city_slots: int = MAX_OWNED_CITIES
     city_slot_dim: int = CITY_SLOT_FEATURE_DIM
+    # 2.15 rules only; empty ranges (start == end) under the 2020 rules.
+    diplomacy_units_start: int = 0
+    diplomacy_units_end: int = 0
+    diplomacy_scalar_start: int = 0
+    diplomacy_scalar_end: int = 0
+
+    @property
+    def spatial_channels(self) -> int:
+        """Number of per-tile channels, which form one contiguous block at the start of the vector."""
+        return self.legacy_scalar_start // self.n_tiles
+
+    @property
+    def scalar_dim(self) -> int:
+        return self.expected_obs_dim - self.legacy_scalar_start
 
 
-def observation_layout(width: int, height: int) -> ObservationLayout:
+def observation_layout(width: int, height: int, rules_version: str | None = None) -> ObservationLayout:
+    """Observation layout for a board; ``rules_version`` defaults to the POLYVISION_RULES setting."""
+    diplomacy = rules_have_diplomacy(rules_version)
     width = int(width)
     height = int(height)
     if width <= 0 or height <= 0:
@@ -370,6 +436,11 @@ def observation_layout(width: int, height: int) -> ObservationLayout:
     cur += n_tiles
     resource_end = cur
 
+    diplomacy_units_start = cur
+    if diplomacy:
+        cur += len(DIPLOMACY_UNIT_TYPES) * n_tiles
+    diplomacy_units_end = cur
+
     legacy_scalar_start = cur
     cur += LEGACY_SCALAR_DIM
     legacy_scalar_end = cur
@@ -385,6 +456,11 @@ def observation_layout(width: int, height: int) -> ObservationLayout:
     city_block_start = cur
     cur += MAX_OWNED_CITIES * CITY_SLOT_FEATURE_DIM
     city_block_end = cur
+
+    diplomacy_scalar_start = cur
+    if diplomacy:
+        cur += DIPLOMACY_SCALAR_DIM
+    diplomacy_scalar_end = cur
 
     expected_obs_dim = cur
 
@@ -417,6 +493,10 @@ def observation_layout(width: int, height: int) -> ObservationLayout:
         expected_obs_dim=expected_obs_dim,
         city_slots=MAX_OWNED_CITIES,
         city_slot_dim=CITY_SLOT_FEATURE_DIM,
+        diplomacy_units_start=diplomacy_units_start,
+        diplomacy_units_end=diplomacy_units_end,
+        diplomacy_scalar_start=diplomacy_scalar_start,
+        diplomacy_scalar_end=diplomacy_scalar_end,
     )
 
 

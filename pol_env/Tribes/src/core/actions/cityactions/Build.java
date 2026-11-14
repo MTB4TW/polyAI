@@ -119,6 +119,21 @@ public class Build extends CityAction
             if(!adjFound) return false;
         }
 
+        //2.15 rules: a Market (Customs House slot) must stand next to a Sawmill, Windmill or Forge.
+        if(buildingType == Types.BUILDING.CUSTOMS_HOUSE && core.RulesVersion.modern())
+        {
+            boolean adjFound = false;
+            for(Vector2d adjPos : targetPos.neighborhood(1,0,board.getSize()))
+            {
+                if(core.game.MarketIncome.isProcessing(board.getBuildingAt(adjPos.x, adjPos.y)))
+                {
+                    adjFound = true;
+                    break;
+                }
+            }
+            if(!adjFound) return false;
+        }
+
         //Uniqueness constrain
         if(checkIfUnique) {
             for(Vector2d tile : board.getCityTiles(this.cityId)) {

@@ -40,6 +40,15 @@ public class ExamineCommand implements ActionCommand {
             while (allTech && bonus == RESEARCH) {
                 bonus = Types.EXAMINE_BONUS.random(rnd);
             }
+            // 2.15 rules: the Explorer reward needs an unexplored tile in the 5x5 area centred on the ruin.
+            if (core.RulesVersion.modern()) {
+                boolean explorerOk = hasUnexploredTileNearby(gs, t, unit.getPosition());
+                while ((allTech && bonus == RESEARCH) || (!explorerOk && bonus == Types.EXAMINE_BONUS.EXPLORER)) {
+                    bonus = Types.EXAMINE_BONUS.random(rnd);
+                }
+                // Examining a ruin reveals a Cloak.
+                if (unit instanceof core.actors.units.Cloak) ((core.actors.units.Cloak) unit).setHidden(false);
+            }
 
             switch (bonus) {
                 case SUPERUNIT:
@@ -100,6 +109,18 @@ public class ExamineCommand implements ActionCommand {
 
             unit.setStatus(Types.TURN_STATUS.FINISHED);
             return true;
+        }
+        return false;
+    }
+
+    /** True if any tile within Chebyshev distance 2 of pos is still fogged for tribe t. */
+    public static boolean hasUnexploredTileNearby(GameState gs, Tribe t, Vector2d pos) {
+        int size = gs.getBoard().getSize();
+        for (int x = pos.x - 2; x <= pos.x + 2; x++) {
+            for (int y = pos.y - 2; y <= pos.y + 2; y++) {
+                if (x < 0 || y < 0 || x >= size || y >= size) continue;
+                if (!t.isVisible(x, y)) return true;
+            }
         }
         return false;
     }
