@@ -2,6 +2,50 @@
 
 All notable changes to this project are documented in this file.
 
+## [Perf-Vectorized_Features_Compact_IPC-052] - (2026-11-12)
+
+### Scope
+- Legal-action feature building (`TribesGymWrapper._build_legal_action_features_padded`) is faster:
+  - `_build_feature_step_context` computes the fog window counts (3x3 / 5x5), city-bounds mask and
+    distance-to-village map with NumPy instead of per-tile Python loops.
+  - The observation-independent feature columns (action-type flags, tech/resource/building/level-up
+    vocabulary, star cost) are cached per global action id and reused only while every input field and its
+    type are unchanged; each step builds rows as Python floats and casts the block to float32 once.
+  - The previous implementation is kept as `_build_legal_action_features_padded_loops` /
+    `_build_feature_step_context_loops`; `POLYVISION_FEATURE_EQUIV_CHECK=1` now also checks the fast builder
+    against it byte for byte on every step.
+- Training sends only the valid legal rows through the `AsyncVectorEnv` pipe. A `CompactLegalInfoWrapper`
+  inside each worker replaces `legal_global_ids_padded`, `legal_action_valid_mask` and
+  `legal_action_features_padded` (256 x 47 float32, ~49 KB per env per step) with
+  `info["legal_compact"] = (ids[:n], features[:n], 256)` (~3.7 KB at the typical n = 18); the trainer
+  rebuilds identical padded tensors. Infos whose padding is not all zero are sent padded as before.
+  On by default; `POLYVISION_COMPACT_LEGAL_INFO=0` restores the padded transfer. The environment itself still
+  returns the padded keys, so evaluators and single-env tools are unchanged.
+- New `tools/hash_env_trajectory.py`: hashes a fixed-seed random-legal-play trajectory (observations,
+  rewards, done flags, legal ids/masks, feature bytes and all non-timing info fields).
+- No behaviour change: observations, rewards, legal actions, legal-action features and trainer tensors are
+  byte-identical, so no contract version changes.
+
+### Validation
+- `tools/hash_env_trajectory.py` digests are identical before and after: Phase 1 seeds 7 and 11 (3,000 steps
+  each) and combat mode seed 7 (1,500 steps).
+- New `tools/tests/test_vectorized_legal_features.py`: the vectorised context matches the per-tile loops on
+  300 random boards (1x1 to 14x14, malformed boards included) and feature tensors match the previous builder
+  byte for byte over 800 random action sets; opt-in live test runs 400 env steps with
+  `POLYVISION_FEATURE_EQUIV_CHECK=1`.
+- New `tools/tests/test_compact_legal_info.py`: compact rows round-trip bit for bit; layouts that cannot be
+  compacted stay padded; through a real `AsyncVectorEnv` (SAME_STEP autoreset included) the trainer's
+  legal id, mask, feature and action-mask tensors equal the padded path's; mixed padded/compact batches;
+  opt-in live test on 300 real env infos.
+- Tiny PPO runs (1,024 steps, 2 envs, seed 3, `--force-revalidate-action-interface`) with
+  `POLYVISION_COMPACT_LEGAL_INFO=0` and `=1` give identical checkpoints for `mlp` and `spatial_resnet_local`;
+  for `mlp` the rollout buffers (obs, actions, log-probs, returns, values, legal ids/masks/features) and
+  parameters were also hashed before each of the 4 updates and matched.
+- Timing on a shared 2019 Intel MacBook (noisy): feature builder on 1,020 recorded real inputs
+  (~17 valid rows) 1.06 -> 0.40 ms median per call, of which the step context 0.47 -> 0.09 ms; median
+  single-env step over the 3,000-step trajectories 5.0-5.6 ms -> 3.9-4.3 ms. Synthetic 2-env
+  `AsyncVectorEnv` step plus trainer extraction 0.97 -> 0.67-0.84 ms.
+
 ## [Train-Init_From_Checkpoint-058] - (2026-11-13)
 
 ### Scope
