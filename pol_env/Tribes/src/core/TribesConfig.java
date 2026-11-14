@@ -355,7 +355,8 @@ public class TribesConfig
     public static final int DAGGER_COST = 2;                     // not trainable; the fandom's "theoretical" cost (disband value)
     static final int DAGGER_POINTS = 10;
     public static final int MAX_DAGGERS_PER_INFILTRATION = 5;    // daggers = min(city level, 5)
-    public static final int EMBASSY_COST = 5;                    // UNVERIFIED for 2.14+: "begins cheaper, rises with the number of embassies"
+    public static final int EMBASSY_BASE_COST = 4;               // 2.14.0: the first embassy costs 4 stars,
+    public static final int EMBASSY_COST_STEP = 2;               // and each later one 2 more (reported by Devin)
     public static final int EMBASSY_INCOME = 2;                  // to both sender and host, per turn
     public static final int EMBASSY_INCOME_AT_PEACE = 4;         // doubled while a peace treaty holds
     public static final int CLOAK_VISION_RANGE = 2;              // Scout skill: 5x5

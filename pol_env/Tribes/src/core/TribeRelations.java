@@ -12,6 +12,7 @@ package core;
  *   recipient's next turn (the game shows it as rejected).
  * - At peace no hostile action is possible. Breaking a treaty freezes the breaker's units for the rest of the
  *   turn and disbands its units inside the other tribe's borders (BreakPeaceCommand).
+ * - The first embassy a tribe places costs EMBASSY_BASE_COST, each later one EMBASSY_COST_STEP more.
  * - An embassy pays EMBASSY_INCOME to both owner and host each turn, doubled at peace. Attacking a tribe destroys
  *   the embassies between the two.
  */
@@ -25,6 +26,7 @@ public class TribeRelations {
     private final boolean[][] embassy;      // [owner][host]
     private final int[][] lastHostileTick;  // [attacker][victim]
     private final boolean[][] brokePeace;   // [breaker][other], this turn only
+    private final int[] embassiesPlaced;    // embassies each tribe has ever placed (sets the next one's cost)
 
     public TribeRelations(int numTribes) {
         n = numTribes;
@@ -33,6 +35,7 @@ public class TribeRelations {
         embassy = new boolean[n][n];
         lastHostileTick = new int[n][n];
         brokePeace = new boolean[n][n];
+        embassiesPlaced = new int[n];
         for (int i = 0; i < n; i++) java.util.Arrays.fill(lastHostileTick[i], NEVER);
     }
 
@@ -74,7 +77,20 @@ public class TribeRelations {
         brokePeace[breaker][other] = true;
     }
 
-    public void addEmbassy(int owner, int host) { if (valid(owner, host)) embassy[owner][host] = true; }
+    public void addEmbassy(int owner, int host) {
+        if (!valid(owner, host)) return;
+        embassy[owner][host] = true;
+        embassiesPlaced[owner]++;
+    }
+
+    /**
+     * Stars the tribe's next embassy costs: EMBASSY_BASE_COST for the first, EMBASSY_COST_STEP more for each one it
+     * has placed before (destroyed embassies still count: the cost rises "for each subsequent embassy you place").
+     */
+    public int embassyCost(int tribeId) {
+        int placed = (tribeId >= 0 && tribeId < n) ? embassiesPlaced[tribeId] : 0;
+        return TribesConfig.EMBASSY_BASE_COST + TribesConfig.EMBASSY_COST_STEP * placed;
+    }
 
     public void removeEmbassy(int owner, int host) { if (valid(owner, host)) embassy[owner][host] = false; }
 
@@ -120,6 +136,7 @@ public class TribeRelations {
             System.arraycopy(lastHostileTick[i], 0, c.lastHostileTick[i], 0, n);
             System.arraycopy(brokePeace[i], 0, c.brokePeace[i], 0, n);
         }
+        System.arraycopy(embassiesPlaced, 0, c.embassiesPlaced, 0, n);
         return c;
     }
 }

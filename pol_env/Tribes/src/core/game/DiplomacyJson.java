@@ -50,8 +50,9 @@ public final class DiplomacyJson {
     }
 
     /** Star cost of a Diplomacy action, or -1 if the action is not one. */
-    public static int starCost(Action a) {
-        if (a instanceof DiplomacyAction && a.getActionType() == Types.ACTION.BUILD_EMBASSY) return TribesConfig.EMBASSY_COST;
+    public static int starCost(Action a, GameState gs) {
+        if (a instanceof DiplomacyAction && a.getActionType() == Types.ACTION.BUILD_EMBASSY)
+            return gs.getBoard().getRelations().embassyCost(((DiplomacyAction) a).getTribeId());
         if (a instanceof DiplomacyAction || a instanceof Infiltrate) return 0;
         return -1;
     }

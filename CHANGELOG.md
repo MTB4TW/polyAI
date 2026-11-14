@@ -18,7 +18,8 @@ Every remaining item of `docs/rules-parity.md` except the 2.8 naval rework, all 
   (trainable) and `DAGGER` (spawned by infiltration), unit action `INFILTRATE`, tribe actions `OFFER_PEACE`,
   `ACCEPT_PEACE`, `BREAK_PEACE`, `BUILD_EMBASSY`; war/peace/offer/embassy state in `core.TribeRelations`;
   hidden Cloaks are removed from other tribes' observations; capital vision with Diplomacy; embassy income;
-  infiltration denies a city's next income. Details and sources in `docs/rules-parity.md` ("Diplomacy").
+  infiltration denies a city's next income. The first embassy costs 4★ and each later one 2★ more (2.14.0).
+  Details and sources in `docs/rules-parity.md` ("Diplomacy").
   `SimpleAgent` infiltrates and builds embassies but never makes peace.
 - Bug fixed under 2.15 only: `SuperUnit.copy()` dropped the unit's last direction (used for pushes).
 - New enum constants (`TECHNOLOGY.DIPLOMACY`, `UNIT.CLOAK`, `UNIT.DAGGER`, five `ACTION` values) are appended,
@@ -43,7 +44,7 @@ Every remaining item of `docs/rules-parity.md` except the 2.8 naval rework, all 
   validation maps.
 
 ### Validation
-- `RulesParityTest.java`: 365 checks under both rule sets (Market, Lumber Hut terrain, ruin Explorer condition,
+- `RulesParityTest.java`: 369 checks under both rule sets (Market, Lumber Hut terrain, ruin Explorer condition,
   backwards research, starting stars, peace/embassies/war, offer lapse, infiltration and Daggers, hidden Cloak
   visibility and reveal, Dagger and Cloak skills, no Diplomacy under 2020 rules).
 - `test_rules_version.py`: 15 tests, adding the 2.15 observation layout, vocabulary filter, catalog families

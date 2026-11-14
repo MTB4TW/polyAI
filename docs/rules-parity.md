@@ -239,8 +239,9 @@ November 2026), official wiki Embassy page and the 2.14.0 changelog.
   other's roads. `BREAK_PEACE` ends a treaty: the breaker's units are frozen for the rest of the turn, its units
   inside the other tribe's borders are disbanded without refund, and it cannot be hostile toward that tribe
   until its next turn.
-- **Embassy:** `BUILD_EMBASSY` needs Diplomacy and 5★ (**unverified** for 2.14+: the changelog says embassies
-  "begin cheaper" and get dearer with each one, without numbers; in a 1v1 there is only ever one). It needs the
+- **Embassy:** `BUILD_EMBASSY` needs Diplomacy. Since 2.14.0 the first embassy a tribe places costs 4★ and each
+  later one 2★ more (the changelog says only "begins cheaper, rises with the number of embassies"; the numbers
+  were reported by Devin). Destroyed embassies still count toward the next one's cost. It needs the
   other tribe's capital to still be held by that tribe and no war between them, and allows one embassy per
   tribe. It reveals the 3×3 around that capital. Both owner and host earn +2★ per turn, +4★ at peace. An attack
   either way destroys the embassies between the two; capturing the host capital destroys every embassy in it.

@@ -709,9 +709,14 @@ public final class RulesParityTest {
 
         // Embassy: Diplomacy, 5 stars, +4 each at peace.
         t0.getTechTree().doResearchInit(Types.TECHNOLOGY.DIPLOMACY);
-        t0.setStars(TribesConfig.EMBASSY_COST);
+        assertEq(4, rel.embassyCost(0), "first embassy costs 4 stars");
+        t0.setStars(3);
+        assertEq(false, dip(Types.ACTION.BUILD_EMBASSY, 0, 1).isFeasible(gs), "embassy needs 4 stars");
+        t0.setStars(4);
         assertEq(true, exec(gs, dip(Types.ACTION.BUILD_EMBASSY, 0, 1)), "embassy built");
         assertEq(0, t0.getStars(), "embassy cost");
+        assertEq(6, rel.embassyCost(0), "the next embassy costs 2 more");
+        assertEq(4, rel.embassyCost(1), "the other tribe's first embassy still costs 4");
         assertEq(true, rel.hasEmbassy(0, 1), "embassy recorded");
         assertEq(false, dip(Types.ACTION.BUILD_EMBASSY, 0, 1).isFeasible(gs), "one embassy per tribe");
         assertEq(TribesConfig.EMBASSY_INCOME_AT_PEACE, rel.embassyIncome(0), "owner income at peace");

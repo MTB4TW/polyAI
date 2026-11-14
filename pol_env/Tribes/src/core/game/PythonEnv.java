@@ -365,7 +365,7 @@ public class PythonEnv {
 
     private int computeActionStarCost(Action a) {
         if (a == null) return 0;
-        int diplomacyCost = DiplomacyJson.starCost(a);  // 2.15 rules Diplomacy actions only
+        int diplomacyCost = DiplomacyJson.starCost(a, gs);  // 2.15 rules Diplomacy actions only
         if (diplomacyCost >= 0) return diplomacyCost;
         if (a instanceof Spawn) {
             Spawn s = (Spawn) a;

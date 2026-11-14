@@ -40,7 +40,7 @@ public class DiplomacyCommand implements ActionCommand {
                 breakPeaceConsequences(gs, me, other);
                 return true;
             case BUILD_EMBASSY:
-                tribe.subtractStars(TribesConfig.EMBASSY_COST);
+                tribe.subtractStars(rel.embassyCost(me));
                 rel.addEmbassy(me, other);
                 // The embassy reveals the 3x3 area around the host capital to its owner.
                 Actor capital = gs.getActor(b.getCapitalIDs()[other]);

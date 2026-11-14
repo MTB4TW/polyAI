@@ -55,7 +55,7 @@ public class DiplomacyAction extends TribeAction {
                 return rel.isAtPeace(tribeId, targetTribeId);
             case BUILD_EMBASSY:
                 if (!me.getTechTree().isResearched(Types.TECHNOLOGY.DIPLOMACY)) return false;
-                if (me.getStars() < TribesConfig.EMBASSY_COST) return false;
+                if (me.getStars() < rel.embassyCost(tribeId)) return false;
                 if (rel.hasEmbassy(tribeId, targetTribeId)) return false;
                 if (rel.isAtWar(tribeId, targetTribeId, gs.getTick())) return false;
                 Actor capital = gs.getActor(gs.getBoard().getCapitalIDs()[targetTribeId]);
