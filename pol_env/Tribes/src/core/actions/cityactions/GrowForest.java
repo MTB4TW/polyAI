@@ -27,6 +27,8 @@ public class GrowForest extends CityAction
         Board b = gs.getBoard();
         if(b.getTerrainAt(targetPos.x, targetPos.y) != Types.TERRAIN.PLAIN) return false;
         if(b.getCityIdAt(targetPos.x, targetPos.y) != city.getActorId()) return false;
+        // 2.15 rules: no forest can be grown on a tile with a building.
+        if(core.RulesVersion.modern() && b.getBuildingAt(targetPos.x, targetPos.y) != null) return false;
 
         Tribe t = gs.getTribe(city.getTribeId());
         if(t.getStars() < TribesConfig.GROW_FOREST_COST) return false;

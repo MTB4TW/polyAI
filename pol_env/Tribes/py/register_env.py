@@ -31,6 +31,8 @@ from .environment_contract import (
     ObservationLayout,
     observation_layout,
     PHASE1_ENVIRONMENT_VERSION as CONTRACT_PHASE1_ENVIRONMENT_VERSION,
+    resolve_rules_version,
+    versioned_for_rules,
 )
 
 
@@ -343,6 +345,10 @@ class TribesGymWrapper(gym.Env):
         self._engine_game_mode = "CAPITALS" if self._is_combat_mode else "SCORE"
         # Divisors for the six legacy scalars (stars, score, cities, kills, tick, active tribe) in combat.
         self.COMBAT_LEGACY_SCALAR_SCALES = (50.0, 1000.0, 6.0, 10.0, float(getattr(self, "MAX_TURNS", 20)), 1.0)
+        # Game rules (POLYVISION_RULES). The default leaves the version strings untouched; this applies to the
+        # combat version string set above as well as the Phase 1 one.
+        self.RULES_VERSION = resolve_rules_version()
+        self.PHASE1_ENVIRONMENT_VERSION = versioned_for_rules(self.PHASE1_ENVIRONMENT_VERSION, self.RULES_VERSION)
         self.tribes_env = make_default_env()
         if self._is_combat_mode:
             self.tribes_env._env.setSoloNoOpponentMode(False)
@@ -518,6 +524,8 @@ class TribesGymWrapper(gym.Env):
             raise RuntimeError(
                 "TribesGymWrapper failed while establishing the real PolyVision interface."
             ) from exc
+        # Fail closed if the JVM plays a different rule set from the one reported in the version strings.
+        self._verify_java_rules_version()
     
     def reset(self, seed=None, options=None):
         t_reset_start = time.perf_counter() if self._profile_sps_enabled else None
@@ -4723,12 +4731,28 @@ class TribesGymWrapper(gym.Env):
         # Conservative default for uncertain rules.
         return 0
 
+    def _verify_java_rules_version(self):
+        """Fail closed if the JVM plays a different rule set from the one this wrapper reports."""
+        try:
+            java_rules = str(self.tribes_env._jvm.core.RulesVersion.activeId())
+        except Exception as exc:  # pragma: no cover - only with stale compiled classes
+            raise RuntimeError(
+                "Java engine does not expose core.RulesVersion; recompile pol_env/Tribes/out"
+            ) from exc
+        if java_rules != self.RULES_VERSION:
+            raise RuntimeError(
+                f"Java engine plays rules {java_rules!r} but the wrapper expects {self.RULES_VERSION!r}"
+            )
+
     def _expected_immediate_spt_delta_from_action(self, action):
         a_type = str(action.get("type", "")).upper()
         if a_type == "LEVEL_UP":
             choice = self._resolve_action_levelup_choice(action)
             # Deterministic from rules: WORKSHOP grants +1 production.
             if choice == "WORKSHOP":
+                return 1.0
+            # Under the 2.15 rules a Park also grants +1 production.
+            if choice == "PARK" and self.RULES_VERSION != "tribes_2020":
                 return 1.0
         # Conservative default when uncertain.
         return 0.0

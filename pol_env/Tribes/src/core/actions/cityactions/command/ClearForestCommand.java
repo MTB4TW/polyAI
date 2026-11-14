@@ -19,7 +19,7 @@ public class ClearForestCommand implements ActionCommand {
             City city = (City) gs.getActor(cityId);
             Vector2d targetPos = action.getTargetPos();
             gs.getBoard().setTerrainAt(targetPos.x, targetPos.y, Types.TERRAIN.PLAIN);
-            gs.getTribe(city.getTribeId()).addStars(TribesConfig.CLEAR_FOREST_STAR);
+            gs.getTribe(city.getTribeId()).addStars(TribesConfig.clearForestStars());
             return true;
         }
         return false;

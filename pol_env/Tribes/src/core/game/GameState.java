@@ -141,6 +141,8 @@ public class GameState {
             City c = (City) board.getActor(startingCityId);
             Vector2d cityPos = c.getPosition();
             tribe.clearView(cityPos.x, cityPos.y, TribesConfig.FIRST_CITY_CLEAR_RANGE, rnd, board);
+            // 2.15 rules: lighthouses start fogged even inside the starting view (no-op under 2020 rules).
+            tribe.hideLighthousesAtStart();
         }
 
         canEndTurn = new boolean[tribes.length];
@@ -434,6 +436,8 @@ public class GameState {
      */
     void initTurn(Tribe tribe)
     {
+        // 2.15 rules: meet every tribe visible at the start of this tribe's turn (no-op under 2020 rules).
+        tribe.meetVisibleTribes(board);
         //Get all cities of this tribe
         ArrayList<Integer> tribeCities = tribe.getCitiesID();
         ArrayList<Integer> allTribeUnits = new ArrayList<>();
@@ -507,8 +511,17 @@ public class GameState {
      */
     public void pushUnit(Unit toPush, int startX, int startY)
     {
+        pushUnit(toPush, startX, startY, toPush.getTribeId());
+    }
+
+    /**
+     * Pushes a unit off (startX, startY) for a forced spawn by spawnerTribeId (used by the 2.15 push rules);
+     * a unit that cannot be pushed anywhere is destroyed.
+     */
+    public void pushUnit(Unit toPush, int startX, int startY, int spawnerTribeId)
+    {
         Tribe tribe = getTribe(toPush.getTribeId());
-        boolean pushed = board.pushUnit(tribe, toPush, startX, startY, rnd);
+        boolean pushed = board.pushUnit(tribe, toPush, startX, startY, spawnerTribeId, rnd);
         if(!pushed)
         {
             killUnit(toPush);

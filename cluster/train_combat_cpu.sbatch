@@ -21,6 +21,7 @@
 #   MAX_LEGAL_ACTIONS=512    legal-action slots per step (combat exceeds the Phase 1 default of 256)
 #   EXTRA_PPO_ARGS="--learning-rate 3e-4"   appended last, so it overrides the defaults below
 #   POLYVISION_COMBAT_REWARD_*               reward weights (see docs/rewards.md)
+#   POLYVISION_RULES=polytopia_2_15          game rules (docs/rules-parity.md; default tribes_2020)
 # ==============================================================================
 
 set -euo pipefail
@@ -48,6 +49,8 @@ export POLYVISION_SOLO_NO_OPPONENT_MODE="0"
 export POLYVISION_LEVEL_POOL_GLOB="levels/phase2_pool_1v1/train/*.csv"
 export POLYVISION_MAX_TURNS="${POLYVISION_MAX_TURNS:-20}"
 export POLYVISION_INFO_MODE="fast"
+export POLYVISION_RULES="${POLYVISION_RULES:-tribes_2020}"
+echo "Game rules: $POLYVISION_RULES"
 env | grep '^POLYVISION_COMBAT_REWARD_' || echo "Combat reward: defaults"
 # Env worker processes stay single-threaded; the learner gets TORCH_THREADS via --torch-threads.
 export OMP_NUM_THREADS="1"

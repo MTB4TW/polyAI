@@ -2,6 +2,58 @@
 
 All notable changes to this project are documented in this file.
 
+## [Env-Rules_Version_Switch_Polytopia_2_15-052] - (2026-11-13)
+
+### Scope
+- New gap analysis `docs/rules-parity.md`: the Tribes engine follows Polytopia as of 2020 (before 2.0.31); it
+  lists every rule difference from the current game (2.15.0), the version it changed in, and whether it
+  affects Phase 1, Phase 2 or neither.
+- New rules switch `POLYVISION_RULES` (`core.RulesVersion` in Java; `resolve_rules_version` in
+  `environment_contract.py`). The JVM inherits it from the wrapper. Values:
+  - `tribes_2020` (default): the original rules, unchanged.
+  - `polytopia_2_15`: Phase 1 economy rules: Lumber Hut 3★ (was 2★), Clear Forest +1★ (was +2★), Literacy
+    33% off rounded up (Tribes charged 20% of the cost, a bug), ruin unit reward on land is a veteran
+    Swordsman (was a Giant), Park gives +1★ per turn, Forge allowed on forest, and forest actions (clear,
+    burn, grow) are refused on tiles that carry a building. Phase 2 basics: Knight 10 HP (was 15),
+    Swordsman cannot fortify, mountain defence from Climbing (was Meditation), roads 3★ (was 2★), Burn Forest
+    3★ with Construction (was 5★ with Chivalry), Destroy needs Chivalry (was Construction).
+  - Lighthouses (2.8.0): the four map corners start fogged even inside the capital's starting view; revealing
+    one gives the capital (or the oldest city) +1 population; finding all four makes Eye of God available,
+    with no Navigation needed (replacing "clear all fog").
+  - Meeting: a tribe meets another only when it sees that tribe's unit or territory on its own turn (its view
+    clearing during its turn, or a start-of-turn check); being seen is not meeting, and a tribe never meets
+    itself. The score table is unchanged. The tribe later in turn order (in 1v1, the second player) gets 2★
+    extra (**unverified**, reported from play).
+  - Explorers take 12 steps instead of 15 (**unverified**, fandom only) and steer by the game's version-115
+    rule: tiles scored by fog revealed (lighthouses first), a 3-step breadth-first search, lowest score
+    wins, ties at random, no straight backtracking. Random walk when no fog is within reach.
+  - Push directions for forced spawns (Giant level-up, ruin unit): each unit remembers the direction of its
+    last move, push or ranged shot. Friendly units are pushed that way, enemy units the opposite way, ranged
+    units that way; unmoved units go towards the map centre (south from the exact centre). If blocked, it
+    tries counterclockwise, then clockwise. A unit with nowhere to go is still destroyed (the "Houdini").
+- `PythonEnv.java`: burn-forest and road star costs come from the rules accessors (2 lines).
+- Wrapper: the `PARK` level-up's expected SPT delta feature is +1 under `polytopia_2_15`.
+
+### Contract
+- Under `tribes_2020` every version string is unchanged, so existing checkpoints stay valid.
+- Under `polytopia_2_15`, `phase1_environment_version` becomes `v5_human_information_parity+rules_polytopia_2_15`
+  and the combat version gets the same `+rules_polytopia_2_15` suffix, so checkpoints never cross rule sets.
+- The wrapper asks the JVM which rules it plays (`core.RulesVersion.activeId()`) and fails closed on a
+  mismatch; an unknown `POLYVISION_RULES` value fails in both Python and Java.
+- `phase1_opening_version` is unchanged: `tools/audit_phase1_opening.py` under `polytopia_2_15` passes on all
+  5,000 train and 250 validation maps (every map gets the expected two-unit opening).
+
+### Validation
+- `pol_env/Tribes/tests/java/core/RulesParityTest.java` (246 checks) tests every switched rule under both rule
+  sets; the Literacy costs reproduce the fandom cost table. A deliberate mutation (Park +0★) is caught.
+- `pol_env/Tribes/py/tests/test_rules_version.py` (in `run_core_ci_checks.py`): version strings, checkpoint
+  rejection across rule sets, JVM consistency check, a short `polytopia_2_15` episode, and the Java test.
+- Fixed-seed random-legal trajectories (`hash_env_trajectory.py` from PR #12, 3,000 steps, seeds 7 and 11) are
+  byte-identical before and after this change with `POLYVISION_RULES` unset or `tribes_2020`; with
+  `polytopia_2_15` the trajectory differs, as expected.
+- No model trained or evaluated: Phase 1 references (24.5 SPT, 20.52) are `tribes_2020` results and must be
+  re-run before any comparison under `polytopia_2_15`.
+
 ## [Phase2-Combat_Tech_Logging_After_Loss-060] - (2026-11-13)
 
 ### Scope

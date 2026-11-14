@@ -73,8 +73,7 @@ public class Types {
             int cost = TECH_BASE_COST + this.tier * numOfCities;
             if(tt.isResearched(TECH_DISCOUNT))
             {
-                double disc_cost = cost * TECH_DISCOUNT_VALUE;
-                cost = (int)disc_cost;
+                cost = TribesConfig.applyLiteracyDiscount(cost);
             }
             return cost;
         }
@@ -294,6 +293,7 @@ public class Types {
         private String imageFile;
         private TECHNOLOGY technologyRequirement;
         private HashSet<TERRAIN> terrainRequirements;
+        private static final HashSet<TERRAIN> FORGE_TERRAIN_2_15 = new HashSet<>(Arrays.asList(PLAIN, FOREST));
         private int cost;
         private int bonus;
         BUILDING(int numVal, String imageFile, int cost, int bonus, TECHNOLOGY technologyRequirement, HashSet<TERRAIN> terrainRequirements)
@@ -305,10 +305,22 @@ public class Types {
             this.technologyRequirement = technologyRequirement;
             this.terrainRequirements = terrainRequirements;
         }
-        public TECHNOLOGY getTechnologyRequirement() { return technologyRequirement; }
-        public HashSet<TERRAIN> getTerrainRequirements() { return terrainRequirements; }
+        public TECHNOLOGY getTechnologyRequirement() {
+            // 2.8.0: the Explorer task is finding the lighthouses; it no longer needs Navigation.
+            if (this == EYE_OF_GOD && RulesVersion.modern()) return null;
+            return technologyRequirement;
+        }
+        public HashSet<TERRAIN> getTerrainRequirements() {
+            // 2.14.0: Forges can also be built on forest.
+            if (this == FORGE && RulesVersion.modern()) return FORGE_TERRAIN_2_15;
+            return terrainRequirements;
+        }
         public int getKey() {  return key; }
-        public int getCost() {return cost; }
+        public int getCost() {
+            // 2.8.0: Lumber Hut costs 3 stars.
+            if (this == LUMBER_HUT && RulesVersion.modern()) return LUMBER_HUT_COST_2_15;
+            return cost;
+        }
         public int getBonus() {return bonus; }
         public Image getImage() { return ImageIO.GetInstance().getImage(imageFile); }
 
@@ -595,6 +607,8 @@ public class Types {
 
         public boolean canFortify()
         {
+            // 2.8.0: Swordsmen lost the fortify skill.
+            if (this == SWORDMAN && RulesVersion.modern()) return false;
             return this == WARRIOR || this == RIDER || this == ARCHER || this == DEFENDER || this == SWORDMAN || this == KNIGHT;
         }
 
@@ -813,6 +827,8 @@ public class Types {
         }
 
         public TECHNOLOGY getTechnologyRequirement() {
+            if (this == BURN_FOREST) return TribesConfig.burnForestTech();
+            if (this == DESTROY) return TribesConfig.destroyTech();
             return tech;
         }
 

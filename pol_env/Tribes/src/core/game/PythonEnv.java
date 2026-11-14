@@ -390,10 +390,10 @@ public class PythonEnv {
             return core.TribesConfig.GROW_FOREST_COST;
         }
         if (a instanceof core.actions.cityactions.BurnForest) {
-            return core.TribesConfig.BURN_FOREST_COST;
+            return core.TribesConfig.burnForestCost();
         }
         if (a instanceof core.actions.tribeactions.BuildRoad) {
-            return core.TribesConfig.ROAD_COST;
+            return core.TribesConfig.roadCost();
         }
         if (a instanceof core.actions.unitactions.Upgrade) {
             core.actions.unitactions.Upgrade u = (core.actions.unitactions.Upgrade) a;

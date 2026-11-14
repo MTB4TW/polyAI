@@ -291,6 +291,19 @@ public class Board {
      * @return true if the unit could be pushed.
      */
     boolean pushUnit(Tribe tribe, Unit toPush, int startX, int startY, Random r) {
+        return pushUnit(tribe, toPush, startX, startY, tribe.getTribeId(), r);
+    }
+
+    // 2.15 rules: the eight directions in clockwise order, starting north. x is the row (south is +x).
+    private static final int[][] PUSH_RING = {{-1, 0}, {-1, 1}, {0, 1}, {1, 1}, {1, 0}, {1, -1}, {0, -1}, {-1, -1}};
+
+    /**
+     * Pushes a unit off a tile where another unit is being spawned.
+     * @param spawnerTribeId tribe that spawns the new unit; decides whether the pushed unit is friendly.
+     */
+    boolean pushUnit(Tribe tribe, Unit toPush, int startX, int startY, int spawnerTribeId, Random r) {
+        if (core.RulesVersion.modern())
+            return pushUnitModern(tribe, toPush, startX, startY, spawnerTribeId, r);
         //xPush and yPush encode the order of tiles where the push may be tried.
         int[] xPush = {0, -1, 0, 1, -1, -1, 1, 1};
         int[] yPush = {1, 0, -1, 0, 1, -1, -1, 1};
@@ -310,6 +323,42 @@ public class Board {
         //A pushed unit moves to PUSHED status - essentially its turn is over.
         toPush.setStatus(Types.TURN_STATUS.PUSHED);
 
+        return pushed;
+    }
+
+    /**
+     * 2.15 rules (fandom Movement page, "Forced Unit Spawns"): a friendly unit is pushed the way it last moved,
+     * an enemy unit the opposite way, a ranged unit the way it last moved or shot; a unit with no direction is
+     * pushed towards the map centre (south from the exact centre). If that tile is blocked it tries
+     * counterclockwise, then clockwise, one step further each time. With no free tile the unit is not pushed
+     * (and the caller destroys it: the "Houdini").
+     */
+    private boolean pushUnitModern(Tribe tribe, Unit toPush, int startX, int startY, int spawnerTribeId, Random r) {
+        int dx = toPush.getLastDirX(), dy = toPush.getLastDirY();
+        if (dx != 0 || dy != 0) {
+            boolean keepDirection = toPush.getType().isRanged() || toPush.getTribeId() == spawnerTribeId;
+            if (!keepDirection) { dx = -dx; dy = -dy; }
+        } else {
+            double centre = (size - 1) / 2.0;
+            dx = (int) Math.signum(centre - startX);
+            dy = (int) Math.signum(centre - startY);
+            if (dx == 0 && dy == 0) dx = 1; // exact centre: south
+        }
+        int start = 0;
+        for (int i = 0; i < PUSH_RING.length; i++)
+            if (PUSH_RING[i][0] == dx && PUSH_RING[i][1] == dy) start = i;
+
+        boolean pushed = false;
+        for (int k = 0; k < PUSH_RING.length && !pushed; k++) {
+            // order: preferred, ccw 1, cw 1, ccw 2, cw 2, ccw 3, cw 3, opposite
+            int offset = (k == 0) ? 0 : ((k % 2 == 1) ? -((k + 1) / 2) : (k / 2));
+            int[] d = PUSH_RING[((start + offset) % 8 + 8) % 8];
+            int x = startX + d[0];
+            int y = startY + d[1];
+            if (x >= 0 && y >= 0 && x < size && y < size)
+                pushed = tryPush(tribe, toPush, startX, startY, x, y, r);
+        }
+        toPush.setStatus(Types.TURN_STATUS.PUSHED);
         return pushed;
     }
 
@@ -449,6 +498,9 @@ public class Board {
      * @param r random generator
      */
     public void moveUnit(Unit unit, int x0, int y0, int xF, int yF, Random r) {
+        // 2.15 rules: every move (including a push) sets the unit's direction.
+        if (core.RulesVersion.modern() && (xF != x0 || yF != y0))
+            unit.setLastDirection(xF - x0, yF - y0);
         units[x0][y0] = 0;
         units[xF][yF] = unit.getActorId();
         unit.setPosition(xF, yF);
@@ -459,6 +511,7 @@ public class Board {
             partialObsRangeClear += 1;
         }
         boolean networkUpdate = t.clearView(xF, yF, partialObsRangeClear, r, this);
+        t.applyDeferredViewEffects(this);
         if(networkUpdate)
             tradeNetwork.computeTradeNetworkTribe(this, t);
     }
@@ -472,12 +525,17 @@ public class Board {
      */
     public void launchExplorer(int x0, int y0, int tribeId, Random rnd) {
 
+        if (core.RulesVersion.modern()) {
+            launchExplorerModern(x0, y0, tribeId, rnd);
+            return;
+        }
+
         Vector2d currentPos = new Vector2d(x0, y0);
-        for (int i = 0; i < TribesConfig.NUM_STEPS; ++i) {
+        for (int i = 0; i < TribesConfig.explorerSteps(); ++i) {
             int j = 0;
             boolean moved = false;
 
-            while (!moved && j < TribesConfig.NUM_STEPS * 3) {
+            while (!moved && j < TribesConfig.explorerSteps() * 3) {
                 //Pick a neighbour tile at random
                 LinkedList<Vector2d> neighs = currentPos.neighborhood(1,0, size);
                 Vector2d next = neighs.get(rnd.nextInt(neighs.size()));
@@ -487,6 +545,7 @@ public class Board {
                     currentPos.x = next.x;
                     currentPos.y = next.y;
                     boolean updateNetwork = tribes[tribeId].clearView(currentPos.x, currentPos.y, TribesConfig.EXPLORER_CLEAR_RANGE, rnd, this);
+                    tribes[tribeId].applyDeferredViewEffects(this);
                     if(updateNetwork)
                         tradeNetwork.computeTradeNetworkTribe(this, tribes[tribeId]);
                 }
@@ -501,6 +560,106 @@ public class Board {
 
         }
 
+    }
+
+    // 2.15 rules: explorer tile scores (lower is better), by fog tiles revealed (1, 2, 3, 4+).
+    private static final int[] EXPLORER_SCORE_LIGHTHOUSE = {140, 130, 120, 110};
+    private static final int[] EXPLORER_SCORE_PLAIN = {173, 163, 153, 143};
+    private static final int EXPLORER_BFS_STEP = 100;
+    private static final int EXPLORER_BFS_ITERATIONS = 3;
+
+    /**
+     * Explorer movement under the 2.15 rules (game version 115 onwards, as described by the game's developers):
+     * each step goes to the adjacent tile with the lowest score, where a tile that would reveal fog scores by how
+     * many fog tiles it reveals (up to 4, lighthouses first) and tiles up to three steps further away score +100
+     * per step. Ties are broken at random, the explorer avoids stepping straight back, and it stops if it has
+     * nowhere to go. With no fog within reach it walks at random.
+     */
+    private void launchExplorerModern(int x0, int y0, int tribeId, Random rnd) {
+        Vector2d currentPos = new Vector2d(x0, y0);
+        Vector2d previousPos = null;
+        for (int i = 0; i < TribesConfig.explorerSteps(); ++i) {
+            Vector2d next = nextExplorerStep(currentPos, previousPos, tribeId, rnd);
+            if (next == null) return; // no available steps at all: the explorer disappears
+            previousPos = currentPos.copy();
+            currentPos.x = next.x;
+            currentPos.y = next.y;
+            boolean updateNetwork = tribes[tribeId].clearView(currentPos.x, currentPos.y, TribesConfig.EXPLORER_CLEAR_RANGE, rnd, this);
+            tribes[tribeId].applyDeferredViewEffects(this);
+            if (updateNetwork)
+                tradeNetwork.computeTradeNetworkTribe(this, tribes[tribeId]);
+        }
+    }
+
+    /** Explorer tile scores for the 2.15 rules; Integer.MAX_VALUE for unscored tiles. Public for tests. */
+    public int[][] explorerScores(int tribeId) {
+        boolean[][] obs = tribes[tribeId].getObsGrid();
+        int[][] score = new int[size][size];
+        LinkedList<Vector2d> frontier = new LinkedList<>();
+        for (int x = 0; x < size; x++) {
+            for (int y = 0; y < size; y++) {
+                score[x][y] = Integer.MAX_VALUE;
+                if (!traversable(x, y, tribeId)) continue;
+                Vector2d t = new Vector2d(x, y);
+                LinkedList<Vector2d> area = t.neighborhood(EXPLORER_CLEAR_RANGE_FOR_SCORE, 0, size);
+                area.add(t);
+                int fog = 0;
+                boolean lighthouse = false;
+                for (Vector2d a : area) {
+                    if (!obs[a.x][a.y]) {
+                        fog++;
+                        if (Tribe.isLighthouseTile(a.x, a.y, size)) lighthouse = true;
+                    }
+                }
+                if (fog == 0) continue;
+                int idx = Math.min(fog, 4) - 1;
+                score[x][y] = lighthouse ? EXPLORER_SCORE_LIGHTHOUSE[idx] : EXPLORER_SCORE_PLAIN[idx];
+                frontier.add(t);
+            }
+        }
+        for (int it = 0; it < EXPLORER_BFS_ITERATIONS && !frontier.isEmpty(); it++) {
+            LinkedList<Vector2d> nextFrontier = new LinkedList<>();
+            int[][] updated = new int[size][];
+            for (int x = 0; x < size; x++) updated[x] = score[x].clone();
+            for (Vector2d f : frontier) {
+                int candidate = score[f.x][f.y] + EXPLORER_BFS_STEP;
+                for (Vector2d n : f.neighborhood(1, 0, size)) {
+                    if (score[n.x][n.y] != Integer.MAX_VALUE || !traversable(n.x, n.y, tribeId)) continue;
+                    if (candidate < updated[n.x][n.y]) {
+                        if (updated[n.x][n.y] == Integer.MAX_VALUE) nextFrontier.add(n);
+                        updated[n.x][n.y] = candidate;
+                    }
+                }
+            }
+            score = updated;
+            frontier = nextFrontier;
+        }
+        return score;
+    }
+
+    // The explorer reveals one tile around it; climbing a mountain does not count for the score.
+    private static final int EXPLORER_CLEAR_RANGE_FOR_SCORE = TribesConfig.EXPLORER_CLEAR_RANGE;
+
+    private Vector2d nextExplorerStep(Vector2d current, Vector2d previous, int tribeId, Random rnd) {
+        int[][] score = explorerScores(tribeId);
+        ArrayList<Vector2d> steps = new ArrayList<>();
+        for (Vector2d n : current.neighborhood(1, 0, size)) {
+            if (traversable(n.x, n.y, tribeId)) steps.add(n);
+        }
+        if (steps.isEmpty()) return null;
+        ArrayList<Vector2d> forward = new ArrayList<>();
+        for (Vector2d n : steps) if (previous == null || !n.equals(previous)) forward.add(n);
+        ArrayList<Vector2d> options = forward.isEmpty() ? steps : forward;
+
+        int best = Integer.MAX_VALUE;
+        ArrayList<Vector2d> bestSteps = new ArrayList<>();
+        for (Vector2d n : options) {
+            int sc = score[n.x][n.y];
+            if (sc < best) { best = sc; bestSteps.clear(); }
+            if (sc == best) bestSteps.add(n);
+        }
+        // With no scored tile in reach, bestSteps holds every option (all unscored): a random walk.
+        return bestSteps.get(rnd.nextInt(bestSteps.size()));
     }
 
     /**
@@ -825,6 +984,7 @@ public class Board {
 
         //cities provide visibility, which needs updating
         tribes[c.getTribeId()].clearView(c.getPosition().x, c.getPosition().y, TribesConfig.NEW_CITY_CLEAR_RANGE, r, this.copy());
+        tribes[c.getTribeId()].applyDeferredViewEffects(this);
 
         //By default, cities are considered to be roads for trade network purposes.
         tradeNetwork.setTradeNetwork(this, c.getPosition().x, c.getPosition().y, true);
