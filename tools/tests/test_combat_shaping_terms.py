@@ -190,7 +190,11 @@ class UnitPreferenceAndTempoTests(unittest.TestCase):
                     if m:
                         env[m.group(1)] = m.group(2)
         weights = TribesGymWrapper._load_combat_reward_weights(env)
-        self.assertEqual(weights["timeout"], -5.0)
+        self.assertEqual(weights["timeout"], -10.0)
+        # The outcome must outweigh the lead: win minus timeout well above the cap_all per-game potential (~20).
+        self.assertGreaterEqual(weights["win"] - weights["timeout"], 3 * 20)
+        # Not risk averse: a loss costs far less relative to a timeout than a win gains.
+        self.assertGreaterEqual((weights["win"] - weights["timeout"]) / (weights["timeout"] - weights["loss"]), 10)
         self.assertEqual(weights["embassy"], 5.0)
         self.assertGreater(weights["rider"], 0.0)
         self.assertEqual(weights["train_rider"], 0.0)

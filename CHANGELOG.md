@@ -19,8 +19,10 @@ All notable changes to this project are documented in this file.
   `train_rider`, `train_infantry`, `rider_attack`, `embassy`, `turn_penalty` (docs/rewards.md).
 - `cluster/combat_cap_all_v2.env`: Kevin's cap_all weights plus 2.15 rules, `spatial_resnet_composed`, 16 envs,
   seeded-random maps, optional `INIT_FROM`, and starting values for the new terms: +0.3 potential per Rider
-  alive, +0.1 per Rider attack; embassy −5; to cut timeouts (48.9% in cap_all): timeout
-  −5 (was 0), half of the final potential paid at game end (was all), −0.25 per turn, early-win bonus 30 (was 20).
+  alive, +0.1 per Rider attack; embassy −5. Outcome over "who is ahead" and against timeouts (48.9% in cap_all,
+  where the potential paid ~20 per game against 14.7 for the outcome): win 60 (was 30), timeout −10 (was 0),
+  loss −15 (was −10, kept close to a timeout so the agent does not play safe), early-win bonus 60 (was 20), half of
+  the final potential paid at game end (was all), −0.25 per turn.
 
 ### Validation
 - `test_init_from.py`: a 2020 `spatial_resnet_local` combat agent warm-started into a 2.15 composed agent gives
