@@ -67,6 +67,10 @@ EXP_NAME=${EXP_NAME:-"farmshare_combat_resnet_2m"}
 NETWORK_ARCH=${NETWORK_ARCH:-"spatial_resnet"}
 # Combat states can exceed the Phase 1 capacity of 256; see train_combat_cpu.sbatch.
 MAX_LEGAL_ACTIONS=${MAX_LEGAL_ACTIONS:-512}
+SEED=${SEED:-1}
+# Extra ppo.py flags, appended last so they override the defaults below, e.g.
+#   EXTRA_PPO_ARGS="--gamma-per-turn --no-clip-vloss --norm-obs --norm-returns --overlap-rollout"
+read -r -a EXTRA_ARGS <<< "${EXTRA_PPO_ARGS:-}"
 
 # W&B curves are on by default for combat runs (TRACK=0 to turn off). Run `wandb login` once
 # on this account; WANDB_ENTITY (e.g. polyai-stanford) picks the team.
@@ -75,7 +79,8 @@ if [ "${TRACK:-1}" = "1" ]; then
     TRACK_ARGS=(--track --wandb-project-name "${WANDB_PROJECT:-polyAI}")
 fi
 
-echo "Starting Phase 2 Combat training: $TOTAL_TIMESTEPS steps with $NUM_ENVS parallel environments on $DEVICE ($NETWORK_ARCH)..."
+echo "Starting Phase 2 Combat training: $TOTAL_TIMESTEPS steps with $NUM_ENVS parallel environments on $DEVICE ($NETWORK_ARCH, seed $SEED)..."
+[ ${#EXTRA_ARGS[@]} -gt 0 ] && echo "Extra PPO args: ${EXTRA_ARGS[*]}"
 
 python py_rl/cleanrl/cleanrl/ppo.py \
     --total-timesteps "$TOTAL_TIMESTEPS" \
@@ -86,9 +91,11 @@ python py_rl/cleanrl/cleanrl/ppo.py \
     --save-model \
     --save-frequency 500000 \
     --exp-name "$EXP_NAME" \
+    --seed "$SEED" \
     --network-arch "$NETWORK_ARCH" \
     --max-legal-actions "$MAX_LEGAL_ACTIONS" \
     --validation-states 10000 \
-    ${TRACK_ARGS[@]+"${TRACK_ARGS[@]}"}
+    ${TRACK_ARGS[@]+"${TRACK_ARGS[@]}"} \
+    ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}
 
 echo "Combat Training finished at: $(date)"

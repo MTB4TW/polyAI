@@ -38,6 +38,8 @@ except Exception:
 from pol_env.Tribes.py.register_env import TribesGymWrapper  # adjust if folder name differs
 from py_rl.cleanrl.cleanrl.gae import compute_gae, per_turn_discounts
 from py_rl.cleanrl.cleanrl.init_from import apply_init_from, format_report, load_checkpoint
+from py_rl.cleanrl.cleanrl.obs_normalization import OBS_NORMALIZATION_VERSION, ObsNormalizedAgent
+from py_rl.cleanrl.cleanrl.return_normalization import ReturnNormalizer
 from pol_env.Tribes.py.environment_contract import (
     compute_level_pool_identity,
     environment_compatibility_metadata,
@@ -95,7 +97,7 @@ class Args:
     env_id: str = "Tribes-v0"
     """the id of the environment"""
     network_arch: str = "mlp"
-    """neural network architecture ('mlp', 'spatial_resnet', or experimental 'spatial_resnet_local')"""
+    """neural network architecture ('mlp', 'spatial_resnet', or experimental 'spatial_resnet_local' / 'spatial_resnet_composed')"""
     total_timesteps: int = 500000
     """total timesteps of the experiments"""
     learning_rate: float = 2.5e-4
@@ -104,6 +106,9 @@ class Args:
     """the number of parallel game environments"""
     num_steps: int = 128
     """the number of steps to run in each environment per policy rollout"""
+    overlap_rollout: bool = False
+    """split the envs into two halves and run one half's policy forward while the other half steps
+    (double buffering; same buffers, but actions are sampled in two batches, so runs differ from the default)"""
     anneal_lr: bool = True
     """Toggle learning rate annealing for policy and value networks"""
     gamma: float = 0.99
@@ -112,6 +117,10 @@ class Args:
     """the lambda for the general advantage estimation"""
     gamma_per_turn: bool = False
     """discount only on END_TURN actions, so gamma is a per-turn discount (a game has many actions per turn)"""
+    norm_returns: bool = False
+    """scale rewards by a running std of discounted returns (VecNormalize-style reward scaling; training only)"""
+    norm_obs: bool = False
+    """normalise observations by a running mean/std saved with the checkpoint (changes what the network sees)"""
     num_minibatches: int = 4
     """the number of mini-batches"""
     update_epochs: int = 4
@@ -465,9 +474,126 @@ def make_env(env_id, idx, capture_video, run_name, startup_jitter_min_s=0.1, sta
         else:
             env = gym.make(env_id)
         env = gym.wrappers.RecordEpisodeStatistics(env)
+        if _compact_legal_info_enabled():
+            env = CompactLegalInfoWrapper(env)
         return env
 
     return thunk
+
+
+# Info key carrying (legal_global_ids[:n], legal_action_features[:n]) for the n valid legal slots.
+COMPACT_LEGAL_INFO_KEY = "legal_compact"
+_PADDED_LEGAL_INFO_KEYS = ("legal_global_ids_padded", "legal_action_valid_mask", "legal_action_features_padded")
+
+
+def _compact_legal_info_enabled():
+    """POLYVISION_COMPACT_LEGAL_INFO (default 1): send only valid legal rows through the vector-env pipe."""
+    raw = str(os.environ.get("POLYVISION_COMPACT_LEGAL_INFO", "1")).strip().lower()
+    return raw not in ("0", "false", "no", "off")
+
+
+def compact_legal_info(info):
+    """Replace the padded legal tensors in one env's info with only their valid rows.
+
+    The environment writes the n valid legal slots first and leaves every padding slot zero, so the padded
+    tensors are fully determined by (ids[:n], features[:n], slot count). Any info that does not have exactly
+    that layout (including a padding row holding -0.0) is returned unchanged and travels padded as before.
+    `expand_compact_legal_rows` rebuilds the padded arrays bit for bit.
+    """
+    if not isinstance(info, dict) or any(k not in info for k in _PADDED_LEGAL_INFO_KEYS):
+        return info
+    ids = info["legal_global_ids_padded"]
+    valid = info["legal_action_valid_mask"]
+    feats = info["legal_action_features_padded"]
+    if not all(isinstance(a, np.ndarray) for a in (ids, valid, feats)):
+        return info
+    if (
+        ids.ndim != 1 or valid.shape != ids.shape or valid.dtype != np.bool_
+        or feats.ndim != 2 or feats.shape[0] != ids.shape[0] or feats.dtype != np.float32
+    ):
+        return info
+    n = int(np.count_nonzero(valid))
+    if not valid[:n].all() or ids[n:].any():
+        return info
+    pad = feats[n:]
+    if pad.any() or np.signbit(pad).any():
+        return info
+    out = {k: v for k, v in info.items() if k not in _PADDED_LEGAL_INFO_KEYS}
+    # A tuple (not an ndarray) so Gymnasium stores it in an object array despite the per-env row count.
+    out[COMPACT_LEGAL_INFO_KEY] = (ids[:n].copy(), feats[:n].copy(), int(ids.shape[0]))
+    return out
+
+
+def expand_compact_legal_rows(compact):
+    """Inverse of compact_legal_info for one env: returns (ids_padded, valid_mask, features_padded)."""
+    ids_n, feats_n, slots = compact
+    ids_n = np.asarray(ids_n)
+    feats_n = np.asarray(feats_n)
+    n = int(ids_n.shape[0])
+    ids = np.zeros((int(slots),), dtype=ids_n.dtype)
+    ids[:n] = ids_n
+    valid = np.zeros((int(slots),), dtype=np.bool_)
+    valid[:n] = True
+    feats = np.zeros((int(slots), int(feats_n.shape[1])), dtype=feats_n.dtype)
+    feats[:n] = feats_n
+    return ids, valid, feats
+
+
+def _all_compact_legal_rows(infos, num_envs):
+    """The per-env compact legal rows when every env sent them, else None (mixed or padded infos)."""
+    if not isinstance(infos, dict) or COMPACT_LEGAL_INFO_KEY not in infos:
+        return None
+    rows = infos[COMPACT_LEGAL_INFO_KEY]
+    present = infos.get("_" + COMPACT_LEGAL_INFO_KEY, None)
+    if len(rows) != num_envs or (present is not None and not np.asarray(present, dtype=bool).all()):
+        return None
+    return rows
+
+
+def _restore_padded_legal_infos(infos, num_envs):
+    """Return infos with the padded legal keys rebuilt from compact rows, exactly as Gymnasium would have
+    batched them had every env sent padded tensors. Infos without compact rows are returned unchanged.
+    An env whose info fell back to padded tensors (see compact_legal_info) keeps its padded row."""
+    if not isinstance(infos, dict) or COMPACT_LEGAL_INFO_KEY not in infos:
+        return infos
+    rows = infos[COMPACT_LEGAL_INFO_KEY]
+    present = infos.get("_" + COMPACT_LEGAL_INFO_KEY, None)
+    present = np.ones(num_envs, dtype=bool) if present is None else np.asarray(present, dtype=bool).reshape(-1)
+    template = next(expand_compact_legal_rows(rows[i]) for i in range(num_envs) if i < len(present) and present[i])
+    per_env = []
+    masks = {k: np.zeros(num_envs, dtype=np.bool_) for k in _PADDED_LEGAL_INFO_KEYS}
+    for i in range(num_envs):
+        if i < len(present) and present[i]:
+            per_env.append(expand_compact_legal_rows(rows[i]))
+            for k in _PADDED_LEGAL_INFO_KEYS:
+                masks[k][i] = True
+            continue
+        row = []
+        for j, k in enumerate(_PADDED_LEGAL_INFO_KEYS):
+            if k in infos:
+                # This env sent padded tensors (its compaction fell back) or none: keep Gymnasium's row and mask.
+                row.append(np.asarray(infos[k][i]))
+                masks[k][i] = bool(np.asarray(infos.get("_" + k, np.ones(num_envs, dtype=bool)))[i])
+            else:
+                row.append(np.zeros_like(template[j]))
+        per_env.append(tuple(row))
+    out = dict(infos)
+    for j, key in enumerate(_PADDED_LEGAL_INFO_KEYS):
+        out[key] = np.stack([row[j] for row in per_env])
+        out["_" + key] = masks[key]
+    return out
+
+
+class CompactLegalInfoWrapper(gym.Wrapper):
+    """Applies compact_legal_info to every reset/step info inside the vector-env worker process."""
+
+    def reset(self, **kwargs):
+        obs, info = self.env.reset(**kwargs)
+        return obs, compact_legal_info(info)
+
+    def step(self, action):
+        obs, reward, terminated, truncated, info = self.env.step(action)
+        return obs, reward, terminated, truncated, compact_legal_info(info)
 
 
 def layer_init(layer, std=np.sqrt(2), bias_const=0.0):
@@ -650,6 +776,7 @@ def _extract_vector_action_mask(infos, num_envs, action_dim, device):
     Falls back to all-ones if mask is unavailable.
     """
     mask = np.ones((num_envs, action_dim), dtype=np.float32)
+    infos = _restore_padded_legal_infos(infos, num_envs)
     if infos is not None and "action_mask" in infos:
         raw_mask = infos["action_mask"]
         valid_mask = infos.get("_action_mask", None)
@@ -785,6 +912,31 @@ def _extract_action_mask_from_info_dict(info, action_dim):
 def _extract_vector_legal_tensors(infos, num_envs, max_legal_actions, action_dim, device):
     if infos is None:
         raise RuntimeError("Missing infos payload; cannot extract legal tensors for legal_only actor.")
+    compact_rows = _all_compact_legal_rows(infos, num_envs)
+    if compact_rows is not None:
+        # Same checks and result as the padded branch below, reading only the valid rows.
+        ids_out = np.zeros((num_envs, max_legal_actions), dtype=np.int64)
+        valid_out = np.zeros((num_envs, max_legal_actions), dtype=np.bool_)
+        for i, (ids_n, _feats_n, slots) in enumerate(compact_rows):
+            valid_ids = np.asarray(ids_n, dtype=np.int64).reshape(-1)
+            if int(slots) != max_legal_actions:
+                raise RuntimeError(
+                    f"legal tensor shape mismatch at env={i}: ids=({int(slots)},), valid=({int(slots)},), "
+                    f"expected=({max_legal_actions},)"
+                )
+            n = int(valid_ids.shape[0])
+            if n:
+                if np.unique(valid_ids).size != valid_ids.size:
+                    raise RuntimeError(f"Duplicate valid legal_global_ids_padded detected at env={i}.")
+                if np.any(valid_ids < 0) or np.any(valid_ids >= action_dim):
+                    raise RuntimeError(f"Out-of-range legal global ID detected at env={i}.")
+                ids_out[i, :n] = valid_ids
+                valid_out[i, :n] = True
+        return (
+            torch.tensor(ids_out, dtype=torch.long, device=device),
+            torch.tensor(valid_out, dtype=torch.bool, device=device),
+        )
+    infos = _restore_padded_legal_infos(infos, num_envs)
 
     if "legal_global_ids_padded" in infos and "legal_action_valid_mask" in infos:
         raw_ids = np.asarray(infos["legal_global_ids_padded"])
@@ -886,6 +1038,23 @@ def _extract_vector_legal_feature_tensors(infos, num_envs, max_legal_actions, fe
     if infos is None:
         raise RuntimeError("Missing infos payload; cannot extract legal action feature tensors.")
     feat_out = np.zeros((num_envs, max_legal_actions, feature_dim), dtype=np.float32)
+    compact_rows = _all_compact_legal_rows(infos, num_envs)
+    if compact_rows is not None:
+        # Same checks and result as the padded branch below (padding rows are zero), valid rows only.
+        for i, (_ids_n, feats_n, slots) in enumerate(compact_rows):
+            feat_rows = np.asarray(feats_n, dtype=np.float32)
+            if feat_rows.ndim != 2:
+                raise RuntimeError(f"legal feature tensor must be rank-2 at env={i}; got shape={feat_rows.shape}")
+            if int(slots) != max_legal_actions or feat_rows.shape[1] != feature_dim:
+                raise RuntimeError(
+                    f"legal feature shape mismatch at env={i}: got=({int(slots)}, {feat_rows.shape[1]}), "
+                    f"expected=({max_legal_actions}, {feature_dim})"
+                )
+            if not np.all(np.isfinite(feat_rows)):
+                raise RuntimeError(f"Non-finite values in legal_action_features_padded at env={i}.")
+            feat_out[i, : feat_rows.shape[0]] = feat_rows
+        return torch.tensor(feat_out, dtype=torch.float32, device=device)
+    infos = _restore_padded_legal_infos(infos, num_envs)
 
     if "legal_action_features_padded" in infos:
         raw_features = np.asarray(infos["legal_action_features_padded"])
@@ -1033,12 +1202,66 @@ def _extract_vector_field(infos, key, num_envs, default_value=None):
     return values
 
 
-def make_training_vector_env(env_fns):
+def make_training_vector_env(env_fns, overlap_rollout=False):
+    if overlap_rollout:
+        from py_rl.cleanrl.cleanrl.overlapped_vector_env import OverlappedVectorEnv
+        return OverlappedVectorEnv(env_fns, make_training_vector_env)
     # PPO expects each returned observation to be ready for a policy action.
     # NEXT_STEP returns a terminal observation first and ignores the next action.
     return gym.vector.AsyncVectorEnv(
         env_fns, context="spawn", autoreset_mode=gym.vector.AutoresetMode.SAME_STEP,
     )
+
+
+def _overlap_policy_inputs(obs, legal_global_ids, legal_action_valid_mask, legal_action_features, action_mask):
+    inputs = {"obs": obs, "legal_global_ids": legal_global_ids, "legal_action_valid_mask": legal_action_valid_mask,
+              "legal_action_features": legal_action_features, "action_mask": action_mask}
+    return {k: v for k, v in inputs.items() if v is not None}
+
+
+def _make_overlap_stepper(args, envs, agent, device, profiler, values, actions, selected_slots, logprobs):
+    """--overlap-rollout: the per-half policy step (same sampling and checks as the default rollout step,
+    restricted to one half's env columns) and the input builder for a half's step result."""
+    from py_rl.cleanrl.cleanrl.overlapped_vector_env import OverlappedRolloutStepper
+
+    action_n = envs.single_action_space.n
+
+    def prepare_inputs(obs_np, infos, n):
+        infos = _normalize_final_infos(infos, n)
+        obs_t = torch.Tensor(obs_np).to(device)
+        if args.actor_mode == "dense_debug":
+            return _overlap_policy_inputs(obs_t, None, None, None,
+                                          _extract_vector_action_mask(infos, n, action_n, device))
+        ids, valid = _extract_vector_legal_tensors(infos, n, int(args.max_legal_actions), action_n, device)
+        feats = None
+        if args.actor_mode == "legal_features":
+            feats = _extract_vector_legal_feature_tensors(
+                infos, n, int(args.max_legal_actions), int(args.legal_action_feature_dim), device)
+        return _overlap_policy_inputs(obs_t, ids, valid, feats, None)
+
+    def act(step, sl, inp):
+        with torch.no_grad():
+            if args.actor_mode == "dense_debug":
+                action, action_slot, logprob, _, value = agent.get_action_and_value(
+                    inp["obs"], action_mask=inp["action_mask"])
+            else:
+                ids, valid = inp["legal_global_ids"], inp["legal_action_valid_mask"]
+                action, action_slot, logprob, _, value = agent.get_action_and_value(
+                    inp["obs"], legal_global_ids=ids, legal_action_valid_mask=valid,
+                    legal_action_features=inp.get("legal_action_features"),
+                )
+                if not bool(torch.all(valid.gather(1, action_slot.unsqueeze(1)).squeeze(1))):
+                    raise RuntimeError("Illegal selected_slot sampled in rollout (invalid/padded slot).")
+                if not bool(torch.equal(ids.gather(1, action_slot.unsqueeze(1)).squeeze(1).long(), action.long())):
+                    raise RuntimeError("selected_global_id mismatch with selected_slot mapping during rollout.")
+            values[step, sl] = value.flatten()
+        actions[step, sl] = action
+        if action_slot is not None:
+            selected_slots[step, sl] = action_slot.long()
+        logprobs[step, sl] = logprob
+        return action
+
+    return OverlappedRolloutStepper(envs, prepare_inputs, act, profiler=profiler)
 
 
 def _hash_file_sha256(path: str) -> str:
@@ -1441,6 +1664,7 @@ if __name__ == "__main__":
             )
             for i in range(args.num_envs)
         ],
+        overlap_rollout=args.overlap_rollout,
     )
     assert isinstance(envs.single_action_space, gym.spaces.Discrete), "only discrete action space is supported"
 
@@ -1449,7 +1673,9 @@ if __name__ == "__main__":
         envs, network_arch=args.network_arch, actor_mode=args.actor_mode,
         max_legal_actions=args.max_legal_actions,
         legal_action_feature_dim=args.legal_action_feature_dim,
+        observation_normalization=OBS_NORMALIZATION_VERSION if args.norm_obs else None,
     ).to(device)
+    return_normalizer = ReturnNormalizer(args.num_envs, args.gamma) if args.norm_returns else None
     optimizer = optim.Adam(agent.parameters(), lr=args.learning_rate, eps=1e-5)
 
     # ALGO Logic: Storage setup
@@ -1543,25 +1769,29 @@ if __name__ == "__main__":
                 device,
             )
             profiler.add("trainer/reset_feature_extract", time.perf_counter() - t0_extract_features)
+    # Structural checks look at the network itself (inside the --norm-obs wrapper, if any).
+    agent_net = agent.policy if isinstance(agent, ObsNormalizedAgent) else agent
     if args.actor_mode == "dense_debug":
-        if agent.actor[-1].out_features != envs.single_action_space.n:
+        if agent_net.actor[-1].out_features != envs.single_action_space.n:
             raise RuntimeError(
-                f"ppo_policy_output_dim={agent.actor[-1].out_features} does not match env.action_space.n={envs.single_action_space.n}"
+                f"ppo_policy_output_dim={agent_net.actor[-1].out_features} does not match env.action_space.n={envs.single_action_space.n}"
             )
     else:
-        if agent.action_embedding is None:
+        if getattr(agent_net, "composed_actions", False):
+            pass  # No per-ID table; the agent checked its type table against action_space.n.
+        elif agent_net.action_embedding is None:
             raise RuntimeError("legal action modes require action_embedding to be initialized.")
-        if int(agent.action_embedding.num_embeddings) != int(envs.single_action_space.n):
+        elif int(agent_net.action_embedding.num_embeddings) != int(envs.single_action_space.n):
             raise RuntimeError(
-                f"action_embedding.num_embeddings={agent.action_embedding.num_embeddings} "
+                f"action_embedding.num_embeddings={agent_net.action_embedding.num_embeddings} "
                 f"does not match env.action_space.n={envs.single_action_space.n}"
             )
         if args.actor_mode == "legal_features":
-            if agent.action_feature_encoder is None or agent.action_scorer is None:
+            if agent_net.action_feature_encoder is None or agent_net.action_scorer is None:
                 raise RuntimeError("legal_features mode requires action_feature_encoder and action_scorer.")
-            if int(agent.legal_action_feature_dim) != int(args.legal_action_feature_dim):
+            if int(agent_net.legal_action_feature_dim) != int(args.legal_action_feature_dim):
                 raise RuntimeError(
-                    f"agent.legal_action_feature_dim={agent.legal_action_feature_dim} "
+                    f"agent.legal_action_feature_dim={agent_net.legal_action_feature_dim} "
                     f"does not match args.legal_action_feature_dim={args.legal_action_feature_dim}"
                 )
             feature_dim_values = _extract_vector_field(reset_infos, "legal_action_feature_dim", args.num_envs, default_value=None)
@@ -1591,6 +1821,12 @@ if __name__ == "__main__":
         "legal_action_feature_dim": int(args.legal_action_feature_dim),
         "legal_action_feature_version": None,
     }
+    if args.norm_obs:
+        # Load-bearing: evaluators wrap the policy in the same normaliser (stats are in the state_dict).
+        action_interface_meta["observation_normalization"] = OBS_NORMALIZATION_VERSION
+    if args.norm_returns:
+        # Informational only: reward scaling is training-only and does not change inference.
+        action_interface_meta["return_normalization"] = "running_return_std_v1"
     for k in [
         "catalog_version",
         "phase1_opening_version",
@@ -1640,6 +1876,12 @@ if __name__ == "__main__":
         action_interface_meta["init_from"]["kept_fresh_count"] = len(init_report["kept_fresh"])
     writer.add_text("meta/action_interface", json.dumps(action_interface_meta, sort_keys=True, default=str))
 
+    overlap_stepper = None
+    if args.overlap_rollout:
+        overlap_stepper = _make_overlap_stepper(
+            args, envs, agent, device, profiler, values, actions, selected_slots, logprobs,
+        )
+
     for iteration in range(1, args.num_iterations + 1):
         t0_rollout_iter = time.perf_counter()
         # Per-iteration diagnostics for dashboard clarity.
@@ -1684,42 +1926,55 @@ if __name__ == "__main__":
                 if args.actor_mode == "legal_features":
                     legal_action_features_buf[step] = next_legal_action_features
 
-            # ALGO LOGIC: action logic
-            t0_policy = time.perf_counter()
-            with torch.no_grad():
-                if args.actor_mode == "dense_debug":
-                    action, action_slot, logprob, _, value = agent.get_action_and_value(
-                        next_obs,
-                        action_mask=next_action_mask,
-                    )
-                else:
-                    action, action_slot, logprob, _, value = agent.get_action_and_value(
-                        next_obs,
-                        legal_global_ids=next_legal_global_ids,
-                        legal_action_valid_mask=next_legal_action_valid_mask,
-                        legal_action_features=next_legal_action_features if args.actor_mode == "legal_features" else None,
-                    )
-                    slot_valid = next_legal_action_valid_mask.gather(1, action_slot.unsqueeze(1)).squeeze(1)
-                    if not bool(torch.all(slot_valid)):
-                        raise RuntimeError("Illegal selected_slot sampled in rollout (invalid/padded slot).")
-                    selected_global_from_slot = next_legal_global_ids.gather(1, action_slot.unsqueeze(1)).squeeze(1)
-                    if not bool(torch.equal(selected_global_from_slot.long(), action.long())):
-                        raise RuntimeError("selected_global_id mismatch with selected_slot mapping during rollout.")
-                values[step] = value.flatten()
-            profiler.add("trainer/policy_forward_action_selection", time.perf_counter() - t0_policy)
-            actions[step] = action
-            if action_slot is not None:
-                selected_slots[step] = action_slot.long()
-            logprobs[step] = logprob
+            if overlap_stepper is not None:
+                # Double-buffered: policy and env step interleaved per half; buffers rows [step] are written
+                # by the stepper (values/actions/selected_slots/logprobs) with the usual env-column layout.
+                t0_env_step = time.perf_counter()
+                (next_obs, reward, terminations, truncations, infos), action = overlap_stepper.step(
+                    step,
+                    _overlap_policy_inputs(next_obs, next_legal_global_ids, next_legal_action_valid_mask,
+                                           next_legal_action_features, next_action_mask),
+                    last_step=step == args.num_steps - 1,
+                )
+                infos = _normalize_final_infos(infos, args.num_envs)
+                profiler.add("trainer/overlap_step_wall", time.perf_counter() - t0_env_step)
+            else:
+                # ALGO LOGIC: action logic
+                t0_policy = time.perf_counter()
+                with torch.no_grad():
+                    if args.actor_mode == "dense_debug":
+                        action, action_slot, logprob, _, value = agent.get_action_and_value(
+                            next_obs,
+                            action_mask=next_action_mask,
+                        )
+                    else:
+                        action, action_slot, logprob, _, value = agent.get_action_and_value(
+                            next_obs,
+                            legal_global_ids=next_legal_global_ids,
+                            legal_action_valid_mask=next_legal_action_valid_mask,
+                            legal_action_features=next_legal_action_features if args.actor_mode == "legal_features" else None,
+                        )
+                        slot_valid = next_legal_action_valid_mask.gather(1, action_slot.unsqueeze(1)).squeeze(1)
+                        if not bool(torch.all(slot_valid)):
+                            raise RuntimeError("Illegal selected_slot sampled in rollout (invalid/padded slot).")
+                        selected_global_from_slot = next_legal_global_ids.gather(1, action_slot.unsqueeze(1)).squeeze(1)
+                        if not bool(torch.equal(selected_global_from_slot.long(), action.long())):
+                            raise RuntimeError("selected_global_id mismatch with selected_slot mapping during rollout.")
+                    values[step] = value.flatten()
+                profiler.add("trainer/policy_forward_action_selection", time.perf_counter() - t0_policy)
+                actions[step] = action
+                if action_slot is not None:
+                    selected_slots[step] = action_slot.long()
+                logprobs[step] = logprob
 
-            # TRY NOT TO MODIFY: execute the game and log data.
-            t0_action_numpy = time.perf_counter()
-            action_np = action.cpu().numpy()
-            profiler.add("trainer/action_to_numpy", time.perf_counter() - t0_action_numpy)
-            t0_env_step = time.perf_counter()
-            next_obs, reward, terminations, truncations, infos = envs.step(action_np)
-            infos = _normalize_final_infos(infos, args.num_envs)
-            profiler.add("trainer/envs_step_wall", time.perf_counter() - t0_env_step)
+                # TRY NOT TO MODIFY: execute the game and log data.
+                t0_action_numpy = time.perf_counter()
+                action_np = action.cpu().numpy()
+                profiler.add("trainer/action_to_numpy", time.perf_counter() - t0_action_numpy)
+                t0_env_step = time.perf_counter()
+                next_obs, reward, terminations, truncations, infos = envs.step(action_np)
+                infos = _normalize_final_infos(infos, args.num_envs)
+                profiler.add("trainer/envs_step_wall", time.perf_counter() - t0_env_step)
             profiler.ingest_env_profile_infos(infos, args.num_envs)
             # Same-step vector autoreset stores completed episode info separately.
             combat_outcomes = _extract_vector_field(infos, "combat_outcome", args.num_envs)
@@ -1774,7 +2029,17 @@ if __name__ == "__main__":
                         log_scalar("combat/first_contact_tick_last100", float(np.mean(seen)), global_step)
             next_done = np.logical_or(terminations, truncations)
             t0_step_tensor = time.perf_counter()
-            rewards[step] = torch.tensor(reward, dtype=torch.float32).to(device).view(-1)
+            train_reward = reward
+            if return_normalizer is not None:
+                # Only the training target is scaled; `reward` stays raw for anything that logs it.
+                step_discount = None
+                if args.gamma_per_turn:
+                    # Read the stored actions: the --overlap-rollout path fills actions[step] per half and
+                    # has no action_np.
+                    step_discount = per_turn_discounts(
+                        actions[step].reshape(-1).long().cpu().numpy().astype(np.int64), args.gamma)
+                train_reward = return_normalizer(reward, next_done, step_discount)
+            rewards[step] = torch.tensor(train_reward, dtype=torch.float32).to(device).view(-1)
             next_obs, next_done = torch.Tensor(next_obs).to(device), torch.Tensor(next_done).to(device)
             profiler.add("trainer/step_tensor_conversion", time.perf_counter() - t0_step_tensor)
             if args.actor_mode == "dense_debug":
@@ -2434,6 +2699,13 @@ if __name__ == "__main__":
             if args.target_kl is not None and approx_kl > args.target_kl:
                 break
         profiler.add("trainer/ppo_update", time.perf_counter() - t0_ppo_update)
+
+        # Observation statistics change only here, after the update, so each rollout and its PPO
+        # update (including the old-logprob recompute check) see one fixed normalisation.
+        if args.norm_obs:
+            agent.obs_normalizer.update(b_obs)
+        if return_normalizer is not None:
+            log_scalar("charts/return_norm_scale", return_normalizer.scale, global_step)
 
         y_pred, y_true = b_values.cpu().numpy(), b_returns.cpu().numpy()
         var_y = np.var(y_true)
