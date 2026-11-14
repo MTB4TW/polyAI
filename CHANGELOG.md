@@ -15,8 +15,8 @@ All notable changes to this project are documented in this file.
     units block their tile and stop movement next to them (zone of control), so blocking shrinks the set;
   - an enemy unit that attacks one of our units is revealed where it stands;
   - a move we watched start (the unit was visible or had just attacked) is followed to its destination even in
-    the fog, so a Rider that hits and retreats into the clouds is remembered where it stopped
-    (`POLYVISION_FOG_MEMORY_SEE_MOVES=0` turns this off, leaving the reachable region instead);
+    the fog, so a Rider that hits and retreats into the clouds is remembered where it stopped, as Polytopia
+    shows it (`POLYVISION_FOG_MEMORY_SEE_MOVES=0` turns this off, leaving the reachable region instead);
   - never-seen units are estimated from the unit capacity (level + 1) of the enemy cities we know, an unfound
     capital counting as level 1, spread over the fog by distance to those cities.
 - Observation (only with the flag): 4 spatial channels after the existing ones (`fog_presence`, `fog_attack`,

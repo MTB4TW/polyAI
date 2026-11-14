@@ -59,6 +59,7 @@ visible, so it matters most in the first 15 turns.
 - Warm start from a v2b checkpoint: add `INIT_FROM=runs/<v2b run>/<name>.cleanrl_model` (the new inputs start at
   zero weight, so the run begins as that policy).
 - `POLYVISION_FOG_MEMORY_SEE_MOVES=0` stops following watched moves into the fog (the unit's possible tiles are then
-  the region it could reach). Use it if the real game does not show where a unit moving into the clouds stops.
+  the region it could reach). Leave it on: Polytopia shows where a unit moving into the clouds stops, so the
+  default matches the real game. The switch is for experiments with less information.
 - Compare with `tools/compare_combat_evals.py` against the v2b evaluation: same maps, so the difference is paired.
 

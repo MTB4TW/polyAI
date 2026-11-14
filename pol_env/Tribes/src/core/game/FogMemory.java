@@ -31,7 +31,7 @@ import java.util.Map;
  * - Units we watch: an enemy unit that attacks one of the observer's units is revealed where it stands. With
  *   seeMoves on (POLYVISION_FOG_MEMORY_SEE_MOVES, default on), a move the observer watched start (the unit was
  *   visible or had just attacked) is followed to its destination even if that is in the fog: a Rider that hits
- *   and retreats into the clouds is remembered where it stopped.
+ *   and retreats into the clouds is remembered where it stopped (Polytopia shows such moves).
  * - Unseen units: an estimate of how many enemy units the observer has never seen, from the unit capacity
  *   (city level + 1) of the enemy cities it knows about (an unseen capital counts as level 1), spread over the
  *   fog by distance to those cities.
