@@ -1354,11 +1354,18 @@ if __name__ == "__main__":
         import wandb
         import os
         import sys
+        run_config = dict(vars(args))
+        if str(os.environ.get("POLYVISION_COMBAT_MODE", "0")).strip() in ("1", "true") or \
+                str(os.environ.get("POLYVISION_PHASE", "1")).strip() == "2":
+            # Combat reward weights come from POLYVISION_COMBAT_REWARD_* env vars; record them with the run.
+            run_config.update({f"combat_reward_{k}": v
+                               for k, v in TribesGymWrapper._load_combat_reward_weights().items()})
+            run_config["combat_max_turns"] = int(os.environ.get("POLYVISION_MAX_TURNS", "20"))
         wandb_run = wandb.init(
             project=args.wandb_project_name,
             entity=args.wandb_entity,
             sync_tensorboard=False,
-            config=vars(args),
+            config=run_config,
             name=run_name,
             monitor_gym=True,
             save_code=True,
@@ -1483,6 +1490,24 @@ if __name__ == "__main__":
     combat_outcome_window = deque(maxlen=100)
     combat_potential_window = deque(maxlen=100)
     combat_games_completed = 0
+    # End-of-game diagnostics (engine-side), rolling over the last 100 finished combat games.
+    combat_end_keys = ("combat_end_enemy_cities", "combat_end_own_cities", "combat_end_enemy_capitals_held",
+                       "combat_end_min_unit_dist_to_enemy_capital", "combat_first_contact_tick")
+    combat_end_windows = {key: deque(maxlen=100) for key in combat_end_keys}
+    # Closest unit to the enemy capital, split by result (a win ends on the capital, so the pooled mean hides timeouts).
+    combat_dist_by_outcome = {o: deque(maxlen=100) for o in ("win", "loss", "timeout")}
+    # End-of-game totals (combat_end_raw_*) and per-game reward by component (combat_end_component_*), logged
+    # both as a 100-game rolling mean and as an exponential moving average over games (alpha = 2/101, a
+    # comparable ~100-game horizon that weights recent games more and has no hard cut-off).
+    combat_breakdown_windows = {}
+    combat_outcome_500 = {}
+    combat_ema = {}
+    COMBAT_EMA_ALPHA = 2.0 / 101.0
+
+    def combat_track(key, value):
+        combat_breakdown_windows.setdefault(key, deque(maxlen=100)).append(float(value))
+        combat_ema[key] = float(value) if key not in combat_ema else (
+            (1.0 - COMBAT_EMA_ALPHA) * combat_ema[key] + COMBAT_EMA_ALPHA * float(value))
     next_action_mask = None
     next_legal_global_ids = None
     next_legal_action_valid_mask = None
@@ -1637,6 +1662,7 @@ if __name__ == "__main__":
             lrnow = frac * args.learning_rate
             optimizer.param_groups[0]["lr"] = lrnow
 
+        rollout_max_legal = 0
         for step in range(0, args.num_steps):
             prev_global_step = global_step
             global_step += args.num_envs
@@ -1715,6 +1741,56 @@ if __name__ == "__main__":
                 if combat_potential_window:
                     log_scalar("combat/episode_end_potential_last100", float(np.mean(combat_potential_window)), global_step)
                 log_scalar("combat/games_completed", combat_games_completed, global_step)
+                for row in final_infos:
+                    if isinstance(row, dict) and row.get("combat_end_enemy_cities") is not None:
+                        for key in combat_end_keys:
+                            combat_end_windows[key].append(float(row.get(key, -1)))
+                        dist = float(row.get("combat_end_min_unit_dist_to_enemy_capital", -1))
+                        if row.get("combat_outcome") in combat_dist_by_outcome and dist >= 0:
+                            combat_dist_by_outcome[row["combat_outcome"]].append(dist)
+                for row in final_infos:
+                    if not isinstance(row, dict) or row.get("combat_outcome") not in ("win", "loss", "timeout"):
+                        continue
+                    for outcome in ("win", "loss", "timeout"):
+                        combat_track(f"outcome/{outcome}_rate", float(row["combat_outcome"] == outcome))
+                        # A 500-game window for the trend: the 100-game one swings about +/-4 points from sampling alone.
+                        combat_outcome_500.setdefault(outcome, deque(maxlen=500)).append(float(row["combat_outcome"] == outcome))
+                    for metric_key, raw_value in row.items():
+                        if metric_key.startswith("combat_end_raw_"):
+                            combat_track("end_raw/" + metric_key[len("combat_end_raw_"):], raw_value)
+                        elif metric_key.startswith("combat_end_techturn_") and float(raw_value) >= 0:
+                            # Turn a tech was researched, averaged over the games that researched it.
+                            combat_track("tech_turn/" + metric_key[len("combat_end_techturn_"):], raw_value)
+                    comps = {k[len("combat_end_component_"):]: float(v) for k, v in row.items()
+                             if k.startswith("combat_end_component_")}
+                    if comps:
+                        total_abs = sum(abs(v) for v in comps.values())
+                        for comp_name, comp_value in comps.items():
+                            combat_track(f"reward_component/{comp_name}", comp_value)
+                            # Share of the game's total |reward| that came from this component.
+                            combat_track(f"reward_share/{comp_name}", abs(comp_value) / total_abs if total_abs > 0 else 0.0)
+                        combat_track("reward_component/total", sum(comps.values()))
+                for outcome, window500 in combat_outcome_500.items():
+                    log_scalar(f"combat_outcome/{outcome}_rate_last500", float(np.mean(window500)), global_step)
+                for metric_key, metric_window in combat_breakdown_windows.items():
+                    log_scalar(f"combat_{metric_key}_last100", float(np.mean(metric_window)), global_step)
+                    log_scalar(f"combat_{metric_key}_ema", combat_ema[metric_key], global_step)
+                for outcome, dists in combat_dist_by_outcome.items():
+                    if dists:
+                        log_scalar(f"combat/{outcome}_min_dist_to_enemy_capital_last100", float(np.mean(dists)), global_step)
+                if combat_dist_by_outcome["timeout"]:
+                    log_scalar("combat/timeout_within_1_tile_of_enemy_capital_rate_last100",
+                               float(np.mean([d <= 1 for d in combat_dist_by_outcome["timeout"]])), global_step)
+                contact = combat_end_windows["combat_first_contact_tick"]
+                if contact:
+                    for key in combat_end_keys[:4]:
+                        window_vals = [v for v in combat_end_windows[key] if v >= 0]
+                        if window_vals:
+                            log_scalar(f"combat/{key[len('combat_'):]}_last100", float(np.mean(window_vals)), global_step)
+                    log_scalar("combat/enemy_contact_rate_last100", float(np.mean([v >= 0 for v in contact])), global_step)
+                    seen = [v for v in contact if v >= 0]
+                    if seen:
+                        log_scalar("combat/first_contact_tick_last100", float(np.mean(seen)), global_step)
             next_done = np.logical_or(terminations, truncations)
             t0_step_tensor = time.perf_counter()
             rewards[step] = torch.tensor(reward, dtype=torch.float32).to(device).view(-1)
@@ -1739,6 +1815,8 @@ if __name__ == "__main__":
                     device,
                 )
                 profiler.add("trainer/step_info_extract", time.perf_counter() - t0_extract_legal)
+                if next_legal_action_valid_mask is not None:
+                    rollout_max_legal = max(rollout_max_legal, int(next_legal_action_valid_mask.sum(dim=1).max().item()))
                 if args.actor_mode == "legal_features":
                     t0_extract_features = time.perf_counter()
                     next_legal_action_features = _extract_vector_legal_feature_tensors(
@@ -2302,7 +2380,9 @@ if __name__ == "__main__":
         t0_ppo_update = time.perf_counter()
         b_inds = np.arange(args.batch_size)
         clipfracs = []
+        epochs_completed = 0
         for epoch in range(args.update_epochs):
+            epochs_completed = epoch + 1
             np.random.shuffle(b_inds)
             for start in range(0, args.batch_size, args.minibatch_size):
                 end = start + args.minibatch_size
@@ -2387,6 +2467,13 @@ if __name__ == "__main__":
         log_scalar("losses/approx_kl", approx_kl.item(), global_step)
         log_scalar("losses/clipfrac", np.mean(clipfracs), global_step)
         log_scalar("losses/explained_variance", explained_var, global_step)
+        # A collapsed critic shows up as value_std ~ 0 (explained_variance then sits at exactly 0).
+        log_scalar("losses/value_mean", float(np.mean(y_pred)), global_step)
+        log_scalar("losses/value_std", float(np.std(y_pred)), global_step)
+        log_scalar("losses/return_std", float(np.std(y_true)), global_step)
+        log_scalar("losses/epochs_completed", epochs_completed, global_step)
+        log_scalar("charts/max_legal_action_count", rollout_max_legal, global_step)
+        log_scalar("charts/max_legal_action_fraction", rollout_max_legal / float(args.max_legal_actions), global_step)
         if args.enable_step_diagnostics and iter_valid_actions_count > 0:
             log_scalar(
                 "charts/mean_valid_actions",

@@ -670,6 +670,124 @@ public class PythonEnv {
     }
 
     /**
+     * Per-tribe totals from the true (not fog-limited) game state, for the combat shaping potential.
+     * Never part of the policy observation. Keys per tribe id: cities, score, kills, units, unitValue
+     * (sum of unit star costs), giants (super units), tiles (territory tiles owned through cities) and
+     * roads (road tiles inside that territory). Used only in combat mode.
+     */
+    /**
+     * Full true (not fog-limited) combat state for reward shaping: per-tribe totals, every unit (id, tribe,
+     * type, position, HP, movement, range, star cost), every city (id, tribe, position, capital, level,
+     * population, population needed) and the territory (tile -> city id, -1 if none) and road grids.
+     * Combat only; never part of the policy observation.
+     */
+    public String combatStateJson() {
+        Board board = gs.getBoard();
+        Tribe[] tribes = gs.getTribes();
+        int size = board.getSize();
+        JSONObject out = new JSONObject();
+        JSONObject totals = new JSONObject();
+        JSONArray cities = new JSONArray();
+        for (int i = 0; i < tribes.length; i++) {
+            JSONObject t = new JSONObject();
+            t.put("cities", tribes[i].getNumCities());
+            t.put("score", tribes[i].getScore());
+            t.put("kills", tribes[i].getnKills());
+            totals.put(String.valueOf(i), t);
+            for (int cityId : tribes[i].getCitiesID()) {
+                if (!(gs.getActor(cityId) instanceof City)) continue;
+                City c = (City) gs.getActor(cityId);
+                JSONObject jc = new JSONObject();
+                jc.put("id", cityId);
+                jc.put("tribe", c.getTribeId());
+                jc.put("x", c.getPosition().x);
+                jc.put("y", c.getPosition().y);
+                jc.put("capital", c.isCapital());
+                jc.put("level", c.getLevel());
+                jc.put("population", c.getPopulation());
+                jc.put("populationNeed", c.getPopulation_need());
+                cities.put(jc);
+            }
+        }
+        JSONArray units = new JSONArray();
+        JSONArray tileCity = new JSONArray();
+        JSONArray road = new JSONArray();
+        for (int x = 0; x < size; x++) {
+            JSONArray tc = new JSONArray();
+            JSONArray rd = new JSONArray();
+            for (int y = 0; y < size; y++) {
+                Unit u = board.getUnitAt(x, y);
+                if (u != null) {
+                    JSONObject ju = new JSONObject();
+                    ju.put("id", u.getActorId());
+                    ju.put("tribe", u.getTribeId());
+                    ju.put("type", u.getType().toString());
+                    ju.put("x", x);
+                    ju.put("y", y);
+                    ju.put("hp", u.getCurrentHP());
+                    ju.put("maxHp", u.getMaxHP());
+                    ju.put("mov", u.MOV);
+                    ju.put("range", u.RANGE);
+                    ju.put("cost", u.getType().getCost());
+                    units.put(ju);
+                }
+                int cityId = board.getCityIdAt(x, y);
+                tc.put(cityId >= 0 && gs.getActor(cityId) instanceof City ? cityId : -1);
+                rd.put(board.isRoad(x, y));
+            }
+            tileCity.put(tc);
+            road.put(rd);
+        }
+        out.put("size", size);
+        out.put("tick", gs.getTick());
+        out.put("tribes", totals);
+        out.put("cities", cities);
+        out.put("units", units);
+        out.put("tileCity", tileCity);
+        out.put("road", road);
+        return out.toString();
+    }
+
+    public String combatTotalsJson() {
+        Board board = gs.getBoard();
+        Tribe[] tribes = gs.getTribes();
+        int n = tribes.length, size = board.getSize();
+        int[] units = new int[n], unitValue = new int[n], giants = new int[n], tiles = new int[n], roads = new int[n];
+        for (int x = 0; x < size; x++) {
+            for (int y = 0; y < size; y++) {
+                Unit u = board.getUnitAt(x, y);
+                if (u != null && u.getTribeId() >= 0 && u.getTribeId() < n) {
+                    units[u.getTribeId()]++;
+                    unitValue[u.getTribeId()] += u.getType().getCost();
+                    if (u.getType() == Types.UNIT.SUPERUNIT) giants[u.getTribeId()]++;
+                }
+                int cityId = board.getCityIdAt(x, y);
+                if (cityId >= 0 && gs.getActor(cityId) instanceof City) {
+                    int owner = gs.getActor(cityId).getTribeId();
+                    if (owner >= 0 && owner < n) {
+                        tiles[owner]++;
+                        if (board.isRoad(x, y)) roads[owner]++;
+                    }
+                }
+            }
+        }
+        JSONObject out = new JSONObject();
+        for (int i = 0; i < n; i++) {
+            JSONObject t = new JSONObject();
+            t.put("cities", tribes[i].getNumCities());
+            t.put("score", tribes[i].getScore());
+            t.put("kills", tribes[i].getnKills());
+            t.put("units", units[i]);
+            t.put("unitValue", unitValue[i]);
+            t.put("giants", giants[i]);
+            t.put("tiles", tiles[i]);
+            t.put("roads", roads[i]);
+            out.put(String.valueOf(i), t);
+        }
+        return out.toString();
+    }
+
+    /**
      * Diagnostic-only full-visibility observation built from runtime state.
      * This bypasses POV fog and should not be used for training.
      */

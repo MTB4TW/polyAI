@@ -9,6 +9,7 @@ import re
 import time
 from gymnasium.envs.registration import register
 from .gym_env import TribesGymEnv, make_default_env
+from . import combat_shaping
 from .environment_contract import (
     MapGeometryError,
     ObservationContractError,
@@ -328,9 +329,20 @@ class TribesGymWrapper(gym.Env):
             if self.MAX_TURNS < 1:
                 raise ValueError("POLYVISION_MAX_TURNS must be positive")
             self.PHASE1_OPENING_VERSION = "combat_no_scripted_opening_v1"
-            self.PHASE1_ENVIRONMENT_VERSION = f"combat_v3_potential_shaping_horizon_{self.MAX_TURNS}"
+            self.PHASE1_ENVIRONMENT_VERSION = f"combat_v5_scaled_scalars_horizon_{self.MAX_TURNS}"
             self._combat_reward_weights = self._load_combat_reward_weights()
             self._combat_prev_potential = 0.0
+            self._combat_first_contact_tick = -1
+            self._combat_prev_state = None
+            self._combat_turn_start_state = None
+            self._combat_prev_terms = {}
+            self._combat_ep_components = {}
+            self._combat_reset_turn_trackers()
+        # Combat is won by holding every capital (in 1v1: taking the enemy capital while keeping ours);
+        # SCORE mode would require taking every enemy city. Phase 1 keeps SCORE.
+        self._engine_game_mode = "CAPITALS" if self._is_combat_mode else "SCORE"
+        # Divisors for the six legacy scalars (stars, score, cities, kills, tick, active tribe) in combat.
+        self.COMBAT_LEGACY_SCALAR_SCALES = (50.0, 1000.0, 6.0, 10.0, float(getattr(self, "MAX_TURNS", 20)), 1.0)
         self.tribes_env = make_default_env()
         if self._is_combat_mode:
             self.tribes_env._env.setSoloNoOpponentMode(False)
@@ -456,7 +468,7 @@ class TribesGymWrapper(gym.Env):
             self._current_level_file = bootstrap_level
             self._current_level_index = bootstrap_idx
             self._validate_level_file_is_square(self._current_level_file)
-            obs = self.tribes_env.reset(self._current_level_file, bootstrap_seed)
+            obs = self.tribes_env.reset(self._current_level_file, bootstrap_seed, mode=self._engine_game_mode)
             dims = self._board_dimensions_from_obs(obs)
             if dims is None:
                 raise RuntimeError("Cannot infer board dimensions for action catalog.")
@@ -524,7 +536,7 @@ class TribesGymWrapper(gym.Env):
         self._last_reset_seed = int(episode_seed)
         self._validate_level_file_is_square(self._current_level_file)
         t_java0 = time.perf_counter() if self._profile_sps_enabled else None
-        obs = self.tribes_env.reset(self._current_level_file, self._last_reset_seed)
+        obs = self.tribes_env.reset(self._current_level_file, self._last_reset_seed, mode=self._engine_game_mode)
         if self._is_combat_mode and len(obs.get("tribes", {})) != 2:
             raise ValueError("Combat training requires a two-player map pool")
         if self._profile_sps_enabled:
@@ -551,7 +563,22 @@ class TribesGymWrapper(gym.Env):
             if self._profile_sps_enabled:
                 t_reset_opening += time.perf_counter() - t_opening0
         if self._is_combat_mode:
-            self._combat_prev_potential = self._combat_potential(obs, self._combat_reward_weights)
+            state = self._combat_state()
+            self._combat_enemy_capital_tiles = [(c["x"], c["y"]) for c in combat_shaping.enemy_capitals(state, 0)]
+            self._combat_prev_state = state
+            self._combat_turn_start_state = state
+            self._combat_prev_terms = self._combat_phi_terms(state)
+            self._combat_prev_potential = float(sum(self._combat_prev_terms.values()))
+            # Start every active component at 0, so a component that never fires in a game still counts (as 0)
+            # in the per-game means and shares, instead of being averaged only over the games where it fired.
+            w = self._combat_reward_weights
+            self._combat_ep_components = {"outcome": 0.0, "early_win": 0.0}
+            self._combat_ep_components.update({f"phi_{k}": 0.0 for k in self._combat_prev_terms})
+            self._combat_ep_components.update({k: 0.0 for k in self.COMBAT_EVENT_TERMS if w.get(k)})
+            self._combat_ep_research_turn = {}
+            self._combat_last_researched = list((((obs or {}).get("tribes", {}).get("0", {}) or {}).get("technology", {}) or {}).get("researched") or [])
+            self._combat_reset_turn_trackers()
+            self._combat_first_contact_tick = -1
         self._starting_city_count = self._get_city_count(obs)
         self._last_city_count = self._starting_city_count
         self._moved_on_t0 = False
@@ -1255,22 +1282,57 @@ class TribesGymWrapper(gym.Env):
 
         reward = float(delta_spt_reward) + reward_adjustment + float(terminal_spt_bonus)
         if self._is_combat_mode:
-            # Outcome reward (win/loss) plus potential-based shaping: the change in a weighted
-            # "who is ahead" score. Shaping telescopes over an episode, so a timeout still pays
-            # out the final advantage, and it does not change which policy is optimal.
+            # Outcome reward (win/loss) plus the change in a weighted "who is ahead" potential.
+            # The shaping telescopes to phi(final) - phi(start), so a timeout pays out the final
+            # advantage: the agent optimizes outcome + phi(final), not the outcome alone.
             _outcome_sign, outcome = self._combat_result(obs, terminated)
             weights = self._combat_reward_weights
-            outcome_reward = weights["win"] if outcome == "win" else (weights["loss"] if outcome == "loss" else 0.0)
-            potential = self._combat_potential(obs, weights)
-            shaping = potential - self._combat_prev_potential
+            if outcome == "win":
+                outcome_reward = weights["win"]
+            elif outcome == "loss":
+                outcome_reward = weights["loss"]
+            else:
+                outcome_reward = weights["timeout"] if truncated else 0.0
+            game_over = bool(terminated or truncated)
+            early_win = (weights["early_win"] * max(0.0, 1.0 - float(self._turn_count) / float(self.MAX_TURNS))
+                         if outcome == "win" else 0.0)
+            post_state = self._combat_state()
+            terms = self._combat_phi_terms(post_state)
+            potential = float(sum(terms.values()))
+            # At game end only `terminal_potential` of the final lead is paid out (1 = all of it).
+            tp = weights["terminal_potential"] if game_over else 1.0
+            shaping_terms = {k: tp * v - self._combat_prev_terms.get(k, 0.0) for k, v in terms.items()}
+            shaping = float(sum(shaping_terms.values()))
+            events = self._combat_event_rewards(self._combat_prev_state, post_state, selected_action,
+                                                selected_action_type, legal_actions, start_obs)
+            self._combat_prev_terms = terms
             self._combat_prev_potential = potential
-            reward = float(outcome_reward + shaping)
+            self._combat_prev_state = post_state
+            if selected_action_type == "END_TURN":
+                self._combat_turn_start_state = post_state
+                self._combat_reset_turn_trackers()
+            components = {"outcome": float(outcome_reward), "early_win": float(early_win)}
+            components.update({f"phi_{k}": v for k, v in shaping_terms.items()})
+            components.update(events)
+            for k, v in components.items():
+                self._combat_ep_components[k] = self._combat_ep_components.get(k, 0.0) + float(v)
+            reward = float(outcome_reward + early_win + shaping + sum(events.values()))
+            info["combat_event_reward"] = float(sum(events.values()))
             info["combat_outcome_reward"] = float(outcome_reward)
             info["combat_shaping_reward"] = float(shaping)
             info["combat_potential"] = float(potential)
             info["combat_outcome"] = outcome if terminated else ("timeout" if truncated else "ongoing")
             info["combat_win"] = int(outcome == "win")
             info["combat_loss"] = int(outcome == "loss")
+            _researched = (((obs or {}).get("tribes", {}).get("0", {}) or {}).get("technology", {}) or {}).get("researched")
+            if _researched:
+                self._combat_last_researched = _researched
+            if self._combat_first_contact_tick < 0 and self._combat_enemy_visible(obs):
+                self._combat_first_contact_tick = int(obs.get("tick", 0) or 0)
+            if terminated or truncated:
+                info.update(self._combat_end_diagnostics(obs))
+                info.update(self._combat_end_breakdown(post_state))
+                info.update(self._combat_end_techs(obs))
         if self._profile_sps_enabled:
             t_reward_board_scans += (t_reward_village_reveal + t_reward_fog_reward)
             t_reward_java_calls += 0.0
@@ -4850,11 +4912,40 @@ class TribesGymWrapper(gym.Env):
 
     # Combat reward weights; each can be overridden with POLYVISION_COMBAT_REWARD_<NAME>.
     COMBAT_REWARD_DEFAULTS = {
-        "win": 10.0,              # terminal reward for eliminating the opponent
-        "loss": -10.0,            # terminal reward for being eliminated
+        "win": 30.0,              # terminal reward for taking the enemy capital; well above any timeout lead
+        "loss": -10.0,            # terminal reward for losing our capital (kept smaller than win on purpose)
         "city": 1.0,              # potential per city of advantage (ours minus theirs)
         "score_per_1000": 1.0,    # potential per 1000 points of Tribes score advantage
         "kill": 0.25,             # potential per unit-kill of advantage
+        "unit": 0.1,              # potential per unit of advantage (unit count)
+        "unit_value": 0.05,       # potential per star of total unit cost advantage (warrior 2, knight 8, ...)
+        "giant": 0.5,             # potential per giant (super unit) of advantage, on top of its unit value
+        "tile": 0.05,             # potential per territory tile of advantage (a 3x3 city is 9 tiles)
+        "road": 0.05,             # potential per road tile of advantage inside own territory
+        "timeout": 0.0,           # outcome reward for reaching the turn limit (must lie between loss and win)
+        "terminal_potential": 1.0,  # share of the final potential paid out at game end: 1 keeps the lead,
+                                    # 0 treats phi as 0 at game end (shaping then nets ~0 over a game)
+        # Opt-in terms (0 = off); see pol_env/Tribes/py/combat_shaping.py and docs/rewards.md.
+        "capital_proximity": 0.0,       # phi: per unit, proximity (1 on the tile .. 0 across the board) to the enemy capital
+        "capital_proximity_late": 0.0,  # phi: as above, scaled by turn / MAX_TURNS (worth more later in the game)
+        "zone_of_control": 0.0,         # phi: per tile in/next to enemy territory our units can reach this turn
+        "regional_attack": 0.0,         # event: per attack made where we outnumber or out-value them in that region
+        "role_positioning": 0.0,        # event: unit-role score (warrior/rider/catapult end-of-turn spacing,
+                                        # archer retaliation, attacking riders/archers, moving onto roads)
+        "damage_trade": 0.0,            # event: per HP of (enemy HP lost - our HP lost) each step
+        "hanging_population": 0.0,      # event: penalty per population gained this turn without a level-up
+        "early_win": 0.0,               # outcome: extra win reward, max(0, 1 - turns / MAX_TURNS) x this
+        "tech_order": 0.0,              # event: per star of tech cost saved by researching before a capture in the
+                                        # same turn (+ on the capture) or wasted by researching after one (-)
+        "pop_tech": 0.0,                # event: per population a researched pop tech unlocks in our borders beyond
+                                        # the best other pop tech on offer (non-pop techs: 0)
+        "unused_tech": 0.0,             # event: penalty per tech researched this turn but not used before END_TURN
+        "tech_cost": 0.0,               # event: penalty per star spent on research
+        "avoid_fishing": 0.0,           # event: penalty for researching FISHING
+        "avoid_philosophy_meditation": 0.0,  # event: penalty for researching PHILOSOPHY or MEDITATION
+        "avoid_whaling": 0.0,           # event: penalty for researching WHALING
+        "capital_hold": 0.0,            # event: per unit of ours on an enemy capital at the start of our turn
+        "capital_region_kill": 0.0,     # event: per enemy unit killed inside an enemy capital's territory
     }
 
     @classmethod
@@ -4871,14 +4962,21 @@ class TribesGymWrapper(gym.Env):
                 raise ValueError(f"POLYVISION_COMBAT_REWARD_{name.upper()} must be finite, got {raw!r}")
         if weights["win"] <= 0 or weights["loss"] >= 0:
             raise ValueError("Combat reward needs win > 0 and loss < 0")
+        if not weights["loss"] < weights["timeout"] < weights["win"]:
+            raise ValueError("Combat reward needs loss < timeout < win")
+        if not 0.0 <= weights["terminal_potential"] <= 1.0:
+            raise ValueError("POLYVISION_COMBAT_REWARD_TERMINAL_POTENTIAL must be between 0 and 1")
         return weights
 
     @staticmethod
     def _combat_potential(obs, weights, me="0"):
-        """Weighted advantage of tribe `me` over all other tribes (cities, Tribes score, kills).
+        """Weighted advantage of tribe `me` over all other tribes (cities, Tribes score, kills, units,
+        unit value, giants, territory tiles, roads).
 
-        Uses tribe-level totals from the engine, which are not fog-limited; this is fine for a
-        training reward because the policy never sees it.
+        `obs` is {"tribes": {id: {...}}}. Pass engine totals (`_combat_engine_totals`), not the policy
+        observation: the observation is fog-limited, so enemy cities and kills there are undercounted
+        and discovering an enemy city would lower the potential. The policy never sees this value.
+        A tribe entry may give "numCities" directly or a "citiesID" list.
         """
         tribes = (obs or {}).get("tribes") or {}
         if not isinstance(tribes, dict):
@@ -4886,14 +4984,200 @@ class TribesGymWrapper(gym.Env):
 
         def stats(t):
             t = t if isinstance(t, dict) else {}
-            return (float(len(t.get("citiesID") or [])), float(t.get("score") or 0.0), float(t.get("nKills") or 0.0))
+            cities = t["numCities"] if "numCities" in t else len(t.get("citiesID") or [])
+            return (float(cities), float(t.get("score") or 0.0), float(t.get("nKills") or 0.0),
+                    float(t.get("units") or 0.0), float(t.get("unitValue") or 0.0), float(t.get("giants") or 0.0),
+                    float(t.get("tiles") or 0.0), float(t.get("roads") or 0.0))
 
         mine = stats(tribes.get(me))
         others = [stats(t) for key, t in tribes.items() if str(key) != str(me)]
-        theirs = tuple(sum(o[i] for o in others) for i in range(3)) if others else (0.0, 0.0, 0.0)
-        return (weights["city"] * (mine[0] - theirs[0])
-                + weights["score_per_1000"] * (mine[1] - theirs[1]) / 1000.0
-                + weights["kill"] * (mine[2] - theirs[2]))
+        theirs = tuple(sum(o[i] for o in others) for i in range(len(mine))) if others else (0.0,) * len(mine)
+        d = [m - t for m, t in zip(mine, theirs)]
+        return (weights["city"] * d[0]
+                + weights["score_per_1000"] * d[1] / 1000.0
+                + weights["kill"] * d[2]
+                + weights.get("unit", 0.0) * d[3]
+                + weights.get("unit_value", 0.0) * d[4]
+                + weights.get("giant", 0.0) * d[5]
+                + weights.get("tile", 0.0) * d[6]
+                + weights.get("road", 0.0) * d[7])
+
+    def _combat_state(self):
+        """True combat state from the engine (`PythonEnv.combatStateJson`); see combat_shaping.py."""
+        return json.loads(str(self.tribes_env._env.combatStateJson()))
+
+    def _combat_engine_totals(self, state=None):
+        """True per-tribe totals (not fog-limited), as {"tribes": {...}} with the keys `_combat_potential` uses."""
+        return {"tribes": combat_shaping.totals(self._combat_state() if state is None else state, 0)}
+
+    def _combat_phi_terms(self, state, me="0"):
+        """Weighted potential terms by name (ours minus theirs); their sum is phi."""
+        w = self._combat_reward_weights
+        tribes = combat_shaping.totals(state, me)
+        mine = tribes.get(str(me), {})
+        others = [t for k, t in tribes.items() if str(k) != str(me)]
+
+        def diff(key):
+            return float(mine.get(key, 0)) - float(sum(t.get(key, 0) for t in others))
+
+        terms = {"city": w["city"] * diff("numCities"),
+                 "score": w["score_per_1000"] * diff("score") / 1000.0,
+                 "kill": w["kill"] * diff("nKills"),
+                 "unit": w["unit"] * diff("units"),
+                 "unit_value": w["unit_value"] * diff("unitValue"),
+                 "giant": w["giant"] * diff("giants"),
+                 "tile": w["tile"] * diff("tiles"),
+                 "road": w["road"] * diff("roads")}
+        if w["capital_proximity"] or w["capital_proximity_late"]:
+            prox = combat_shaping.capital_proximity(state, me, getattr(self, "_combat_enemy_capital_tiles", None))
+            terms["capital_proximity"] = w["capital_proximity"] * prox
+            late = min(1.0, float(self._turn_count) / float(self.MAX_TURNS))
+            terms["capital_proximity_late"] = w["capital_proximity_late"] * late * prox
+        if w["zone_of_control"]:
+            terms["zone_of_control"] = w["zone_of_control"] * combat_shaping.zone_of_control(state, me)
+        return terms
+
+    COMBAT_EVENT_TERMS = ("regional_attack", "role_positioning", "damage_trade", "hanging_population", "tech_order",
+                          "pop_tech", "unused_tech", "tech_cost", "avoid_fishing", "avoid_philosophy_meditation",
+                          "avoid_whaling", "capital_hold", "capital_region_kill")
+
+    def _combat_reset_turn_trackers(self):
+        self._combat_turn_research = []      # (tech, tier) researched this turn
+        if not hasattr(self, "_combat_ep_research_turn"):
+            self._combat_ep_research_turn = {}
+        self._combat_turn_captures = 0       # city/village captures this turn
+        self._combat_turn_signatures = set()  # (type, subtype) of actions taken this turn
+
+    def _combat_event_rewards(self, pre, post, action, action_type, legal_actions=None, start_obs=None, me=0):
+        """Per-step event rewards (only those with a nonzero weight), judged on the state before the action."""
+        w = self._combat_reward_weights
+        out = {}
+        if pre is None:
+            return out
+        if action_type == "RESEARCH_TECH":
+            tech = str(action.get("tech_type"))
+            tier = combat_shaping.TECH_TIER.get(tech, 1)
+            if w["tech_cost"]:
+                out["tech_cost"] = -w["tech_cost"] * float(action.get("star_cost", 0) or 0)
+            if w["avoid_fishing"] and tech == "FISHING":
+                out["avoid_fishing"] = -w["avoid_fishing"]
+            if w["avoid_philosophy_meditation"] and tech in ("PHILOSOPHY", "MEDITATION"):
+                out["avoid_philosophy_meditation"] = -w["avoid_philosophy_meditation"]
+            if w["avoid_whaling"] and tech == "WHALING":
+                out["avoid_whaling"] = -w["avoid_whaling"]
+            if w["pop_tech"]:
+                offered = [str(a.get("tech_type")) for a in (legal_actions or []) if a.get("type") == "RESEARCH_TECH"]
+                board = (start_obs or {}).get("board")
+                out["pop_tech"] = w["pop_tech"] * combat_shaping.pop_tech_margin(tech, offered, pre, board, me)
+            if w["tech_order"] and self._combat_turn_captures:
+                # Tech cost grows by `tier` stars per city, so researching after this turn's captures paid extra.
+                out["tech_order"] = -w["tech_order"] * float(tier * self._combat_turn_captures)
+            self._combat_turn_research.append((tech, tier))
+            self._combat_ep_research_turn.setdefault(tech, int(self._turn_count) + 1)
+        elif action_type == "CAPTURE" and str(action.get("capture_type")) in ("CITY", "VILLAGE"):
+            if w["tech_order"] and self._combat_turn_research:
+                out["tech_order"] = w["tech_order"] * float(sum(t for _, t in self._combat_turn_research))
+            self._combat_turn_captures += 1
+        if action_type != "END_TURN":
+            self._combat_turn_signatures.add(combat_shaping.action_signature(action))
+        elif w["unused_tech"]:
+            unused = [t for t, _ in self._combat_turn_research
+                      if not combat_shaping.tech_used_by(t, self._combat_turn_signatures)]
+            out["unused_tech"] = -w["unused_tech"] * float(len(unused))
+        if w["regional_attack"] and action_type == "ATTACK" and action.get("dst_x") is not None:
+            out["regional_attack"] = w["regional_attack"] * combat_shaping.regional_superiority(
+                pre, me, action["dst_x"], action["dst_y"])
+        if w["role_positioning"]:
+            role = combat_shaping.action_roles(pre, me, action)
+            if action_type == "END_TURN":
+                role += combat_shaping.end_turn_roles(pre, me)
+            out["role_positioning"] = w["role_positioning"] * role
+        if w["damage_trade"]:
+            lost = combat_shaping.hp_lost(pre, post)
+            ours = lost.get(int(me), 0)
+            theirs = sum(v for k, v in lost.items() if int(k) != int(me))
+            out["damage_trade"] = w["damage_trade"] * float(theirs - ours)
+        if w["capital_hold"] and action_type == "END_TURN":
+            # After END_TURN the opponent has moved, so `post` is the start of our next turn: a unit still on the
+            # enemy capital now can capture it this turn.
+            out["capital_hold"] = w["capital_hold"] * combat_shaping.units_on_enemy_capital(post, me)
+        if w["capital_region_kill"]:
+            out["capital_region_kill"] = w["capital_region_kill"] * combat_shaping.kills_in_enemy_capital_region(
+                pre, post, me)
+        if w["hanging_population"] and action_type == "END_TURN" and self._combat_turn_start_state is not None:
+            out["hanging_population"] = -w["hanging_population"] * combat_shaping.hanging_population(
+                self._combat_turn_start_state, pre, me)
+        return out
+
+    def _combat_end_techs(self, obs, me="0"):
+        """Per tech: researched by the end of the game (1/0, from the observation's tech tree, so starting techs
+        count) and the turn we researched it (-1 if not researched during the game)."""
+        researched = (((obs or {}).get("tribes", {}).get(str(me), {}) or {}).get("technology", {}) or {}).get("researched") or []
+        if researched:
+            self._combat_last_researched = list(researched)
+        else:
+            # After a loss the final observation has no tech tree for us; use the last one we saw.
+            researched = getattr(self, "_combat_last_researched", None) or []
+        out = {}
+        for i, tech in enumerate(combat_shaping.TECH_ORDER):
+            out[f"combat_end_raw_tech_{tech}"] = float(bool(researched[i])) if i < len(researched) else 0.0
+            out[f"combat_end_techturn_{tech}"] = float(self._combat_ep_research_turn.get(tech, -1))
+        out["combat_end_raw_techs_researched_this_game"] = float(len(self._combat_ep_research_turn))
+        return out
+
+    def _combat_end_breakdown(self, state, me="0"):
+        """End-of-game raw totals (ours/theirs) and this game's summed reward per component."""
+        tribes = combat_shaping.totals(state, me)
+        mine = tribes.get(str(me), {})
+        others = [t for k, t in tribes.items() if str(k) != str(me)]
+        out = {}
+        for key in ("numCities", "score", "nKills", "units", "unitValue", "giants", "tiles", "roads"):
+            out[f"combat_end_raw_{key}_ours"] = float(mine.get(key, 0))
+            out[f"combat_end_raw_{key}_theirs"] = float(sum(t.get(key, 0) for t in others))
+        out["combat_end_raw_capital_proximity_ours"] = float(combat_shaping.capital_proximity(
+            state, int(me), getattr(self, "_combat_enemy_capital_tiles", None)))
+        out["combat_end_raw_zone_of_control_ours"] = float(combat_shaping.zone_of_control(state, int(me)))
+        for unit_type, (ours, theirs) in combat_shaping.unit_type_counts(state, int(me)).items():
+            out[f"combat_end_raw_units_{unit_type}_ours"] = float(ours)
+            out[f"combat_end_raw_units_{unit_type}_theirs"] = float(theirs)
+        for k, v in self._combat_ep_components.items():
+            out[f"combat_end_component_{k}"] = float(v)
+        return out
+
+    @staticmethod
+    def _combat_enemy_visible(obs, me=0):
+        """True if any enemy unit or city is in the (fog-limited) observation."""
+        for key in ("unit", "city"):
+            for actor in ((obs or {}).get(key) or {}).values():
+                if isinstance(actor, dict) and int(actor.get("tribeId", me)) != int(me):
+                    return True
+        return False
+
+    def _combat_end_diagnostics(self, obs, me=0):
+        """Engine-side facts about a finished combat game, for judging how close timeouts came to a win."""
+        gs = self.tribes_env._env.getGameState()
+        enemy_ids = [tid for tid in self._combat_engine_totals()["tribes"] if int(tid) != int(me)]
+        enemy_cities = sum(int(gs.getTribe(int(tid)).getNumCities()) for tid in enemy_ids)
+        held, dist = 0, -1
+        for tid in enemy_ids:
+            capital = gs.getActor(int(gs.getTribe(int(tid)).getCapitalID()))
+            if capital is None:
+                continue
+            held += int(int(capital.getTribeId()) == int(me))
+            from py4j.java_gateway import get_field  # Vector2d exposes public fields, not getters
+            pos = capital.getPosition()
+            cx, cy = int(get_field(pos, "x")), int(get_field(pos, "y"))
+            for unit in ((obs or {}).get("unit") or {}).values():
+                if isinstance(unit, dict) and int(unit.get("tribeId", -1)) == int(me):
+                    d = max(abs(int(unit["x"]) - cx), abs(int(unit["y"]) - cy))
+                    dist = d if dist < 0 else min(dist, d)
+        return {
+            "combat_end_enemy_cities": int(enemy_cities),
+            "combat_end_own_cities": int(gs.getTribe(int(me)).getNumCities()),
+            "combat_end_enemy_capitals_held": int(held),
+            "combat_end_min_unit_dist_to_enemy_capital": int(dist),
+            "combat_first_contact_tick": int(self._combat_first_contact_tick),
+        }
 
     def combat_reward_config(self):
         """Active combat reward weights (for logging and run records)."""
@@ -5429,12 +5713,19 @@ class TribesGymWrapper(gym.Env):
         # 7. Legacy Scalars (6 values)
         tribes_info = obs_dict.get("tribes", {})
         tribe0 = tribes_info.get(str(controlled_tribe), {}) if isinstance(tribes_info, dict) else {}
-        features.append(float(tribe0.get("star", 0)))
-        features.append(float(tribe0.get("score", 0)))
-        features.append(float(len(tribe0.get("citiesID", []))))
-        features.append(float(tribe0.get("nKills", 0)))
-        features.append(float(obs_dict.get("tick", 0)))
-        features.append(float(obs_dict.get("activeTribeID", 0)))
+        legacy = [
+            float(tribe0.get("star", 0)),
+            float(tribe0.get("score", 0)),
+            float(len(tribe0.get("citiesID", []))),
+            float(tribe0.get("nKills", 0)),
+            float(obs_dict.get("tick", 0)),
+            float(obs_dict.get("activeTribeID", 0)),
+        ]
+        if getattr(self, "_is_combat_mode", False):
+            # Raw score (~500-3000), stars and tick saturated the value head's tanh layer, so the critic
+            # output a constant. Combat scales them to roughly [0, 1]; Phase 1 keeps the raw values.
+            legacy = [v / s for v, s in zip(legacy, self.COMBAT_LEGACY_SCALAR_SCALES)]
+        features.extend(legacy)
 
         # 8. Economy / State Scalars (12 values)
         current_stars = float(self._get_bardur_stars(obs_dict))

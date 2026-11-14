@@ -53,7 +53,7 @@ export POLYVISION_LEVEL_POOL_GLOB="levels/phase2_pool_1v1/train/*.csv"
 export POLYVISION_MAX_TURNS="${POLYVISION_MAX_TURNS:-20}"
 export POLYVISION_INFO_MODE="fast"
 # Combat reward weights (see docs/rewards.md); set any of these before sbatch to override:
-#   POLYVISION_COMBAT_REWARD_WIN=10 POLYVISION_COMBAT_REWARD_LOSS=-10 POLYVISION_COMBAT_REWARD_CITY=1.0
+#   POLYVISION_COMBAT_REWARD_WIN=30 POLYVISION_COMBAT_REWARD_LOSS=-10 POLYVISION_COMBAT_REWARD_CITY=1.0
 #   POLYVISION_COMBAT_REWARD_SCORE_PER_1000=1.0 POLYVISION_COMBAT_REWARD_KILL=0.25
 env | grep '^POLYVISION_COMBAT_REWARD_' || echo "Combat reward: defaults"
 export OMP_NUM_THREADS="1"
@@ -65,6 +65,8 @@ NUM_ENVS=${NUM_ENVS:-16}
 TOTAL_TIMESTEPS=${TOTAL_TIMESTEPS:-2000000}  # Initial budget; validate learning before scaling
 EXP_NAME=${EXP_NAME:-"farmshare_combat_resnet_2m"}
 NETWORK_ARCH=${NETWORK_ARCH:-"spatial_resnet"}
+# Combat states can exceed the Phase 1 capacity of 256; see train_combat_cpu.sbatch.
+MAX_LEGAL_ACTIONS=${MAX_LEGAL_ACTIONS:-512}
 
 # W&B curves are on by default for combat runs (TRACK=0 to turn off). Run `wandb login` once
 # on this account; WANDB_ENTITY (e.g. polyai-stanford) picks the team.
@@ -85,6 +87,7 @@ python py_rl/cleanrl/cleanrl/ppo.py \
     --save-frequency 500000 \
     --exp-name "$EXP_NAME" \
     --network-arch "$NETWORK_ARCH" \
+    --max-legal-actions "$MAX_LEGAL_ACTIONS" \
     --validation-states 10000 \
     ${TRACK_ARGS[@]+"${TRACK_ARGS[@]}"}
 

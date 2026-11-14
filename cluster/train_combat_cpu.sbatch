@@ -18,6 +18,7 @@
 # Optional overrides (environment variables):
 #   TOTAL_TIMESTEPS=1000000  NUM_ENVS=8  NETWORK_ARCH=spatial_resnet  SEED=1
 #   TORCH_THREADS=8          VALIDATION_STATES=10000  TRACK=1 (W&B curves)
+#   MAX_LEGAL_ACTIONS=512    legal-action slots per step (combat exceeds the Phase 1 default of 256)
 #   EXTRA_PPO_ARGS="--learning-rate 3e-4"   appended last, so it overrides the defaults below
 #   POLYVISION_COMBAT_REWARD_*               reward weights (see docs/rewards.md)
 # ==============================================================================
@@ -60,6 +61,9 @@ NETWORK_ARCH=${NETWORK_ARCH:-"spatial_resnet"}
 SEED=${SEED:-1}
 TORCH_THREADS=${TORCH_THREADS:-8}
 VALIDATION_STATES=${VALIDATION_STATES:-10000}
+# Combat states can exceed the Phase 1 capacity of 256 (a 1M-step run hit 257); the trainer exports
+# this to the env as POLYVISION_MAX_LEGAL_ACTIONS and records it in the checkpoint sidecar.
+MAX_LEGAL_ACTIONS=${MAX_LEGAL_ACTIONS:-512}
 
 TRACK_ARGS=()
 if [ "${TRACK:-1}" = "1" ]; then
@@ -92,6 +96,7 @@ python py_rl/cleanrl/cleanrl/ppo.py \
     --save-frequency 250000 \
     --exp-name "$EXP_NAME" \
     --network-arch "$NETWORK_ARCH" \
+    --max-legal-actions "$MAX_LEGAL_ACTIONS" \
     --validation-states "$VALIDATION_STATES" \
     ${TRACK_ARGS[@]+"${TRACK_ARGS[@]}"} \
     ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}

@@ -71,36 +71,62 @@ Enabling the non-stepwise Terminal-SPT bonus established a strong terminal credi
 
 ## Phase 2 combat reward
 
-Combat mode (`POLYVISION_COMBAT_MODE=1`, environment version `combat_v3_potential_shaping_horizon_<T>`)
-replaces the Phase 1 reward entirely. Each step pays
+Combat mode (`POLYVISION_COMBAT_MODE=1`, environment version `combat_v5_scaled_scalars_horizon_<T>`)
+replaces the Phase 1 reward entirely. Combat runs in the engine's CAPITALS mode: a tribe wins as soon as it
+holds every capital (in 1v1, taking the enemy capital while keeping its own), and losing its own capital loses.
+Games that reach the turn limit `T` (`POLYVISION_MAX_TURNS`, default 20) are timeouts. Each step pays
 
 ```text
 reward = outcome + (Φ(s') − Φ(s))
-outcome = win (default +10) when the opponent is eliminated, loss (default −10) when we are, else 0
+outcome = win (default +30) on taking the enemy capital, loss (default −10) on losing ours, else 0
 Φ(s)   = city            × (our cities − their cities)
        + score_per_1000  × (our Tribes score − their score) / 1000
        + kill            × (our unit kills − their unit kills)
+       + unit            × (our units − their units)
+       + unit_value      × (our total unit star cost − theirs)
+       + giant           × (our giants − their giants)
+       + tile            × (our territory tiles − theirs)
+       + road            × (our road tiles in territory − theirs)
 ```
 
-The second term is *potential-based shaping*: it rewards changes in a weighted "who is ahead" score.
-Its sum over an episode is Φ(final) − Φ(start), so a game that reaches the turn limit still pays out the
-final advantage instead of zero, and shaping of this form does not change which policy is optimal.
-Φ uses tribe-level totals from the engine (not fog-limited); that is acceptable for a training reward
-because the policy never observes it.
+The second term rewards changes in a weighted "who is ahead" score. Its sum over an episode is
+Φ(final) − Φ(start), so a game that reaches the turn limit still pays out the final advantage instead of
+zero. That also means the agent optimizes `outcome + Φ(final)`, not the outcome alone: being ahead at the
+turn limit is rewarded in its own right. (Textbook potential shaping leaves the optimal policy unchanged
+only with γΦ(s′) − Φ(s) and Φ = 0 at episode end; this reward deliberately does neither.)
+
+Φ is computed from the engine's true game state (`_combat_engine_totals`), not from the policy's
+observation. Up to `combat_v3` it read the observation, which is fog-limited: enemy cities and kills were
+undercounted, so discovering an enemy city lowered Φ and was penalized. The policy never observes Φ.
 
 Weights default to `TribesGymWrapper.COMBAT_REWARD_DEFAULTS` and can be overridden per run without code
 changes, e.g. `POLYVISION_COMBAT_REWARD_CITY=2 POLYVISION_COMBAT_REWARD_KILL=0.5 sbatch cluster/train_farmshare_combat.sbatch`:
 
 | Variable | Default | Meaning |
 |---|---:|---|
-| `POLYVISION_COMBAT_REWARD_WIN` | 10 | terminal reward for a win (must be > 0) |
+| `POLYVISION_COMBAT_REWARD_WIN` | 30 | terminal reward for a win (must be > 0); 10 before entry 057 |
 | `POLYVISION_COMBAT_REWARD_LOSS` | −10 | terminal reward for a loss (must be < 0) |
 | `POLYVISION_COMBAT_REWARD_CITY` | 1.0 | potential per city of advantage |
 | `POLYVISION_COMBAT_REWARD_SCORE_PER_1000` | 1.0 | potential per 1000 points of Tribes score advantage |
 | `POLYVISION_COMBAT_REWARD_KILL` | 0.25 | potential per kill of advantage |
+| `POLYVISION_COMBAT_REWARD_UNIT` | 0.1 | potential per unit of advantage |
+| `POLYVISION_COMBAT_REWARD_UNIT_VALUE` | 0.05 | potential per star of unit-cost advantage |
+| `POLYVISION_COMBAT_REWARD_GIANT` | 0.5 | potential per giant of advantage (on top of unit value) |
+| `POLYVISION_COMBAT_REWARD_TILE` | 0.05 | potential per territory tile of advantage |
+| `POLYVISION_COMBAT_REWARD_ROAD` | 0.05 | potential per road tile (in own territory) of advantage |
 
-Each step's `info` reports `combat_outcome_reward`, `combat_shaping_reward` and `combat_potential`.
-Under random legal play against `SimpleAgent` on the 1v1 pool (20-turn horizon), every episode now has a
+Opt-in terms (default 0; definitions in `pol_env/Tribes/py/combat_shaping.py` and CHANGELOG entry 058):
+`CAPITAL_PROXIMITY`, `CAPITAL_PROXIMITY_LATE`, `ZONE_OF_CONTROL` (potential terms), `REGIONAL_ATTACK`, `ROLE_POSITIONING`,
+`DAMAGE_TRADE`, `HANGING_POPULATION`, `TECH_ORDER`, `POP_TECH`, `UNUSED_TECH`, `TECH_COST`, `AVOID_FISHING`,
+`AVOID_PHILOSOPHY_MEDITATION` (event terms) and `EARLY_WIN` (extra win reward tapering to 0 at the turn limit).
+| `POLYVISION_COMBAT_REWARD_TIMEOUT` | 0 | outcome reward on a turn-limit timeout (loss < timeout < win) |
+| `POLYVISION_COMBAT_REWARD_TERMINAL_POTENTIAL` | 1 | share of the final Φ paid at game end; 0 makes the shaping net ~0 per game |
+
+Each step's `info` reports `combat_outcome_reward`, `combat_shaping_reward` and `combat_potential`. The last
+step of a game also reports engine-side diagnostics: `combat_end_enemy_cities`, `combat_end_own_cities`,
+`combat_end_enemy_capitals_held`, `combat_end_min_unit_dist_to_enemy_capital` (Chebyshev, −1 with no units)
+and `combat_first_contact_tick` (first turn an enemy unit or city was visible, −1 if never).
+Under `combat_v3`, random legal play against `SimpleAgent` on the 1v1 pool (20-turn horizon), every episode now has a
 nonzero return (timeouts range about −7 to +5, losses about −15), where the previous ±1-only reward was
 zero in about 89% of episodes. The defaults are a starting point, not a tuned design.
 
