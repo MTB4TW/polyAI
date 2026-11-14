@@ -28,6 +28,8 @@ EVAL_POOLS = ("eval_validation", "eval_test")
 TEST_POOLS = ("eval_test",)
 STOCHASTIC_POLICIES = ("ppo_sampled", "random_legal")
 ALL_POLICIES = ("ppo_argmax", "ppo_sampled", "random_legal")
+# Optional, not part of the canonical set: tactical search where it applies, otherwise ppo_argmax.
+OPTIONAL_POLICIES = ("ppo_search",)
 OUTCOMES = ("win", "loss", "timeout")
 
 # A canonical combat evaluation: the full eval_validation pool, 5 replicates, seed 42, all three policies.

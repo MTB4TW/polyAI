@@ -526,6 +526,20 @@ public class PythonEnv {
     }
 
     /**
+     * Combat tactical search (players.heuristics.CombatTactics) for the active tribe, on a copy with its fog.
+     * @param allowed raw action indices the caller may choose (the wrapper's legal set)
+     * @return the raw index of the first action of the best tactical sequence, or -1 when no tactical sequence
+     *         improves on stopping now (leave the decision to the policy)
+     */
+    public int tacticalChooseIndex(double[] weights, int[] allowed, int depth, int beam, int radius, long seed) {
+        if (allowed == null || allowed.length == 0) return -1;
+        players.heuristics.CombatTactics t = new players.heuristics.CombatTactics(gs.getActiveTribeID(), weights, radius);
+        GameState root = searchCopy(false);
+        root.getRandomGenerator().setSeed(seed);
+        return t.chooseIndex(root, gs.getAllAvailableActions(), allowed, depth, beam, seed);
+    }
+
+    /**
      * Within-turn MCTS (players.heuristics.Phase1TurnMCTS) from the current state, valued by Phase1SptHeuristic.
      * @param allowed raw action indices the caller may choose (the wrapper's legal set); must be non-empty
      * @return the chosen raw action index (an element of allowed)

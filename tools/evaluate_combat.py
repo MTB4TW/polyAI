@@ -32,7 +32,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from tools.combat_eval_core import (  # noqa: E402
-    ALL_POLICIES, MANIFEST_REL, OUTCOMES, SCHEMA_VERSION, TEST_POOLS, aggregate, build_schedule, is_canonical,
+    ALL_POLICIES, MANIFEST_REL, OPTIONAL_POLICIES, OUTCOMES, SCHEMA_VERSION, TEST_POOLS, aggregate, build_schedule, is_canonical,
     load_verified_pool, paired_difference, per_map_rates,
 )
 from tools.phase1_eval_core import PPOPolicy, RandomLegalPolicy, json_safe, sha256_file, write_csv  # noqa: E402
@@ -73,7 +73,35 @@ def environment_settings(checkpoint_meta, rules_arg, max_turns_arg):
     return rules_of_version(version), int(m.group(1)), int(checkpoint_meta.get("max_legal_actions", 512))
 
 
-def make_policy(name, agent, device, policy_seed):
+class SearchAssistedPolicy:
+    """ppo_search: the combat tactical search (CombatTactics) when it finds a tactical sequence that beats stopping
+    now, otherwise the policy's highest-logit action. Measures what search adds at play time."""
+
+    name = "ppo_search"
+
+    def __init__(self, agent, device, env, episode_seed):
+        self.ppo = PPOPolicy(agent, device, False, None)
+        self.env, self.episode_seed, self.decision = env, int(episode_seed), 0
+        self.search_moves = 0
+
+    def choose_action(self, obs, info):
+        from pol_env.Tribes.py import search_teacher
+
+        ids = np.asarray(info["legal_global_ids_padded"]).reshape(-1)
+        valid = np.asarray(info["legal_action_valid_mask"], dtype=bool).reshape(-1)
+        seed = search_teacher.decision_seed(self.episode_seed, self.decision)
+        self.decision += 1
+        slot = search_teacher.tactical_slot(self.env.tribes_env._env, self.env.tribes_env._gateway, ids, valid,
+                                            self.env._current_legal_id_to_raw_index, seed)
+        if slot >= 0:
+            self.search_moves += 1
+            return int(ids[slot]), int(slot)
+        return self.ppo.choose_action(obs, info)
+
+
+def make_policy(name, agent, device, policy_seed, env=None, episode_seed=0):
+    if name == "ppo_search":
+        return SearchAssistedPolicy(agent, device, env, episode_seed)
     if name == "ppo_argmax":
         return PPOPolicy(agent, device, False, None)
     if name == "ppo_sampled":
@@ -127,7 +155,8 @@ def parse_args():
     p.add_argument("--model-path", type=Path, help="Combat checkpoint (needed for the ppo_* policies)")
     p.add_argument("--pool", choices=["eval_validation", "eval_test"], default="eval_validation")
     p.add_argument("--confirm-test", action="store_true", help="Required to evaluate the held-out eval_test pool")
-    p.add_argument("--policy", action="append", choices=ALL_POLICIES, help="Repeat for a narrower policy set")
+    p.add_argument("--policy", action="append", choices=ALL_POLICIES + OPTIONAL_POLICIES,
+                   help="Repeat for a narrower policy set; ppo_search (search at play time) is opt-in")
     p.add_argument("--repeats-per-map", type=int, default=5)
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--max-maps", type=int)
@@ -216,8 +245,11 @@ def main():
         started = utc_now()
         episodes = []
         for i, game in enumerate(schedule, 1):
-            episodes.append(run_game(env, make_policy(game.policy, agent, device, game.policy_seed), game,
-                                     args.max_decisions_per_game))
+            policy = make_policy(game.policy, agent, device, game.policy_seed, env, game.episode_seed)
+            row = run_game(env, policy, game, args.max_decisions_per_game)
+            if isinstance(policy, SearchAssistedPolicy):
+                row["search_moves"] = policy.search_moves
+            episodes.append(row)
             if args.progress_every and (i % args.progress_every == 0 or i == len(schedule)):
                 print(f"{game.policy}: {i}/{len(schedule)} games", flush=True)
         summary, per_map = aggregate(episodes, args.seed)
@@ -225,6 +257,8 @@ def main():
         paired = {}
         if "ppo_argmax" in rates and "random_legal" in rates:
             paired["ppo_argmax_vs_random_legal"] = paired_difference(rates["ppo_argmax"], rates["random_legal"], "win", args.seed)
+        if "ppo_search" in rates and "ppo_argmax" in rates:
+            paired["ppo_search_vs_ppo_argmax"] = paired_difference(rates["ppo_search"], rates["ppo_argmax"], "win", args.seed)
         if "ppo_sampled" in rates and "random_legal" in rates:
             paired["ppo_sampled_vs_random_legal"] = paired_difference(rates["ppo_sampled"], rates["random_legal"], "win", args.seed)
         config = {
@@ -237,7 +271,8 @@ def main():
             "game_mode": "CAPITALS", "rules": rules, "max_turns": max_turns,
             "schedule_rules": "episode seed depends on map and replicate only, so every policy and evaluation with the same seed meets the same games; policy seed is policy-specific",
             "policy_semantics": {"ppo_argmax": "highest-logit valid slot", "ppo_sampled": "sampled from the policy with a per-game generator",
-                                 "random_legal": "uniform over valid slots"},
+                                 "random_legal": "uniform over valid slots",
+                                 "ppo_search": "combat tactical search (depth 3, beam 8, fogged) where it beats stopping, else highest-logit slot"},
             "model_path": str(model_path) if model_path else None,
             "checkpoint_sha256": sha256_file(model_path) if model_path else None,
             "sidecar_sha256": sha256_file(sidecar) if sidecar else None,

@@ -49,6 +49,13 @@ TUNED_VISIBLE_WEIGHTS = {
 TEACHER_MODES = {
     "lookahead_visible": (TUNED_VISIBLE_WEIGHTS, False),
 }
+# Combat teacher (Phase 2): within-turn tactical beam search (players/heuristics/CombatTactics.java). It labels
+# only decisions where a tactical sequence (attacks, captures, infiltrations, moves near the enemy) beats stopping
+# now; elsewhere it reports no slot (-1) and the kickstart loss ignores that step.
+COMBAT_TEACHER_MODES = {
+    "tactical_search": {"depth": 3, "beam": 8, "radius": 3},
+}
+TEACHER_MODES = {**TEACHER_MODES, **{m: None for m in COMBAT_TEACHER_MODES}}
 TEACHER_ENV_VAR = "POLYVISION_TEACHER"
 TEACHER_SLOT_INFO_KEY = "teacher_slot"
 
@@ -75,6 +82,43 @@ def parse_teacher_mode(raw: Optional[str]) -> Optional[str]:
     if value not in TEACHER_MODES:
         raise ValueError(f"Unknown {TEACHER_ENV_VAR}={raw!r}; expected one of {sorted(TEACHER_MODES)} or unset")
     return value
+
+
+def is_combat_teacher(mode: Optional[str]) -> bool:
+    return mode in COMBAT_TEACHER_MODES
+
+
+def tactical_choose_raw(java_env, gateway, allowed_raw: Sequence[int], seed: int, mode: str = "tactical_search",
+                        weights=None) -> int:
+    """Raw Java action index the tactical search picks among `allowed_raw`, or -1 (nothing tactical improves)."""
+    cfg = COMBAT_TEACHER_MODES[mode]
+    allowed = gateway.new_array(gateway.jvm.int, len(allowed_raw))
+    for i, r in enumerate(allowed_raw):
+        allowed[i] = int(r)
+    java_weights = None
+    if weights is not None:
+        java_weights = gateway.new_array(gateway.jvm.double, len(weights))
+        for i, w in enumerate(weights):
+            java_weights[i] = float(w)
+    return int(java_env.tacticalChooseIndex(java_weights, allowed, int(cfg["depth"]), int(cfg["beam"]),
+                                            int(cfg["radius"]), int(seed)))
+
+
+def tactical_slot(java_env, gateway, ids: np.ndarray, valid: np.ndarray, raw_map: Mapping[int, int], seed: int,
+                  mode: str = "tactical_search") -> int:
+    """Legal slot of the tactical search's choice for the current state, or -1."""
+    slots = [int(s) for s in np.flatnonzero(valid)]
+    raw_of_slot = {s: raw_map.get(int(ids[s])) for s in slots}
+    allowed = sorted({r for r in raw_of_slot.values() if r is not None})
+    if not allowed:
+        return -1
+    raw = tactical_choose_raw(java_env, gateway, allowed, seed, mode)
+    if raw < 0:
+        return -1
+    for s, r in raw_of_slot.items():
+        if r == raw:
+            return s
+    return -1
 
 
 def java_weight_array(gateway, weights: Mapping[str, float]):

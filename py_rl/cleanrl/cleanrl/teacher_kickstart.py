@@ -16,7 +16,7 @@ from typing import Optional
 import numpy as np
 import torch
 
-from pol_env.Tribes.py.search_teacher import TEACHER_ENV_VAR, TEACHER_SLOT_INFO_KEY, parse_teacher_mode
+from pol_env.Tribes.py.search_teacher import TEACHER_ENV_VAR, TEACHER_SLOT_INFO_KEY, is_combat_teacher, parse_teacher_mode
 
 NO_TEACHER_SLOT = -1
 
@@ -27,8 +27,10 @@ def validate_teacher_args(teacher: Optional[str], teacher_coef: float, teacher_d
     mode = parse_teacher_mode(teacher)
     if mode is None:
         return None
-    if combat:
-        raise RuntimeError("--teacher is Phase 1 only (the search heuristic scores Phase 1 SPT); unset it for combat")
+    if combat and not is_combat_teacher(mode):
+        raise RuntimeError(f"--teacher {mode} is Phase 1 only (it scores Phase 1 SPT); use tactical_search for combat")
+    if not combat and is_combat_teacher(mode):
+        raise RuntimeError(f"--teacher {mode} is for combat runs (POLYVISION_PHASE=2)")
     if actor_mode not in ("legal_only", "legal_features"):
         raise RuntimeError("--teacher needs a legal-slot actor mode (legal_only or legal_features)")
     if not np.isfinite(teacher_coef) or teacher_coef < 0:

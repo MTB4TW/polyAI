@@ -1847,7 +1847,8 @@ if __name__ == "__main__":
     teacher_workers_enabled = teacher_mode is not None
     if teacher_mode is not None:
         next_teacher_slots = extract_teacher_slots(reset_infos, args.num_envs, next_legal_action_valid_mask)
-        if not bool((next_teacher_slots >= 0).all()):
+        # The Phase 1 teacher labels every decision; the combat teacher only tactical ones (-1 elsewhere).
+        if teacher_mode == "lookahead_visible" and not bool((next_teacher_slots >= 0).all()):
             raise RuntimeError(f"--teacher is set but the envs did not report {TEACHER_SLOT_INFO_KEY} after reset")
     # Structural checks look at the network itself (inside the --norm-obs wrapper, if any).
     agent_net = agent.policy if isinstance(agent, ObsNormalizedAgent) else agent

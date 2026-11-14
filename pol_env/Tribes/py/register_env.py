@@ -3146,13 +3146,15 @@ class TribesGymWrapper(gym.Env):
         --weights tuned_visible --search-seeding per_decision plays it. The search runs on state copies; observations, legal sets, rewards and transitions are untouched.
         """
         self._teacher_mode = search_teacher.parse_teacher_mode(os.environ.get(search_teacher.TEACHER_ENV_VAR))
-        if self._teacher_mode is not None and self._is_combat_mode:
-            raise ValueError(f"{search_teacher.TEACHER_ENV_VAR} is Phase 1 only; unset it for combat runs")
+        combat_teacher = search_teacher.is_combat_teacher(self._teacher_mode)
+        if self._teacher_mode is not None and self._is_combat_mode != combat_teacher:
+            raise ValueError(f"{search_teacher.TEACHER_ENV_VAR}={self._teacher_mode} does not fit this phase "
+                             "(lookahead_visible: Phase 1; tactical_search: combat)")
         self._teacher_enabled = self._teacher_mode is not None
         self._teacher_java_weights = None
         self._teacher_full_information = False
         self._teacher_seed_episode, self._teacher_decision_index = None, 0
-        if self._teacher_enabled:
+        if self._teacher_enabled and not combat_teacher:
             weights, full_information = search_teacher.TEACHER_MODES[self._teacher_mode]
             self._teacher_java_weights = search_teacher.java_weight_array(self.tribes_env._gateway, weights)
             self._teacher_full_information = bool(full_information)
@@ -3177,6 +3179,12 @@ class TribesGymWrapper(gym.Env):
             self._teacher_seed_episode, self._teacher_decision_index = self._episode_index, 0
         seed = search_teacher.decision_seed(self._last_reset_seed, self._teacher_decision_index)
         self._teacher_decision_index += 1
+        if search_teacher.is_combat_teacher(self._teacher_mode):
+            # Combat: label only decisions where a tactical sequence beats stopping now (-1 elsewhere).
+            return search_teacher.tactical_slot(
+                self.tribes_env._env, self.tribes_env._gateway, np.asarray(legal_global_ids_padded).reshape(-1),
+                np.asarray(legal_action_valid_mask, dtype=bool).reshape(-1), legal_id_to_raw_index, seed,
+                self._teacher_mode)
         scores = search_teacher.lookahead_scores_seeded(
             self.tribes_env._env, self._teacher_java_weights, turns_remaining, self._teacher_full_information, seed)
         feats = np.asarray(legal_action_features_padded)

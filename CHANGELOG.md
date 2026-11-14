@@ -2,6 +2,30 @@
 
 All notable changes to this project are documented in this file.
 
+## [Phase2-Combat_Tactical_Search_Teacher-065] - (2026-11-14)
+
+### Scope
+- `players/heuristics/CombatTactics.java`: within-turn tactical beam search for combat (depth 3, beam 8, on a copy
+  with the active tribe's fog) over attacks, city captures, infiltrations and moves near the enemy. Value: result
+  (holding every capital counts as a win), health-weighted material, cities, sieges, minus next-turn danger: which
+  of our units the visible enemies could kill (engine pathfinder, so blocking counts; engine damage formula) and
+  enemy reach to our undefended capital. Returns -1 when no tactical sequence beats stopping now.
+- `PythonEnv.tacticalChooseIndex` (one method). `search_teacher.py`: combat teacher mode `tactical_search`,
+  `tactical_slot`. Merged `feat/lookahead-kickstart` for the `--teacher` machinery; `--teacher tactical_search` is
+  allowed in combat only, labels only tactical decisions (-1 elsewhere), and `--teacher` with `--overlap-rollout`
+  is refused.
+- `tools/evaluate_combat.py --policy ppo_search`: search where it applies, else ppo_argmax (opt-in, not canonical).
+- `cluster/combat_teacher_v2.env`; `docs/combat-next-steps.md` (how to run 063-065).
+
+### Validation
+- `tests/java/players/CombatTacticsTest.java` (via `tools/tests/test_combat_tactics.py`): the archer attacks before
+  the warrior and the enemy dies without retaliation; a unit on the enemy capital captures it; three blockers remove
+  the danger to a weakened besieger; nothing tactical gives -1. Passes on all 50 training maps.
+- A barely trained checkpoint on 4 eval maps: ppo_search won 3 of 4 games, ppo_argmax 0 of 4 (diagnostic only),
+  at about 2.1 s per game against 0.7 s. A short PPO run with the teacher labelled, decayed and switched off.
+- Fixed-seed trajectory hashes (Phase 1 seed 7, combat seed 7, 3,000 steps) identical between e612943 (before
+  063-065) and this commit: none of the three features changes a default run. Not run on Farmshare.
+
 ## [Phase2-Combat_Selfplay_League-064] - (2026-11-14)
 
 ### Scope
