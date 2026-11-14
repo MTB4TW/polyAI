@@ -67,6 +67,18 @@ public final class RulesParityTest {
                 testExplorerSeeksFog(modern);
                 testPushDirections(modern);
                 testNoSelfMeeting(modern);
+                testMarket(modern);
+                testRuinExplorerCondition(modern);
+                testBackwardsResearch(modern);
+                testStartingStarsAndTribes(modern);
+                testDiplomacyAbsentUnder2020(modern);
+                if (modern) {
+                    testPeaceAndEmbassies();
+                    testOfferLapses();
+                    testInfiltration();
+                    testHiddenCloak();
+                    testDaggerSkills();
+                }
             }
             testRulesIds();
         } finally {
@@ -169,6 +181,8 @@ public final class RulesParityTest {
         assertEq(true, new BuildCommand().execute(a, gs), "Lumber Hut builds");
         assertEq(10 - (modern ? 3 : 2), t.getStars(), "stars after Lumber Hut");
         assertEq(pop + 1, c.getPopulation(), "Lumber Hut population (unchanged)");
+        assertEq(modern ? Types.TERRAIN.FOREST : Types.TERRAIN.PLAIN, gs.getBoard().getTerrainAt(forest.x, forest.y),
+                "Lumber Hut tile terrain");
 
         // With 2 stars a Lumber Hut is affordable only under the 2020 rules.
         t.setStars(2);
@@ -521,6 +535,313 @@ public final class RulesParityTest {
         }
         assertEq(stars, t.getStars(), "stars after a move in a solo game");
         if (modern) assertEq(false, t.getTribesMet().contains(0), "a tribe does not meet itself");
+    }
+
+    // ----- Step 2, 2.14 tribes, backwards research -----
+
+    /** Builds `type` at `pos` for the capital through the real Build action; returns whether it was feasible. */
+    private static boolean build(GameState gs, City c, Types.BUILDING type, Vector2d pos) {
+        Build a = new Build(c.getActorId());
+        a.setBuildingType(type);
+        a.setTargetPos(pos);
+        return new BuildCommand().execute(a, gs);
+    }
+
+    private static void testMarket(boolean modern) {
+        GameState gs = emptyBoardGame();
+        Board b = gs.getBoard();
+        Tribe t = gs.getTribe(0);
+        City c = capital(gs);
+        for (Types.TECHNOLOGY tech : new Types.TECHNOLOGY[]{Types.TECHNOLOGY.HUNTING, Types.TECHNOLOGY.FORESTRY,
+                Types.TECHNOLOGY.MATHEMATICS, Types.TECHNOLOGY.RIDING, Types.TECHNOLOGY.ROADS, Types.TECHNOLOGY.TRADE})
+            t.getTechTree().doResearchInit(tech);
+        t.setStars(200);
+        // Pick a sawmill tile with three other city tiles next to it: two huts and a market.
+        Vector2d centre = c.getPosition();
+        Vector2d saw = null, hut1 = null, hut2 = null, market = null;
+        for (Vector2d s0 : b.getCityTiles(c.getActorId())) {
+            if (s0.equals(centre)) continue;
+            ArrayList<Vector2d> adj = new ArrayList<>();
+            for (Vector2d n : b.getCityTiles(c.getActorId()))
+                if (!n.equals(centre) && !n.equals(s0) && Vector2d.chebychevDistance(n, s0) == 1) adj.add(n);
+            if (adj.size() >= 3) { saw = s0; hut1 = adj.get(0); hut2 = adj.get(1); market = adj.get(2); break; }
+        }
+        if (saw == null) throw new AssertionError("no room for a market layout around the capital");
+        for (Vector2d p : new Vector2d[]{saw, market}) { b.setTerrainAt(p.x, p.y, Types.TERRAIN.PLAIN); b.setResourceAt(p.x, p.y, null); }
+        for (Vector2d p : new Vector2d[]{hut1, hut2}) { b.setTerrainAt(p.x, p.y, Types.TERRAIN.FOREST); b.setResourceAt(p.x, p.y, null); }
+
+        assertEq(false, build(gs, c, Types.BUILDING.CUSTOMS_HOUSE, market), "market/customs house with nothing next to it");
+        assertEq(true, build(gs, c, Types.BUILDING.LUMBER_HUT, hut1), "hut 1");
+        assertEq(true, build(gs, c, Types.BUILDING.LUMBER_HUT, hut2), "hut 2");
+        assertEq(true, build(gs, c, Types.BUILDING.SAWMILL, saw), "sawmill");
+        int prod = c.getProduction();
+        // 2020: the Customs House still needs a Port. 2.15: the Market needs a Sawmill/Windmill/Forge next to it.
+        assertEq(modern, build(gs, c, Types.BUILDING.CUSTOMS_HOUSE, market), "market next to a sawmill");
+        if (modern) {
+            int huts = 0;
+            for (Vector2d n : saw.neighborhood(1, 0, b.getSize()))
+                if (b.getBuildingAt(n.x, n.y) == Types.BUILDING.LUMBER_HUT) huts++;
+            assertEq(Math.min(huts, TribesConfig.MARKET_MAX_INCOME_2_15), c.getMarketIncome(), "market income = sawmill level");
+            assertEq(prod + c.getMarketIncome(), c.getProduction(), "market income counts in production");
+        } else {
+            assertEq(0, c.getMarketIncome(), "no market income under 2020 rules");
+        }
+    }
+
+    private static void testRuinExplorerCondition(boolean modern) {
+        GameState gs = gameWithFog(new int[][]{{0, 0}});
+        Tribe t = gs.getTribe(0);
+        assertEq(true, core.actions.unitactions.command.ExamineCommand.hasUnexploredTileNearby(gs, t, new Vector2d(2, 2)),
+                "fog two tiles away counts");
+        assertEq(false, core.actions.unitactions.command.ExamineCommand.hasUnexploredTileNearby(gs, t, new Vector2d(3, 3)),
+                "fog three tiles away does not");
+    }
+
+    private static void testBackwardsResearch(boolean modern) {
+        TechnologyTree tt = new TechnologyTree();
+        tt.doResearchInit(Types.TECHNOLOGY.SMITHERY);
+        assertEq(modern, tt.isResearchable(Types.TECHNOLOGY.MINING), "Mining after Smithery (backwards)");
+        assertEq(false, tt.isResearchable(Types.TECHNOLOGY.MEDITATION), "a sibling of Mining stays locked");
+        assertEq(TribesConfig.TECH_BASE_COST + 2, Types.TECHNOLOGY.MINING.getCost(1, tt), "backwards research costs the tech's tier");
+        TechnologyTree d = new TechnologyTree();
+        d.doResearchInit(Types.TECHNOLOGY.ORGANIZATION);
+        d.doResearchInit(Types.TECHNOLOGY.SHIELDS);
+        assertEq(modern, d.isResearchable(Types.TECHNOLOGY.DIPLOMACY), "Diplomacy researchable after Strategy");
+        // A tree with every 2020 tech is complete under the 2020 rules only (2.15 adds Diplomacy).
+        TechnologyTree all = new TechnologyTree();
+        for (Types.TECHNOLOGY tech : Types.TECHNOLOGY.values()) if (tech != Types.TECHNOLOGY.DIPLOMACY) all.doResearchInit(tech);
+        assertEq(!modern, all.copy().isEverythingResearched(), "tree complete without Diplomacy");
+    }
+
+    private static void testStartingStarsAndTribes(boolean modern) {
+        int[] expected2015 = new int[Types.TRIBE.values().length];
+        java.util.Arrays.fill(expected2015, 5);
+        expected2015[Types.TRIBE.XIN_XI.ordinal()] = 7;
+        expected2015[Types.TRIBE.OUMAJI.ordinal()] = 6;
+        expected2015[Types.TRIBE.HOODRICK.ordinal()] = 7;
+        expected2015[Types.TRIBE.QUETZALI.ordinal()] = 7;
+        expected2015[Types.TRIBE.YADAKK.ordinal()] = 7;
+        expected2015[Types.TRIBE.LUXIDOOR.ordinal()] = 2;
+        for (Types.TRIBE tribe : Types.TRIBE.values())
+            assertEq(modern ? expected2015[tribe.ordinal()] : 5, TribesConfig.initialStars(tribe), "starting stars of " + tribe);
+        assertEq(modern ? Types.TECHNOLOGY.PHILOSOPHY : Types.TECHNOLOGY.MEDITATION, Types.TRIBE.AI_MO.getInitialTech(), "Ai-Mo tech");
+        assertEq(modern ? Types.UNIT.MIND_BENDER : Types.UNIT.WARRIOR, Types.TRIBE.AI_MO.getStartingUnit(), "Ai-Mo unit");
+        assertEq(modern ? "STRATEGY" : "SHIELDS", Types.TECHNOLOGY.SHIELDS.getDisplayName(), "Shields display name");
+        // Bardur (Phase 1) keeps 5 stars in a real game.
+        GameState gs = freshGame();
+        assertEq(5, gs.getTribe(0).getStars(), "Bardur starts with 5 stars");
+    }
+
+    // ----- Diplomacy (2.15 rules) -----
+
+    private static GameState duelGame() {
+        PythonEnv env = new PythonEnv();
+        env.initFromLevel(duelLevelFile, 1234L, Types.GAME_MODE.CAPITALS);
+        GameState gs = env.getGameState();
+        for (int i = 0; i < 2; i++) {
+            gs.getTribe(i).getTechTree().doResearchInit(Types.TECHNOLOGY.CLIMBING);
+            int other = 1 - i;
+            if (!gs.getTribe(i).getTribesMet().contains(other)) gs.getTribe(i).getTribesMet().add(other);
+            for (boolean[] row : gs.getTribe(i).getObsGrid()) java.util.Arrays.fill(row, true);
+        }
+        return gs;
+    }
+
+    private static Vector2d freeLandNextTo(GameState gs, Vector2d p) {
+        Board b = gs.getBoard();
+        for (Vector2d n : p.neighborhood(1, 0, b.getSize()))
+            if (b.getUnitAt(n.x, n.y) == null && !b.getTerrainAt(n.x, n.y).isWater() && b.getTerrainAt(n.x, n.y) != Types.TERRAIN.CITY)
+                return n;
+        throw new AssertionError("no free land tile next to " + p);
+    }
+
+    private static Unit addUnit(GameState gs, int tribe, Types.UNIT type, Vector2d pos) {
+        City home = (City) gs.getActor(gs.getTribe(tribe).getCapitalID());
+        Unit u = Types.UNIT.createUnit(pos.copy(), 0, false, -1, tribe, type);
+        gs.getBoard().addUnit(home, u);
+        u.setStatus(Types.TURN_STATUS.FRESH);
+        return u;
+    }
+
+    private static core.actions.tribeactions.DiplomacyAction dip(Types.ACTION type, int me, int other) {
+        return new core.actions.tribeactions.DiplomacyAction(type, me, other);
+    }
+
+    private static boolean exec(GameState gs, core.actions.Action a) {
+        return a.getActionType().getCommand().execute(a, gs);
+    }
+
+    private static void testDiplomacyAbsentUnder2020(boolean modern) {
+        assertEq(modern, Types.TECHNOLOGY.DIPLOMACY.isActive(), "Diplomacy tech exists");
+        assertEq(modern, Types.UNIT.CLOAK.spawnable(), "Cloak trainable");
+        assertEq(false, Types.UNIT.DAGGER.spawnable(), "Dagger never trainable");
+        GameState gs = duelGame();
+        Tribe t = gs.getTribe(0);
+        t.getTechTree().doResearchInit(Types.TECHNOLOGY.ORGANIZATION);
+        t.getTechTree().doResearchInit(Types.TECHNOLOGY.SHIELDS);
+        t.getTechTree().doResearchInit(Types.TECHNOLOGY.DIPLOMACY);
+        t.setStars(50);
+        int n = new core.actions.tribeactions.factory.DiplomacyFactory().computeActionVariants(t, gs).size();
+        assertEq(modern, n > 0, "Diplomacy actions offered");
+    }
+
+    private static void testPeaceAndEmbassies() {
+        GameState gs = duelGame();
+        Board b = gs.getBoard();
+        TribeRelations rel = b.getRelations();
+        Tribe t0 = gs.getTribe(0), t1 = gs.getTribe(1);
+        assertEq(false, dip(Types.ACTION.OFFER_PEACE, 0, 1).isFeasible(gs), "peace offer needs Strategy");
+        t0.getTechTree().doResearchInit(Types.TECHNOLOGY.ORGANIZATION);
+        t0.getTechTree().doResearchInit(Types.TECHNOLOGY.SHIELDS);
+        assertEq(true, exec(gs, dip(Types.ACTION.OFFER_PEACE, 0, 1)), "tribe 0 offers peace");
+        assertEq(false, dip(Types.ACTION.OFFER_PEACE, 0, 1).isFeasible(gs), "no second offer");
+        assertEq(true, exec(gs, dip(Types.ACTION.ACCEPT_PEACE, 1, 0)), "tribe 1 accepts (no Strategy needed)");
+        assertEq(true, rel.isAtPeace(0, 1) && rel.isAtPeace(1, 0), "at peace");
+
+        // At peace: no attacks either way.
+        City cap1 = (City) gs.getActor(t1.getCapitalID());
+        Vector2d spot = freeLandNextTo(gs, cap1.getPosition());
+        Unit w0 = addUnit(gs, 0, Types.UNIT.WARRIOR, spot);
+        Unit w1 = addUnit(gs, 1, Types.UNIT.WARRIOR, freeLandNextTo(gs, spot));
+        core.actions.unitactions.Attack att = new core.actions.unitactions.Attack(w0.getActorId());
+        att.setTargetId(w1.getActorId());
+        assertEq(false, att.isFeasible(gs), "no attack at peace");
+
+        // Embassy: Diplomacy, 5 stars, +4 each at peace.
+        t0.getTechTree().doResearchInit(Types.TECHNOLOGY.DIPLOMACY);
+        assertEq(4, rel.embassyCost(0), "first embassy costs 4 stars");
+        t0.setStars(3);
+        assertEq(false, dip(Types.ACTION.BUILD_EMBASSY, 0, 1).isFeasible(gs), "embassy needs 4 stars");
+        t0.setStars(4);
+        assertEq(true, exec(gs, dip(Types.ACTION.BUILD_EMBASSY, 0, 1)), "embassy built");
+        assertEq(0, t0.getStars(), "embassy cost");
+        assertEq(6, rel.embassyCost(0), "the next embassy costs 2 more");
+        assertEq(4, rel.embassyCost(1), "the other tribe's first embassy still costs 4");
+        assertEq(true, rel.hasEmbassy(0, 1), "embassy recorded");
+        assertEq(false, dip(Types.ACTION.BUILD_EMBASSY, 0, 1).isFeasible(gs), "one embassy per tribe");
+        assertEq(TribesConfig.EMBASSY_INCOME_AT_PEACE, rel.embassyIncome(0), "owner income at peace");
+        assertEq(TribesConfig.EMBASSY_INCOME_AT_PEACE, rel.embassyIncome(1), "host income at peace");
+
+        // Breaking the treaty: tribe 0's units freeze, its units inside tribe 1's borders are disbanded.
+        Unit inside = w0;  // next to tribe 1's capital, so inside its borders
+        Unit home = addUnit(gs, 0, Types.UNIT.WARRIOR, freeLandNextTo(gs, ((City) gs.getActor(t0.getCapitalID())).getPosition()));
+        assertEq(true, exec(gs, dip(Types.ACTION.BREAK_PEACE, 0, 1)), "tribe 0 breaks the treaty");
+        assertEq(false, rel.isAtPeace(0, 1), "no longer at peace");
+        assertEq(null, gs.getActor(inside.getActorId()), "unit inside the other's borders disbanded");
+        assertEq(Types.TURN_STATUS.FINISHED, home.getStatus(), "other units frozen");
+        assertEq(false, rel.canBeHostile(0, 1), "no hostility on the turn the treaty is broken");
+        assertEq(TribesConfig.EMBASSY_INCOME, rel.embassyIncome(1), "embassy income back to 2");
+        rel.startTurn(0);
+        assertEq(true, rel.canBeHostile(0, 1), "hostility allowed from the next turn");
+
+        // An attack destroys the embassy and starts a war, which blocks new embassies.
+        Unit a0 = addUnit(gs, 0, Types.UNIT.WARRIOR, freeLandNextTo(gs, w1.getPosition()));
+        core.actions.unitactions.Attack att2 = new core.actions.unitactions.Attack(a0.getActorId());
+        att2.setTargetId(w1.getActorId());
+        assertEq(true, exec(gs, att2), "attack after the treaty");
+        assertEq(false, rel.hasEmbassy(0, 1), "attack destroys the embassy");
+        assertEq(true, rel.isAtWar(0, 1, gs.getTick()), "at war after an attack");
+        t0.setStars(10);
+        assertEq(false, dip(Types.ACTION.BUILD_EMBASSY, 0, 1).isFeasible(gs), "no embassy while at war");
+    }
+
+    private static void testOfferLapses() {
+        GameState gs = duelGame();
+        TribeRelations rel = gs.getBoard().getRelations();
+        gs.getTribe(0).getTechTree().doResearchInit(Types.TECHNOLOGY.ORGANIZATION);
+        gs.getTribe(0).getTechTree().doResearchInit(Types.TECHNOLOGY.SHIELDS);
+        exec(gs, dip(Types.ACTION.OFFER_PEACE, 0, 1));
+        rel.endTurn(0);
+        assertEq(true, rel.hasPeaceOffer(0, 1), "offer survives the offerer's turn end");
+        rel.endTurn(1);
+        assertEq(false, rel.hasPeaceOffer(0, 1), "offer lapses at the end of the recipient's turn");
+    }
+
+    private static void testInfiltration() {
+        GameState gs = duelGame();
+        Board b = gs.getBoard();
+        Tribe t0 = gs.getTribe(0), t1 = gs.getTribe(1);
+        City cap1 = (City) gs.getActor(t1.getCapitalID());
+        Unit defender = b.getUnitAt(cap1.getPosition().x, cap1.getPosition().y);
+        Unit cloak = addUnit(gs, 0, Types.UNIT.CLOAK, freeLandNextTo(gs, cap1.getPosition()));
+        core.actions.unitactions.Infiltrate inf = new core.actions.unitactions.Infiltrate(cloak.getActorId());
+        inf.setTargetCityId(cap1.getActorId());
+        assertEq(true, inf.isFeasible(gs), "infiltration feasible next to an enemy city");
+        int stars = t0.getStars();
+        int income = cap1.getProduction() - cap1.getMarketIncome();
+        int unitsBefore = gs.getUnits(0).size();
+        int hpBefore = defender == null ? 0 : defender.getCurrentHP();
+        assertEq(true, exec(gs, inf), "infiltration executes");
+        assertEq(null, gs.getActor(cloak.getActorId()), "the Cloak is consumed");
+        assertEq(stars + income, t0.getStars(), "infiltrator takes the city's income");
+        assertEq(true, cap1.isInfiltrated(), "city marked infiltrated");
+        int daggers = 0;
+        for (Unit u : gs.getUnits(0)) if (u.getType() == Types.UNIT.DAGGER) {
+            daggers++;
+            assertEq(Types.TURN_STATUS.FINISHED, u.getStatus(), "daggers cannot act this turn");
+            assertEq(-1, u.getCityId(), "daggers belong to no city");
+        }
+        int expected = Math.min(cap1.getLevel(), TribesConfig.MAX_DAGGERS_PER_INFILTRATION);
+        assertEq(expected, daggers, "dagger count = min(level, 5)");
+        assertEq(unitsBefore - 1 + expected, gs.getUnits(0).size(), "units: cloak out, daggers in");
+        if (defender != null && gs.getActor(defender.getActorId()) != null)
+            assertEq(true, defender.getCurrentHP() < hpBefore, "defender damaged");
+        Unit cloak2 = addUnit(gs, 0, Types.UNIT.CLOAK, freeLandNextTo(gs, cap1.getPosition()));
+        core.actions.unitactions.Infiltrate inf2 = new core.actions.unitactions.Infiltrate(cloak2.getActorId());
+        inf2.setTargetCityId(cap1.getActorId());
+        assertEq(false, inf2.isFeasible(gs), "no second infiltration before the owner's turn");
+    }
+
+    private static void testHiddenCloak() {
+        GameState gs = duelGame();
+        Board b = gs.getBoard();
+        Vector2d start = freeLandNextTo(gs, ((City) gs.getActor(gs.getTribe(1).getCapitalID())).getPosition());
+        Unit cloak = addUnit(gs, 0, Types.UNIT.CLOAK, start);
+        ((core.actors.units.Cloak) cloak).setHidden(true);
+        Board pov1 = b.copy(true, 1);
+        gs.getTribe(1).getObsGrid()[start.x][start.y] = true;
+        pov1 = b.copy(true, 1);
+        assertEq(null, pov1.getActor(cloak.getActorId()), "hidden Cloak absent from the enemy's view");
+        assertEq(null, pov1.getUnitAt(start.x, start.y), "hidden Cloak tile looks empty to the enemy");
+        Board pov0 = b.copy(true, 0);
+        assertEq(true, pov0.getActor(cloak.getActorId()) != null, "owner still sees its Cloak");
+
+        Unit w1 = addUnit(gs, 1, Types.UNIT.WARRIOR, freeLandNextTo(gs, start));
+        core.actions.unitactions.Attack att = new core.actions.unitactions.Attack(w1.getActorId());
+        att.setTargetId(cloak.getActorId());
+        assertEq(false, att.isFeasible(gs), "hidden Cloak cannot be attacked");
+        core.actions.unitactions.Move mv = new core.actions.unitactions.Move(w1.getActorId());
+        mv.setDestination(start.copy());
+        Vector2d before = w1.getPosition().copy();
+        assertEq(true, exec(gs, mv), "moving onto the hidden Cloak is allowed");
+        assertEq(before, w1.getPosition(), "the move is cancelled");
+        assertEq(false, cloak.isHidden(), "the Cloak is revealed");
+        assertEq(Types.TURN_STATUS.FRESH, w1.getStatus(), "the mover keeps its action");
+        assertEq(true, att.isFeasible(gs), "a revealed Cloak can be attacked");
+    }
+
+    private static void testDaggerSkills() {
+        GameState gs = duelGame();
+        Vector2d spot = freeLandNextTo(gs, ((City) gs.getActor(gs.getTribe(0).getCapitalID())).getPosition());
+        Unit dagger = addUnit(gs, 0, Types.UNIT.DAGGER, spot);
+        Unit def = addUnit(gs, 1, Types.UNIT.DEFENDER, freeLandNextTo(gs, spot));
+        core.actions.unitactions.Attack att = new core.actions.unitactions.Attack(dagger.getActorId());
+        att.setTargetId(def.getActorId());
+        assertEq(true, exec(gs, att), "dagger attacks");
+        assertEq(dagger.getMaxHP(), dagger.getCurrentHP(), "Surprise: no retaliation");
+        dagger.setKills(TribesConfig.VETERAN_KILLS);
+        assertEq(false, new core.actions.unitactions.MakeVeteran(dagger.getActorId()).isFeasible(gs), "Static: no veteran");
+        // A Cloak never fights and never retaliates.
+        Unit cloak = addUnit(gs, 1, Types.UNIT.CLOAK, freeLandNextTo(gs, spot));
+        Unit w0 = addUnit(gs, 0, Types.UNIT.WARRIOR, freeLandNextTo(gs, cloak.getPosition()));
+        core.actions.unitactions.Attack byCloak = new core.actions.unitactions.Attack(cloak.getActorId());
+        byCloak.setTargetId(w0.getActorId());
+        assertEq(false, byCloak.isFeasible(gs), "a Cloak cannot attack units");
+        core.actions.unitactions.Attack onCloak = new core.actions.unitactions.Attack(w0.getActorId());
+        onCloak.setTargetId(cloak.getActorId());
+        int hp = w0.getCurrentHP();
+        exec(gs, onCloak);
+        assertEq(hp, w0.getCurrentHP(), "Stiff: the Cloak does not retaliate");
     }
 
     private static void testRulesIds() {

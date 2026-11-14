@@ -31,6 +31,12 @@ public class Attack extends UnitAction
         if(target == null || !attacker.canAttack() || attacker.getType() == Types.UNIT.MIND_BENDER)
             return false;
 
+        // 2.15 rules: a Cloak cannot fight (it can only infiltrate); no attacks on a tribe at peace or on a hidden
+        // Cloak the attacker cannot see.
+        if (attacker.getType() == Types.UNIT.CLOAK) return false;
+        if (!core.DiplomacyRules.canBeHostile(gs, attacker.getTribeId(), target.getTribeId())) return false;
+        if (core.DiplomacyRules.isHiddenFrom(gs, target, attacker.getTribeId())) return false;
+
         return unitInRange(attacker, target, gs.getBoard());
     }
 

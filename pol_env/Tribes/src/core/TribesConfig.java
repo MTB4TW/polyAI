@@ -328,4 +328,51 @@ public class TribesConfig
         return (int) (cost * TECH_DISCOUNT_VALUE);
     }
 
+    // ---- Step 2 and the remaining 2.15 rules (docs/rules-parity.md) ----
+    public static final int MARKET_MAX_INCOME_2_15 = 8;          // 2.8.5: +1 star per level of adjacent Sawmill/Windmill/Forge, max 8
+    // 2.14.0 starting stars. Every tribe not listed starts with INITIAL_STARS (5).
+    public static final int XIN_XI_STARS_2_15 = 7;
+    public static final int OUMAJI_STARS_2_15 = 6;
+    public static final int HOODRICK_STARS_2_15 = 7;
+    public static final int QUETZALI_STARS_2_15 = 7;
+    public static final int YADAKK_STARS_2_15 = 7;
+    public static final int LUXIDOOR_STARS_2_15 = 2;             // plus a level-3 capital (already Tribes' Luxidoor rule)
+
+    // Diplomacy (2.1/2.2; Strategy, Diplomacy tech). Fandom Cloak/Dagger/Embassy/Strategy pages, read Nov 2026.
+    public static final int CLOAK_ATTACK = 2;
+    public static final double CLOAK_DEFENCE = 0.5;
+    public static final int CLOAK_DEFENCE_INT = 0;               // the integer DEF field; combat uses getDefenceStat()
+    public static final int CLOAK_MOVEMENT = 2;
+    public static final int CLOAK_MAX_HP = 5;
+    public static final int CLOAK_RANGE = 1;
+    public static final int CLOAK_COST = 8;
+    static final int CLOAK_POINTS = 40;                          // 5 points per cost star, as for other units
+    public static final int DAGGER_ATTACK = 2;
+    public static final int DAGGER_DEFENCE = 2;
+    public static final int DAGGER_MOVEMENT = 1;
+    public static final int DAGGER_MAX_HP = 10;
+    public static final int DAGGER_RANGE = 1;
+    public static final int DAGGER_COST = 2;                     // not trainable; the fandom's "theoretical" cost (disband value)
+    static final int DAGGER_POINTS = 10;
+    public static final int MAX_DAGGERS_PER_INFILTRATION = 5;    // daggers = min(city level, 5)
+    public static final int EMBASSY_BASE_COST = 4;               // 2.14.0: the first embassy costs 4 stars,
+    public static final int EMBASSY_COST_STEP = 2;               // and each later one 2 more (reported by Devin)
+    public static final int EMBASSY_INCOME = 2;                  // to both sender and host, per turn
+    public static final int EMBASSY_INCOME_AT_PEACE = 4;         // doubled while a peace treaty holds
+    public static final int CLOAK_VISION_RANGE = 2;              // Scout skill: 5x5
+
+    /** Stars a tribe starts the game with. */
+    public static int initialStars(Types.TRIBE tribe) {
+        if (!RulesVersion.modern() || tribe == null) return INITIAL_STARS;
+        switch (tribe) {
+            case XIN_XI: return XIN_XI_STARS_2_15;
+            case OUMAJI: return OUMAJI_STARS_2_15;
+            case HOODRICK: return HOODRICK_STARS_2_15;
+            case QUETZALI: return QUETZALI_STARS_2_15;
+            case YADAKK: return YADAKK_STARS_2_15;
+            case LUXIDOOR: return LUXIDOOR_STARS_2_15;
+            default: return INITIAL_STARS;
+        }
+    }
+
 }

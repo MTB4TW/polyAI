@@ -126,6 +126,8 @@ public abstract class Unit extends Actor
             case WARRIOR:
             case SWORDMAN:
             case SUPERUNIT:
+            case CLOAK:
+            case DAGGER:
                 if(transition == MOVED && status == FRESH) { return true; }
                 if(transition == ATTACKED && status == FRESH) { return true; }
                 if(transition == ATTACKED && status == MOVED) { return true; }
@@ -173,6 +175,8 @@ public abstract class Unit extends Actor
                 case SHIP:
                 case WARRIOR:
                 case SWORDMAN:
+                case CLOAK:
+                case DAGGER:
                     if(newStatus == MOVED && this.status == FRESH) { this.status = MOVED; }
                     if(newStatus == ATTACKED && this.status == FRESH) { this.status = FINISHED; }
                     if(newStatus == ATTACKED && this.status == MOVED) { this.status = FINISHED; }
@@ -216,6 +220,12 @@ public abstract class Unit extends Actor
 
     public abstract Unit copy(boolean hideInfo);
 
+
+    /** Defence used in combat. A double so the Cloak's 0.5 defence is exact; other units use DEF. */
+    public double getDefenceStat() { return DEF; }
+
+    /** Hide skill (2.15 rules): true while a Cloak is invisible to enemies. Always false for other units. */
+    public boolean isHidden() { return false; }
 
     Unit hide()
     {

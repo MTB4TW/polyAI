@@ -1,8 +1,9 @@
 # Rules parity: Tribes engine vs. current Polytopia
 
-Status (November 2026): Steps 1 and 3 below are implemented behind `POLYVISION_RULES=polytopia_2_15`
-(CHANGELOG entry 052). Step 2 and everything under "Not proposed" are not implemented. The default,
-`tribes_2020`, is the original rule set, unchanged.
+Status (November 2026): everything below is implemented behind `POLYVISION_RULES=polytopia_2_15` except the
+2.8 naval rework (CHANGELOG entries 052 and 053). Steps 1-3 came first (052); Step 2, Diplomacy, the 2.14.0
+starting stars and backwards research followed (053, rules revision 2). The default, `tribes_2020`, is the
+original rule set, unchanged.
 
 The Java engine in `pol_env/Tribes/src/` is the Tribes research framework (Perez-Liebana et al., 2020) as
 inherited through PolyVision. Our Phase 1 maps are harvested from the real game (`tools/polytopia_harvester`),
@@ -156,12 +157,12 @@ POLYVISION_RULES=polytopia_2_15 .venv/bin/python tools/evaluate_phase1.py ...
 ```
 
 - `tribes_2020` (default, also when unset): the original rules.
-- `polytopia_2_15`: Steps 1 and 3 below. The environment version gains a `+rules_polytopia_2_15` suffix, so a
-  checkpoint trained under one rule set is rejected under the other.
+- `polytopia_2_15`: Steps 1-3 and Diplomacy below. The environment version gains a `+rules_polytopia_2_15_r2`
+  suffix (`r2` = the second revision of these rules; the first had no suffix), so a checkpoint trained under
+  another rule set or an earlier revision is rejected.
 - Results under different rule sets are not comparable; record the rule set with every result.
-- Not changed even under `polytopia_2_15`: the ruin reward on water is still a Battleship (the 2.8.0 naval
-  units are not implemented); the Customs House is not replaced by the Market; Lumber Huts still turn their
-  tile into plain (Step 2).
+- Not changed even under `polytopia_2_15`: the 2.8 naval rework (C4, C5, E9, E10, T2, R2). Ports, boats and
+  whaling keep the 2020 rules and the ruin reward on water is still a Battleship. None of our maps has water.
 - Also under `polytopia_2_15`: forest actions (clear, burn, grow) are refused on a tile with a building, as in
   the game. This matters once Forges can stand on forest.
 
@@ -188,12 +189,19 @@ The scripted opening (two animal harvests and a Workshop on 5★) still complete
 map under these rules (opening audit, 5,250 maps), so `phase1_opening_version` can stay. The Phase 1 reference numbers (24.5 SPT, 20.52) would need re-running under
 the new rules before comparing.
 
-**Step 2: Phase 1, larger or less certain (needs a decision)** (not implemented)
+**Step 2: Phase 1, larger or less certain** (implemented, CHANGELOG 053)
 
-10. E4 Lumber Huts stay on forest. Changes the observation and which actions are legal on that tile.
-11. E6 Market replacing the Customs House. A new building with its own income rule.
-12. R3 Ruin Explorer only when unexplored tiles are nearby.
-13. T1 Shields → Strategy rename (names only, unless we also add Diplomacy).
+10. E4 Lumber Huts stay on forest. A forest tile with a building cannot be cleared, burnt or grown on.
+11. E6 Market replaces the Customs House in the same building slot (`CUSTOMS_HOUSE` in the interfaces, 5★,
+    Trade, plain). It must stand next to a Sawmill, Windmill or Forge and earns +1★ per turn for each level of
+    each adjacent one of its tribe (a Sawmill's level is its number of adjacent Lumber Huts, and so on), at most
+    8★. The income counts in its city's production, so it shows in SPT, and is still paid when the city is
+    occupied or infiltrated. Ports no longer pair with anything. The legal-action feature "expected immediate
+    SPT delta" stays 0 for Markets.
+12. R3 Ruin Explorer only when a tile in the 5×5 around the ruin is still fogged; otherwise another reward is
+    drawn.
+13. T1 Shields is Strategy (`TECHNOLOGY.getDisplayName()`; the identifier stays `SHIELDS`). It enables peace
+    treaties (Diplomacy below).
 
 **Step 3: Phase 2 combat (Kevin's area)** (implemented; please review, Kevin)
 
@@ -204,6 +212,62 @@ the new rules before comparing.
     clockwise, one step further each time. Saved-game JSON does not store the direction.
 15. E11-E13 roads 3★, Burn Forest 3★/Construction, Destroy/Chivalry.
 
-**Not proposed:** the naval rework (C4, C5, E9, E10, T2), Diplomacy/Cloak/Dagger (C6, E14), out-of-order
-research (T3) and tribe-specific starting stars (E15). Each is a large feature with no effect on Phase 1 and
-little on land-based 1v1 combat.
+**Step 4: the rest (implemented, CHANGELOG 053; Diplomacy is Kevin's area, please review)**
+
+16. E15 starting stars (2.14.0): Xin-xi 7★, Oumaji 6★, Hoodrick 7★, Quetzali 7★, Yădakk 7★, Luxidoor 2★ (its
+    level-3 capital was already a Tribes rule), every other tribe 5★. Ai-Mo starts with Philosophy and a Mind
+    Bender instead of Meditation and a Warrior. Bardur, our Phase 1 tribe, is unchanged.
+17. T3 backwards research (2.14.0): a tech is researchable when its parent is researched or when one of its
+    children is (Vengir can go Smithery → Mining). The cost stays the tech's tier cost. This only matters for
+    tribes that start with a tier-2 or tier-3 tech, or after a ruin gives one.
+18. C6, E14 Diplomacy, described below.
+
+**Not implemented:** the 2.8 naval rework (C4, C5, E9, E10, T2, R2), by decision: none of our maps has water.
+
+## Diplomacy (2.1/2.2) under `polytopia_2_15`
+
+Sources: fandom Diplomacy, Strategy, Embassy, Cloak, Dagger, Tribe Relations and Unit Skills pages (read
+November 2026), official wiki Embassy page and the 2.14.0 changelog.
+
+- **Tech:** Diplomacy, tier 3 after Strategy (`SHIELDS`). It unlocks the Cloak and embassies, and gives vision
+  of the capitals of the tribes you have met.
+- **Relations** (`core.TribeRelations` on the Board): at war if either tribe attacked the other in this or the
+  previous round; at peace if both agreed a treaty; neutral otherwise.
+- **Peace:** `OFFER_PEACE` needs Strategy; the other tribe answers with `ACCEPT_PEACE` on its turn (Strategy not
+  needed), or the offer lapses at the end of that turn. At peace, no attack, capture, conversion or
+  infiltration either way; units pass through each other, ignore each other's zones of control and use each
+  other's roads. `BREAK_PEACE` ends a treaty: the breaker's units are frozen for the rest of the turn, its units
+  inside the other tribe's borders are disbanded without refund, and it cannot be hostile toward that tribe
+  until its next turn.
+- **Embassy:** `BUILD_EMBASSY` needs Diplomacy. Since 2.14.0 the first embassy a tribe places costs 4★ and each
+  later one 2★ more (the changelog says only "begins cheaper, rises with the number of embassies"; the numbers
+  were reported by Devin). Destroyed embassies still count toward the next one's cost. It needs the
+  other tribe's capital to still be held by that tribe and no war between them, and allows one embassy per
+  tribe. It reveals the 3×3 around that capital. Both owner and host earn +2★ per turn, +4★ at peace. An attack
+  either way destroys the embassies between the two; capturing the host capital destroys every embassy in it.
+  Embassy income is not city production, so it is not part of SPT.
+- **Cloak:** 8★, 5 HP, attack 2, defence 0.5, 2 moves, range 1. Hide: invisible to other tribes (except those at
+  peace with its owner) after it moves; visible again when trained, after capturing a village or examining a
+  ruin, and when an enemy unit tries to move onto its tile (that move is cancelled and costs nothing). Creep:
+  forest and mountain cost one move, no roads, no zones of control, passes through enemy units. Scout: sees
+  5×5. Stiff (never retaliates), Static (never a veteran). It cannot attack units or capture cities; it can only
+  `INFILTRATE` an adjacent enemy city, also after moving if it began the turn hidden (Hide and Dash conflict).
+  The game's "eye" warning that a hidden Cloak is adjacent is not modelled.
+- **Infiltration:** a unit of the city's owner in the city takes the damage of a full-health Cloak attack; the
+  Cloak is consumed; min(city level, 5) Daggers spawn in the city's borders (city centre first, then forest
+  with Archery or mountain with Climbing, then other land; never water, where the game spawns Pirates); the
+  infiltrator gains stars equal to the city's income, and the city earns nothing on its owner's next turn and
+  cannot be infiltrated again until then. Not possible while another tribe's unit occupies the city.
+- **Dagger:** 10 HP, attack 2, defence 2, 1 move. Never trained. Dash, Surprise (no retaliation when it attacks),
+  Independent (no home city), Static. It cannot act on the turn it spawns.
+- **Scripted opponent** (`SimpleAgent`): infiltrates when it can and builds embassies, but never offers,
+  accepts or breaks peace, so against it peace is impossible.
+- **Interface:** the Cloak is a `TRAIN` unit and Diplomacy a `RESEARCH_TECH` tech. In combat mode the catalog
+  gains `INFILTRATE` (Cloak tile × city tile) and `OFFER_PEACE`, `ACCEPT_PEACE`, `BREAK_PEACE` and
+  `BUILD_EMBASSY` (one slot per target tribe id, ids 0-3). The 47-d legal-action features are unchanged: the
+  new types use the "other type" flag, as `ATTACK` does, and the action embedding tells them apart. The
+  observation gains two spatial channels (Cloak, Dagger: own +1, an own hidden Cloak +0.5, visible enemy −1)
+  after the resource channel, and 29 scalars after the city block (Diplomacy researched, then for tribe ids
+  0-3: peace, war, offer sent, offer received, own embassy there, their embassy here, treaty broken this turn).
+  Under 2.15 rules: 54 × 121 + 161 = 6,695 dimensions (6,424 under 2020 rules), in Phase 1 as well.
+  `spatial_resnet` reads its sizes from `observation_layout()`.

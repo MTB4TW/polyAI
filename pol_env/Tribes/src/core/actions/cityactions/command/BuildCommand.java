@@ -39,7 +39,8 @@ public class BuildCommand implements ActionCommand {
                 board.buildPort(targetPos.x, targetPos.y);
             if(buildingType.isMonument())
                 tribe.monumentIsBuilt(buildingType);
-            if(buildingType == Types.BUILDING.LUMBER_HUT)
+            // 2.15 rules: the tile stays forest (the game never turned it into plain).
+            if(buildingType == Types.BUILDING.LUMBER_HUT && !core.RulesVersion.modern())
                 board.setTerrainAt(targetPos.x, targetPos.y, Types.TERRAIN.PLAIN);
 
             return true;

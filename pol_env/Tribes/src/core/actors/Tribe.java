@@ -147,7 +147,7 @@ public class Tribe extends Actor {
         }
 
         citiesID = new ArrayList<>();
-        stars = TribesConfig.INITIAL_STARS;
+        stars = TribesConfig.initialStars(tribe);
         tribesMet = new ArrayList<>();
         extraUnits = new ArrayList<>();
         connectedCities = new ArrayList<>();

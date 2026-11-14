@@ -35,6 +35,9 @@ public class TribeActionBuilder
         //Send Stars
         allActions.addAll(new SendStarsFactory().computeActionVariants(tribe, gs));
 
+        //Diplomacy (2.15 rules only; no actions under 2020 rules)
+        allActions.addAll(new DiplomacyFactory().computeActionVariants(tribe, gs));
+
         //End Turn Action
         allActions.addAll(new EndTurnFactory().computeActionVariants(tribe, gs));
 

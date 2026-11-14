@@ -51,6 +51,9 @@ public class UnitActionBuilder
         //Move
         allActions.addAll(new MoveFactory().computeActionVariants(unit, gs));
 
+        //Infiltrate (2.15 rules Cloak; no actions under 2020 rules)
+        allActions.addAll(new InfiltrateFactory().computeActionVariants(unit, gs));
+
         //Recover
         allActions.addAll(new RecoverFactory().computeActionVariants(unit, gs));
 

@@ -45,7 +45,9 @@ public class Types {
         SMITHERY(3, MINING),
         SPIRITUALISM(3, ARCHERY),
         TRADE(3, ROADS),
-        PHILOSOPHY(3, MEDITATION);
+        PHILOSOPHY(3, MEDITATION),
+        // 2.1 Diplomacy. Exists only under the 2.15 rules (isActive), appended so older ordinals stay put.
+        DIPLOMACY(3, SHIELDS);
 
         private int tier;
         private TECHNOLOGY parent;
@@ -66,7 +68,23 @@ public class Types {
                 }
                 children = c;
             }
+            if (!RulesVersion.modern() && this == SHIELDS) {
+                ArrayList<TECHNOLOGY> active = new ArrayList<>();
+                for (TECHNOLOGY t : children) if (t.isActive()) active.add(t);
+                return active;
+            }
             return children;
+        }
+
+        /** False for technologies that do not exist under the active rule set (DIPLOMACY under 2020 rules). */
+        public boolean isActive() {
+            return this != DIPLOMACY || RulesVersion.modern();
+        }
+
+        /** In-game name. 2.1 renamed Shields to Strategy; the identifier stays SHIELDS for the interfaces. */
+        public String getDisplayName() {
+            if (this == SHIELDS && RulesVersion.modern()) return "STRATEGY";
+            return name();
         }
 
         public int getCost(int numOfCities, TechnologyTree tt) {
@@ -132,9 +150,14 @@ public class Types {
         public int getKey() {  return key; }
         public String getName() { return name; }
         public TECHNOLOGY getInitialTech() {
+            // 2.14.0: Ai-Mo starts with Philosophy (and a Mind Bender) instead of Meditation.
+            if (this == AI_MO && RulesVersion.modern()) return PHILOSOPHY;
             return initialTech;
         }
-        public UNIT getStartingUnit() {return startingUnit;}
+        public UNIT getStartingUnit() {
+            if (this == AI_MO && RulesVersion.modern()) return MIND_BENDER;
+            return startingUnit;
+        }
         public Color getColorDark() {return color_dark;}
     }
 
@@ -333,6 +356,8 @@ public class Types {
 
         public Types.BUILDING getAdjacencyConstraint()
         {
+            // 2.15 rules: the Market (this slot) needs a Sawmill, Windmill or Forge next to it (Build.isBuildable).
+            if(this == CUSTOMS_HOUSE && RulesVersion.modern()) return null;
             if(this == CUSTOMS_HOUSE) return PORT;
             if(this == WINDMILL) return FARM;
             if(this == FORGE) return MINE;
@@ -342,6 +367,8 @@ public class Types {
 
         public BUILDING getMatchingBuilding()
         {
+            // 2.15 rules: the Customs House is gone (the Market uses its slot), so Ports pair with nothing.
+            if ((this == PORT || this == CUSTOMS_HOUSE) && RulesVersion.modern()) return null;
             switch (this)
             {
                 case PORT: return CUSTOMS_HOUSE;
@@ -513,7 +540,10 @@ public class Types {
         BOAT(8,"img/unit/boat/", "img/weapons/arrows/boat.png", BOAT_COST, SAILING, BOAT_POINTS), //+0
         SHIP(9,"img/unit/ship/", "img/weapons/bombs/", SHIP_COST, SAILING, SHIP_POINTS),//+0
         BATTLESHIP(10,"img/unit/battleship/", "img/weapons/bombs/", BATTLESHIP_COST, NAVIGATION, BATTLESHIP_POINTS),//+0
-        SUPERUNIT(11, "img/unit/superunit/", "img/weapons/melee/tile003.png", SUPERUNIT_COST, null, SUPERUNIT_POINTS); //+50
+        SUPERUNIT(11, "img/unit/superunit/", "img/weapons/melee/tile003.png", SUPERUNIT_COST, null, SUPERUNIT_POINTS), //+50
+        // 2.1 Diplomacy units. Exist only under the 2.15 rules (isActive). The images reuse existing sprites.
+        CLOAK(12, "img/unit/mind_bender/", "img/weapons/melee/tile006.png", CLOAK_COST, DIPLOMACY, CLOAK_POINTS),
+        DAGGER(13, "img/unit/warrior/", "img/weapons/melee/tile006.png", DAGGER_COST, null, DAGGER_POINTS);
 
         private int key;
         private String imageFile, weapon;
@@ -544,6 +574,8 @@ public class Types {
                 case "SHIP": return SHIP;
                 case "BATTLESHIP": return BATTLESHIP;
                 case "SUPERUNIT": return SUPERUNIT;
+                case "CLOAK": return CLOAK;
+                case "DAGGER": return DAGGER;
             }
             return null;
         }
@@ -581,6 +613,8 @@ public class Types {
                 case SHIP: return new Ship(pos, kills, isVeteran, ownerID, tribeID);
                 case BATTLESHIP: return new Battleship(pos, kills, isVeteran, ownerID, tribeID);
                 case SUPERUNIT: return new SuperUnit(pos, kills, isVeteran, ownerID, tribeID);
+                case CLOAK: return new Cloak(pos, kills, isVeteran, ownerID, tribeID);
+                case DAGGER: return new Dagger(pos, kills, isVeteran, ownerID, tribeID);
 
                 default:
                     System.out.println("WARNING: TypescreateUnit(), type creation not implemented.");
@@ -591,8 +625,33 @@ public class Types {
 
         public boolean spawnable()
         {
-            return !(this == BOAT || this == SHIP || this == BATTLESHIP || this == SUPERUNIT);
+            if (this == CLOAK) return RulesVersion.modern();
+            return !(this == BOAT || this == SHIP || this == BATTLESHIP || this == SUPERUNIT || this == DAGGER);
         }
+
+        /** False for unit types that do not exist under the active rule set (Cloak and Dagger under 2020 rules). */
+        public boolean isActive()
+        {
+            return !(this == CLOAK || this == DAGGER) || RulesVersion.modern();
+        }
+
+        /** Hide skill (Cloak): invisible to enemies after it moves. */
+        public boolean canHide() { return this == CLOAK; }
+
+        /** Stiff skill: never retaliates. */
+        public boolean isStiff() { return this == CLOAK; }
+
+        /** Surprise skill: its attacks draw no retaliation. */
+        public boolean hasSurprise() { return this == DAGGER; }
+
+        /** Static skill: never becomes a veteran. */
+        public boolean isStatic() { return this == CLOAK || this == DAGGER; }
+
+        /** Independent skill: belongs to no city and takes no population slot. */
+        public boolean isIndependent() { return this == DAGGER; }
+
+        /** Creep skill: ignores terrain movement costs, roads and zones of control. */
+        public boolean hasCreep() { return this == CLOAK; }
 
         public boolean isWaterUnit()
         {
@@ -817,7 +876,14 @@ public class Types {
         //others
         CLIMB_MOUNTAIN(null, CLIMBING),
         UPGRADE_BOAT("img/actions/upgrade.png", SAILING),
-        UPGRADE_SHIP("img/actions/upgrade.png", NAVIGATION);
+        UPGRADE_SHIP("img/actions/upgrade.png", NAVIGATION),
+
+        // 2.1 Diplomacy (2.15 rules only). Appended so older ordinals stay put.
+        INFILTRATE("img/actions/capture.png", DIPLOMACY),   // unit: a Cloak infiltrates an adjacent enemy city
+        OFFER_PEACE(null, SHIELDS),                          // tribe: send a peace treaty (Strategy)
+        ACCEPT_PEACE(null, null),                            // tribe: accept a pending peace treaty
+        BREAK_PEACE(null, null),                             // tribe: end a peace treaty
+        BUILD_EMBASSY(null, DIPLOMACY);                      // tribe: establish an embassy in another tribe's capital
 
         private String imgPath;
         private TECHNOLOGY tech;  // Requires this technology to perform action
@@ -869,6 +935,13 @@ public class Types {
                 case RECOVER: return new RecoverCommand();
                 case UPGRADE_BOAT:
                 case UPGRADE_SHIP: return new UpgradeCommand();
+
+                //Diplomacy (2.15 rules)
+                case INFILTRATE: return new InfiltrateCommand();
+                case OFFER_PEACE:
+                case ACCEPT_PEACE:
+                case BREAK_PEACE:
+                case BUILD_EMBASSY: return new DiplomacyCommand();
 
             }
             System.out.println("ERROR: ActionCommand for action type " + this + " not implemented.");

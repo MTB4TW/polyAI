@@ -2,6 +2,60 @@
 
 All notable changes to this project are documented in this file.
 
+## [Env-Rules_Polytopia_2_15_Diplomacy_Step2-053] - (2026-11-14)
+
+### Scope
+Every remaining item of `docs/rules-parity.md` except the 2.8 naval rework, all behind
+`POLYVISION_RULES=polytopia_2_15`. Nothing changes under `tribes_2020`.
+- Step 2 (Phase 1): Lumber Huts leave their tile as forest; the Market replaces the Customs House in its
+  building slot (5★, Trade, needs an adjacent Sawmill/Windmill/Forge, +1★ per turn per level of each adjacent
+  one, max 8★, counted in city production); the ruin Explorer reward needs a fogged tile in the 5×5 around the
+  ruin; Shields is shown as Strategy.
+- 2.14.0: tribe starting stars (Xin-xi 7, Oumaji 6, Hoodrick 7, Quetzali 7, Yădakk 7, Luxidoor 2, others 5;
+  Bardur unchanged); Ai-Mo starts with Philosophy and a Mind Bender; techs can be researched backwards (a tech
+  whose child is researched is researchable, at its tier cost).
+- Diplomacy (2.1/2.2; Phase 2, Kevin's area): new tech `DIPLOMACY` (tier 3, after Strategy), units `CLOAK`
+  (trainable) and `DAGGER` (spawned by infiltration), unit action `INFILTRATE`, tribe actions `OFFER_PEACE`,
+  `ACCEPT_PEACE`, `BREAK_PEACE`, `BUILD_EMBASSY`; war/peace/offer/embassy state in `core.TribeRelations`;
+  hidden Cloaks are removed from other tribes' observations; capital vision with Diplomacy; embassy income;
+  infiltration denies a city's next income. The first embassy costs 4★ and each later one 2★ more (2.14.0).
+  Details and sources in `docs/rules-parity.md` ("Diplomacy").
+  `SimpleAgent` infiltrates and builds embassies but never makes peace.
+- Bug fixed under 2.15 only: `SuperUnit.copy()` dropped the unit's last direction (used for pushes).
+- New enum constants (`TECHNOLOGY.DIPLOMACY`, `UNIT.CLOAK`, `UNIT.DAGGER`, five `ACTION` values) are appended,
+  report `isActive() == false` under 2020 rules, and are filtered out of the Python vocabulary
+  (`RULES_ONLY_VOCAB`), so older ordinals, the catalog and every 2020 interface stay put.
+- `PythonEnv.java` gains four one-line calls into the new `core.game.DiplomacyJson` (action fields, star cost,
+  per-tribe relations, Cloak `hidden` flag); all no-ops under 2020 rules.
+
+### Contract
+- `polytopia_2_15` is now rules revision 2: environment versions end in `+rules_polytopia_2_15_r2`, so every
+  checkpoint trained under revision 1 (`+rules_polytopia_2_15`, including Farmshare job 1981253) is rejected.
+- Under 2.15 rules the observation has 6,695 dimensions (54 spatial channels × 121 + 161 scalars): Cloak and
+  Dagger channels after the resource channel, and 29 Diplomacy scalars after the city block. The 2020 layout
+  (6,424) is unchanged. `observation_layout()` takes the rules version; `spatial_resnet` reads its sizes from
+  it instead of the fixed 52/132.
+- Under 2.15 rules the catalog adds `CLOAK` to `TRAIN` and `DIPLOMACY` to `RESEARCH_TECH`; in combat mode also
+  `INFILTRATE` (tile × tile) and four tribe families (one slot per tribe id 0-3). The catalog fingerprint
+  changes accordingly. `LEGAL_ACTION_FEATURE_VERSION` and the 47-d features are unchanged: new types use the
+  existing "other type" flag, like `ATTACK`. The composed network (PR #15) derives action types from catalog
+  blocks and will need the five new families mapped before it runs under 2.15 rules.
+- `phase1_opening_version` unchanged: the opening audit under 2.15 rules passes on all 5,000 train and 250
+  validation maps.
+
+### Validation
+- `RulesParityTest.java`: 369 checks under both rule sets (Market, Lumber Hut terrain, ruin Explorer condition,
+  backwards research, starting stars, peace/embassies/war, offer lapse, infiltration and Daggers, hidden Cloak
+  visibility and reveal, Dagger and Cloak skills, no Diplomacy under 2020 rules).
+- `test_rules_version.py`: 15 tests, adding the 2.15 observation layout, vocabulary filter, catalog families
+  and a 2.15 combat wrapper. `test_parity_002` now allows the appended 2.15-only enum constants.
+- `hash_env_trajectory.py` (3,000 steps): Phase 1 seeds 7 and 11 and combat seed 7 are byte-identical with
+  `POLYVISION_RULES` unset.
+- Random legal play under 2.15 rules: 30,000 combat steps (144 episodes; infiltration, embassies and peace
+  offers occur) and 15,000 Phase 1 steps without errors; an 8,192-step `spatial_resnet` PPO run trains and
+  saves a 6,695-dim checkpoint.
+- No model trained or evaluated.
+
 ## [Env-Rules_Version_Switch_Polytopia_2_15-052] - (2026-11-13)
 
 ### Scope

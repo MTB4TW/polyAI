@@ -41,7 +41,7 @@ public class StepMove implements NeighbourHelper
         //Check if unit is on a neutral or a friendly road, cities also count as roads.
         if(board.isRoad(from.x, from.y) || board.getTerrainAt(from.x, from.y) == Types.TERRAIN.CITY){
             int cityId = board.getCityIdAt(from.x, from.y);
-            if(cityId == -1 || board.getTribe(unit.getTribeId()).controlsCity(cityId)) {
+            if(core.DiplomacyRules.canUseRoadOf(gs, unit, cityId)) {
                 onRoad = true;
             }
         }
@@ -56,7 +56,7 @@ public class StepMove implements NeighbourHelper
 
             //Can't move to tiles where there's a non-friendly unit
             Unit otherUnit = board.getUnitAt(tile.x, tile.y);
-            if (otherUnit != null && otherUnit.getTribeId() != unit.getTribeId())
+            if (core.DiplomacyRules.blocksPassage(gs, unit, otherUnit))
             {
                 continue;
             }
@@ -64,7 +64,7 @@ public class StepMove implements NeighbourHelper
             //Check if there is an enemy unit adjacent to the destination.
             for (Vector2d tileAdj : tile.neighborhood(1, 0, board.getSize())) {
                 Unit u = board.getUnitAt(tileAdj.x, tileAdj.y);  // There might not be a unit there at all
-                if (u != null && u.getTribeId() != unit.getTribeId()) {
+                if (core.DiplomacyRules.exertsZoneOfControl(gs, unit, u)) {
                     zoneOfControl = true;
                 }
             }
@@ -125,6 +125,7 @@ public class StepMove implements NeighbourHelper
                         break;
                     case FOREST:
                     case MOUNTAIN:
+                        if (unit.getType().hasCreep()) { stepCost = 1.0; break; } //Creep (2.15 Cloak): no terrain penalty
                         stepCost = costFrom < unit.MOV ? (unit.MOV - costFrom) : unit.MOV; //as much cost as needed to finished step here
                         break;
 
@@ -132,9 +133,9 @@ public class StepMove implements NeighbourHelper
 
                 //If there is a friendly/neutral road connection between two tiles then the movement cost is halved.
                 //This movement boost applies only to ground units.
-                if (onRoad && (board.isRoad(tile.x, tile.y) || board.getTerrainAt(tile.x, tile.y) == Types.TERRAIN.CITY)) {
+                if (onRoad && !unit.getType().hasCreep() && (board.isRoad(tile.x, tile.y) || board.getTerrainAt(tile.x, tile.y) == Types.TERRAIN.CITY)) {
                     int cityId = board.getCityIdAt(from.x, from.y);
-                    if (cityId == -1 || board.getTribe(unit.getTribeId()).controlsCity(cityId)) {
+                    if (core.DiplomacyRules.canUseRoadOf(gs, unit, cityId)) {
                         stepCost = Math.max(0.5, stepCost / 2.0);
                     }
                 }

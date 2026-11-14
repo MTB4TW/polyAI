@@ -12,11 +12,21 @@ import torch
 import torch.nn as nn
 from torch.distributions.categorical import Categorical
 
+# Observation sizes under the default (tribes_2020) rules. The 2.15 rules append Diplomacy channels and scalars
+# (pol_env/Tribes/py/environment_contract.py), so the agent reads its sizes from observation_layout().
 SPATIAL_CHANNELS = 52
 BOARD_WIDTH = 11
 BOARD_HEIGHT = 11
 SPATIAL_DIM = SPATIAL_CHANNELS * BOARD_WIDTH * BOARD_HEIGHT  # 6292
 SCALAR_DIM = 132  # 6424 - 6292
+
+
+def observation_sizes(rules_version=None):
+    """(spatial channels, scalar dim) of the 11x11 observation under the given (default: active) rules."""
+    from pol_env.Tribes.py.environment_contract import observation_layout
+
+    layout = observation_layout(BOARD_WIDTH, BOARD_HEIGHT, rules_version)
+    return layout.spatial_channels, layout.scalar_dim
 
 
 def layer_init(layer, std=np.sqrt(2), bias_const=0.0):
@@ -86,8 +96,8 @@ class SpatialResNetAgent(nn.Module):
         actor_mode: str = "legal_features",
         max_legal_actions: int = 256,
         legal_action_feature_dim: int = 47,
-        spatial_channels: int = SPATIAL_CHANNELS,
-        scalar_dim: int = SCALAR_DIM,
+        spatial_channels: int | None = None,
+        scalar_dim: int | None = None,
         local_action_features: bool = False,
         composed_actions: bool = False,
     ):
@@ -95,8 +105,21 @@ class SpatialResNetAgent(nn.Module):
         # composed_actions replaces the per-ID embedding with action type + local grid features.
         self.composed_actions = bool(composed_actions)
         self.local_action_features = bool(local_action_features) or self.composed_actions
-        if spatial_channels != SPATIAL_CHANNELS or scalar_dim != SCALAR_DIM:
-            raise ValueError("Spatial agent requires the 52-channel 11x11 observation contract")
+        expected_channels, expected_scalar = observation_sizes()
+        spatial_channels = expected_channels if spatial_channels is None else int(spatial_channels)
+        scalar_dim = expected_scalar if scalar_dim is None else int(scalar_dim)
+        if spatial_channels != expected_channels or scalar_dim != expected_scalar:
+            raise ValueError(
+                f"Spatial agent requires the {expected_channels}-channel 11x11 observation contract "
+                f"with {expected_scalar} scalars for the active rules"
+            )
+        if envs is not None and getattr(envs, "single_observation_space", None) is not None:
+            obs_dim = int(np.array(envs.single_observation_space.shape).prod())
+            if obs_dim != spatial_channels * BOARD_WIDTH * BOARD_HEIGHT + scalar_dim:
+                raise ValueError(f"Spatial agent got a {obs_dim}-dim observation; expected "
+                                 f"{spatial_channels} x 11 x 11 + {scalar_dim}")
+        self.spatial_channels = spatial_channels
+        self.spatial_dim = spatial_channels * BOARD_WIDTH * BOARD_HEIGHT
         self.actor_mode = str(actor_mode).strip().lower()
         if self.actor_mode not in ("legal_only", "legal_features"):
             raise ValueError(f"Unsupported actor_mode={actor_mode}")
@@ -167,9 +190,9 @@ class SpatialResNetAgent(nn.Module):
             self.action_scorer = None
 
     def encode_state(self, x: torch.Tensor, return_grid=False):
-        """Splits raw 6424-dim obs into spatial grid and scalars, returning fused representation and combined embedding."""
-        spatial_raw = x[:, :SPATIAL_DIM].contiguous().view(-1, SPATIAL_CHANNELS, BOARD_HEIGHT, BOARD_WIDTH)
-        scalar_raw = x[:, SPATIAL_DIM:].contiguous()
+        """Splits the raw obs (6424-dim under 2020 rules) into spatial grid and scalars, returning fused representation and combined embedding."""
+        spatial_raw = x[:, :self.spatial_dim].contiguous().view(-1, self.spatial_channels, BOARD_HEIGHT, BOARD_WIDTH)
+        scalar_raw = x[:, self.spatial_dim:].contiguous()
 
         spatial_emb, grid = self.spatial_backbone(spatial_raw, return_grid=True)
         scalar_emb = self.scalar_backbone(scalar_raw)
