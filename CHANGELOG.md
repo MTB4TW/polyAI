@@ -2,6 +2,44 @@
 
 All notable changes to this project are documented in this file.
 
+## [Perf-Overlapped_Rollout-057] - (2026-11-13)
+
+### Scope
+- New opt-in trainer flag `--overlap-rollout` (default off): the N envs are split into two halves
+  (A = first ceil(N/2), B = the rest), each its own SAME_STEP `AsyncVectorEnv`
+  (`py_rl/cleanrl/cleanrl/overlapped_vector_env.py`). Per rollout step the policy forward for B runs while A
+  steps, and A's next action is sampled and sent while B steps, so policy time and slow workers (episode-end
+  resets, end turns) overlap with the other half's env work. A is not sent ahead on the last step of a
+  rollout (the update changes the policy).
+- Rollout buffers keep the same (step, env) layout and contents; the merged step result (observations,
+  rewards, flags, Gymnasium infos including `final_info`, masks and dtypes) equals what one vector env over
+  all N envs returns for the same actions, and reset seeds are unchanged (env i gets seed + i). The PPO
+  update is unchanged. A prefetched half's policy inputs are checked against the trainer's tensors.
+- Flag on is deterministic for a fixed seed but does not reproduce a flag-off run: actions are sampled in
+  two batches per step, so the policy RNG is consumed in a different order. Needs N >= 2; odd N works.
+- Profiling with the flag: `trainer/envs_step_wall` is the time blocked waiting for a half,
+  `trainer/overlap_step_wall` the whole pipelined step, `trainer/policy_forward_action_selection` per half.
+- New diagnostic `tools/profile_vector_step.py`: per vector step, each worker's busy time (step plus
+  autoreset), the slowest worker, IPC overhead (vector wall - slowest worker) and what the slowest worker was
+  doing (ordinary step, end turn, episode end).
+- No environment, observation, action or checkpoint change; no contract version change.
+
+### Validation
+- Flag off: a 1,024-step run (spatial_resnet, 8 envs x 64 steps, seed 1, `--validation-states 100
+  --force-revalidate-action-interface`) gives parameters identical to the base branch (torch.save files are
+  byte-identical when saved under the same file name; the zip record name follows the file name).
+- Flag on: two identical runs give identical parameters, for spatial_resnet `legal_features` (8 envs and
+  3 envs), `legal_only` (3 envs) and mlp `dense_debug` (3 envs); `POLYVISION_PROFILE_SPS=1` works.
+- New `tools/tests/test_overlapped_vector_env.py`: info merge equals one vector env for N = 2, 3, 5, 6 on a
+  fake env with keys in only some envs, nested dicts, arrays, objects and SAME_STEP final_info; with a fixed
+  action table the default loop and the stepper write identical buffers; prefetch check; real spawn
+  `AsyncVectorEnv`s; opt-in live test (`POLYVISION_RUN_JAVA_TESTS=1`) compares 3 real envs over 200 steps
+  with episode ends (observations, rewards, flags, non-timing infos, legal id/mask/feature tensors).
+- Mac (shared M-series, noisy), 8 envs, spatial_resnet CPU, 8,192 steps, two runs each: rollout collection
+  ~760 -> ~885 steps/s (+16%); whole run including startup, validation and the CPU PPO update 152-156 ->
+  160-161 steps/s (+4%), because the update is ~80% of wall time on this machine. Policy forward per step
+  3.9 ms (one batch of 8) vs 2 x 2.3 ms (two batches of 4); time blocked on envs 6.2 -> 3.1 ms per step.
+
 ## [Perf-Vectorized_Features_Compact_IPC-052] - (2026-11-12)
 
 ### Scope
