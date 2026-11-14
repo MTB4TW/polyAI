@@ -188,6 +188,47 @@ def rules_have_diplomacy(rules_version: str | None = None) -> bool:
     return rules_version == "polytopia_2_15"
 
 
+# Combat fog memory (opt-in, POLYVISION_FOG_MEMORY=1; core.game.FogMemory): what the controlled tribe remembers and
+# infers about enemy units it cannot see. Adds spatial channels after the Diplomacy unit channels and scalars at the
+# very end, and folds FOG_MEMORY_VERSION_SUFFIX into the environment version (before any rules suffix), so
+# checkpoints trained with and without it are told apart.
+FOG_MEMORY_ENV_VAR = "POLYVISION_FOG_MEMORY"
+FOG_MEMORY_SEE_MOVES_ENV_VAR = "POLYVISION_FOG_MEMORY_SEE_MOVES"
+FOG_MEMORY_VERSION_SUFFIX = "+fog_memory_v1"
+FOG_MEMORY_CHANNELS = ("fog_presence", "fog_attack", "fog_last_seen", "fog_unseen")
+FOG_MEMORY_SCALARS = ("fog_tracked_hidden", "fog_unseen_estimate", "fog_known_enemy_capacity")
+FOG_MEMORY_SCALAR_DIM = len(FOG_MEMORY_SCALARS)
+
+
+def resolve_fog_memory(environ: Mapping[str, str] | None = None) -> bool:
+    """Whether the combat fog memory is on. It is combat-only: asking for it outside combat is an error."""
+    environ = os.environ if environ is None else environ
+    raw = str(environ.get(FOG_MEMORY_ENV_VAR, "") or "").strip()
+    if raw in ("", "0"):
+        return False
+    if raw != "1":
+        raise ValueError(f"{FOG_MEMORY_ENV_VAR}={raw!r}: expected 0 or 1")
+    combat = str(environ.get("POLYVISION_COMBAT_MODE", "")).strip() == "1" or \
+        str(environ.get("POLYVISION_PHASE", "")).strip() == "2"
+    if not combat:
+        raise ValueError(f"{FOG_MEMORY_ENV_VAR}=1 is combat-only (set POLYVISION_COMBAT_MODE=1 / POLYVISION_PHASE=2)")
+    return True
+
+
+def fog_memory_sees_moves(environ: Mapping[str, str] | None = None) -> bool:
+    """Follow a watched enemy move into the fog (default on; POLYVISION_FOG_MEMORY_SEE_MOVES=0 turns it off)."""
+    environ = os.environ if environ is None else environ
+    return str(environ.get(FOG_MEMORY_SEE_MOVES_ENV_VAR, "1") or "1").strip() != "0"
+
+
+def versioned_for_fog_memory(environment_version: str, fog_memory: bool) -> str:
+    return f"{environment_version}{FOG_MEMORY_VERSION_SUFFIX}" if fog_memory else str(environment_version)
+
+
+def fog_memory_of_version(environment_version) -> bool:
+    return FOG_MEMORY_VERSION_SUFFIX in str(environment_version or "")
+
+
 NUM_CITY_TERRITORY_CHANNELS = MAX_OWNED_CITIES  # 9
 NUM_UNIT_HOME_CITY_CHANNELS = MAX_OWNED_CITIES  # 9
 LEGACY_SCALAR_DIM = 6
@@ -387,6 +428,11 @@ class ObservationLayout:
     diplomacy_units_end: int = 0
     diplomacy_scalar_start: int = 0
     diplomacy_scalar_end: int = 0
+    # Combat fog memory only; empty ranges when it is off.
+    fog_memory_start: int = 0
+    fog_memory_end: int = 0
+    fog_scalar_start: int = 0
+    fog_scalar_end: int = 0
 
     @property
     def spatial_channels(self) -> int:
@@ -398,9 +444,12 @@ class ObservationLayout:
         return self.expected_obs_dim - self.legacy_scalar_start
 
 
-def observation_layout(width: int, height: int, rules_version: str | None = None) -> ObservationLayout:
-    """Observation layout for a board; ``rules_version`` defaults to the POLYVISION_RULES setting."""
+def observation_layout(width: int, height: int, rules_version: str | None = None,
+                       fog_memory: bool | None = None) -> ObservationLayout:
+    """Observation layout for a board; ``rules_version`` defaults to the POLYVISION_RULES setting and
+    ``fog_memory`` to the POLYVISION_FOG_MEMORY setting."""
     diplomacy = rules_have_diplomacy(rules_version)
+    fog_memory = resolve_fog_memory() if fog_memory is None else bool(fog_memory)
     width = int(width)
     height = int(height)
     if width <= 0 or height <= 0:
@@ -441,6 +490,11 @@ def observation_layout(width: int, height: int, rules_version: str | None = None
         cur += len(DIPLOMACY_UNIT_TYPES) * n_tiles
     diplomacy_units_end = cur
 
+    fog_memory_start = cur
+    if fog_memory:
+        cur += len(FOG_MEMORY_CHANNELS) * n_tiles
+    fog_memory_end = cur
+
     legacy_scalar_start = cur
     cur += LEGACY_SCALAR_DIM
     legacy_scalar_end = cur
@@ -461,6 +515,11 @@ def observation_layout(width: int, height: int, rules_version: str | None = None
     if diplomacy:
         cur += DIPLOMACY_SCALAR_DIM
     diplomacy_scalar_end = cur
+
+    fog_scalar_start = cur
+    if fog_memory:
+        cur += FOG_MEMORY_SCALAR_DIM
+    fog_scalar_end = cur
 
     expected_obs_dim = cur
 
@@ -497,6 +556,10 @@ def observation_layout(width: int, height: int, rules_version: str | None = None
         diplomacy_units_end=diplomacy_units_end,
         diplomacy_scalar_start=diplomacy_scalar_start,
         diplomacy_scalar_end=diplomacy_scalar_end,
+        fog_memory_start=fog_memory_start,
+        fog_memory_end=fog_memory_end,
+        fog_scalar_start=fog_scalar_start,
+        fog_scalar_end=fog_scalar_end,
     )
 
 

@@ -57,9 +57,9 @@ def _update_value(h, value):
         h.update(repr(value).encode())
 
 
-def hash_info(h, info):
+def hash_info(h, info, skip_prefixes=_SKIP_INFO_PREFIXES):
     for key in sorted(info):
-        if any(str(key).startswith(p) for p in _SKIP_INFO_PREFIXES):
+        if any(str(key).startswith(p) for p in skip_prefixes):
             continue
         h.update(repr(key).encode())
         _update_value(h, info[key])
@@ -71,8 +71,12 @@ def legal_ids_from_info(info):
     return ids[valid]
 
 
-def run(steps, seed, env=None):
-    """Return (combined digest, features-only digest, per-step seconds list)."""
+def run(steps, seed, env=None, extra_skip_prefixes=()):
+    """Return (combined digest, features-only digest, per-step seconds list).
+
+    extra_skip_prefixes: further info keys to leave out, e.g. ("teacher_",) to check that POLYVISION_TEACHER only
+    adds its own keys and leaves every other output unchanged."""
+    skip = tuple(_SKIP_INFO_PREFIXES) + tuple(extra_skip_prefixes)
     for k, v in PHASE1_DEFAULTS.items():
         os.environ.setdefault(k, v)
     from pol_env.Tribes.py.register_env import TribesGymWrapper
@@ -88,7 +92,7 @@ def run(steps, seed, env=None):
     try:
         obs, info = env.reset(seed=seed)
         _update_value(h_all, obs)
-        hash_info(h_all, info)
+        hash_info(h_all, info, skip)
         _update_value(h_feat, info["legal_action_features_padded"])
         for _ in range(int(steps)):
             legal = legal_ids_from_info(info)
@@ -98,13 +102,13 @@ def run(steps, seed, env=None):
             step_seconds.append(time.perf_counter() - t0)
             for value in (action, obs, float(reward), bool(terminated), bool(truncated)):
                 _update_value(h_all, value)
-            hash_info(h_all, info)
+            hash_info(h_all, info, skip)
             _update_value(h_feat, info["legal_action_features_padded"])
             if terminated or truncated:
                 episode += 1
                 obs, info = env.reset(seed=seed + episode)
                 _update_value(h_all, obs)
-                hash_info(h_all, info)
+                hash_info(h_all, info, skip)
                 _update_value(h_feat, info["legal_action_features_padded"])
     finally:
         if own_env:
@@ -116,8 +120,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--steps", type=int, default=1500)
     parser.add_argument("--seed", type=int, default=7)
+    parser.add_argument("--ignore-info-prefix", action="append", default=[],
+                        help="also leave out info keys with this prefix (repeatable), e.g. teacher_")
     args = parser.parse_args()
-    digest, feat_digest, step_seconds = run(args.steps, args.seed)
+    digest, feat_digest, step_seconds = run(args.steps, args.seed, extra_skip_prefixes=args.ignore_info_prefix)
     s = np.asarray(step_seconds)
     print(f"trajectory_sha256={digest}")
     print(f"features_sha256={feat_digest}")

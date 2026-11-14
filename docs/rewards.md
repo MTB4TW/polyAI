@@ -122,6 +122,11 @@ Opt-in terms (default 0; definitions in `pol_env/Tribes/py/combat_shaping.py` an
 Also opt-in (CHANGELOG entry 061): `RIDER` (potential: + per Rider of ours alive), `TRAIN_RIDER` (+ per Rider trained), `TRAIN_INFANTRY` (− per Warrior or
 Swordsman trained), `RIDER_ATTACK` (+ per attack by a Rider), `EMBASSY` (− per embassy built, 2.15 rules) and
 `TURN_PENALTY` (− per turn ended). `cluster/combat_cap_all_v2.env` sets them for the 2.15-rules cap_all run.
+
+`POLYVISION_COMBAT_REWARD_SHAPING_SCALE` (default 1) multiplies every term except the outcome terms (`WIN`, `LOSS`,
+`TIMEOUT`, `EARLY_WIN`, `TERMINAL_POTENTIAL`, `TURN_PENALTY`); 0 trains on the game result alone. Outcome-only
+fine-tuning of a trained checkpoint: `cluster/run_combat_finetune.sh CHECKPOINT NAME` (shaping × 0.5 for 500k
+steps with a fresh critic, then × 0 for 1.5M keeping that critic; `cluster/combat_outcome_finetune.env`).
 | `POLYVISION_COMBAT_REWARD_TIMEOUT` | 0 | outcome reward on a turn-limit timeout (loss < timeout < win) |
 | `POLYVISION_COMBAT_REWARD_TERMINAL_POTENTIAL` | 1 | share of the final Φ paid at game end; 0 makes the shaping net ~0 per game |
 

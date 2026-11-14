@@ -10,6 +10,7 @@ import time
 from gymnasium.envs.registration import register
 from .gym_env import TribesGymEnv, make_default_env
 from . import combat_shaping
+from . import search_teacher
 from .environment_contract import (
     MapGeometryError,
     ObservationContractError,
@@ -42,6 +43,10 @@ from .environment_contract import (
     DIPLOMACY_TRIBE_ACTION_TYPES,
     DIPLOMACY_UNIT_TYPES,
     rules_have_diplomacy,
+    FOG_MEMORY_SCALAR_DIM,
+    fog_memory_sees_moves,
+    resolve_fog_memory,
+    versioned_for_fog_memory,
 )
 
 
@@ -367,6 +372,14 @@ class TribesGymWrapper(gym.Env):
             self.PHASE1_OPENING_VERSION = "combat_no_scripted_opening_v1"
             self.PHASE1_ENVIRONMENT_VERSION = f"combat_v5_scaled_scalars_horizon_{self.MAX_TURNS}"
             self._combat_reward_weights = self._load_combat_reward_weights()
+        # Self-play league (combat_selfplay.py; opt-in, POLYVISION_COMBAT_LEAGUE=1): snapshots play tribe 1 in some games.
+        self._combat_league = None
+        self._combat_opponent = None
+        if self._is_combat_mode and str(os.environ.get("POLYVISION_COMBAT_LEAGUE", "0")).strip() in ("1", "true"):
+            from pol_env.Tribes.py.combat_selfplay import CombatLeague
+
+            self._combat_league = CombatLeague(rng=np.random.default_rng(
+                (int(os.environ.get("POLYVISION_BASE_SEED", "42")) * 7919 + os.getpid()) % (2**32)))
             self._combat_prev_potential = 0.0
             self._combat_first_contact_tick = -1
             self._combat_prev_state = None
@@ -382,6 +395,9 @@ class TribesGymWrapper(gym.Env):
         # Game rules (POLYVISION_RULES). The default leaves the version strings untouched; this applies to the
         # combat version string set above as well as the Phase 1 one.
         self.RULES_VERSION = resolve_rules_version()
+        # Combat fog memory (POLYVISION_FOG_MEMORY=1, combat only): extra observation channels and a version suffix.
+        self.FOG_MEMORY = resolve_fog_memory()
+        self.PHASE1_ENVIRONMENT_VERSION = versioned_for_fog_memory(self.PHASE1_ENVIRONMENT_VERSION, self.FOG_MEMORY)
         self.PHASE1_ENVIRONMENT_VERSION = versioned_for_rules(self.PHASE1_ENVIRONMENT_VERSION, self.RULES_VERSION)
         self._has_diplomacy = rules_have_diplomacy(self.RULES_VERSION)
         if self._is_combat_mode and self._has_diplomacy:
@@ -389,6 +405,9 @@ class TribesGymWrapper(gym.Env):
         self.tribes_env = make_default_env()
         if self._is_combat_mode:
             self.tribes_env._env.setSoloNoOpponentMode(False)
+        if self.FOG_MEMORY:
+            self.tribes_env._env.setFogMemory(True, bool(fog_memory_sees_moves()))
+        self._init_search_teacher()
         self.level_file = level_file or self.PHASE1_LEVEL_FILE
         self._configured_map_type = str(map_type).strip().upper() if map_type is not None else None
         self._level_selection_mode = str(
@@ -583,6 +602,7 @@ class TribesGymWrapper(gym.Env):
         self._last_reset_seed = int(episode_seed)
         self._validate_level_file_is_square(self._current_level_file)
         t_java0 = time.perf_counter() if self._profile_sps_enabled else None
+        self._select_combat_opponent()
         obs = self.tribes_env.reset(self._current_level_file, self._last_reset_seed, mode=self._engine_game_mode)
         if self._is_combat_mode and len(obs.get("tribes", {})) != 2:
             raise ValueError("Combat training requires a two-player map pool")
@@ -745,6 +765,11 @@ class TribesGymWrapper(gym.Env):
         if self._profile_sps_enabled:
             t_reset_obs_flatten += time.perf_counter() - t_obs0
             info["profile_env_reset_obs_flatten_s"] = float(t_reset_obs_flatten)
+        if self._teacher_enabled:
+            self._attach_teacher_info(
+                info, legal_global_ids_padded, legal_action_valid_mask, legal_action_features_padded,
+                legal_id_to_raw_index, decision_state=True,
+            )
         t_sanitize0 = time.perf_counter() if self._profile_sps_enabled else None
         safe_info = self._sanitize_info_for_multiprocessing(info)
         if self._profile_sps_enabled:
@@ -1377,6 +1402,7 @@ class TribesGymWrapper(gym.Env):
             if self._combat_first_contact_tick < 0 and self._combat_enemy_visible(obs):
                 self._combat_first_contact_tick = int(obs.get("tick", 0) or 0)
             if terminated or truncated:
+                info.update(self._combat_opponent_end_info(outcome))
                 info.update(self._combat_end_diagnostics(obs))
                 info.update(self._combat_end_breakdown(post_state))
                 info.update(self._combat_end_techs(obs))
@@ -1834,6 +1860,12 @@ class TribesGymWrapper(gym.Env):
             t_step_obs_flatten += time.perf_counter() - t_obs0
             info["profile_env_step_obs_flatten_s"] = float(t_step_obs_flatten)
             info["profile_env_step_total_s"] = float(time.perf_counter() - t_step_start)
+        if self._teacher_enabled:
+            # No decision follows a terminal/truncated step (the vector env resets, and reset attaches its own).
+            self._attach_teacher_info(
+                info, post_legal_global_ids_padded, post_legal_action_valid_mask, post_legal_action_features_padded,
+                post_legal_id_to_raw_index, decision_state=not (bool(terminated) or bool(truncated)),
+            )
         t_sanitize0 = time.perf_counter() if self._profile_sps_enabled else None
         safe_info = self._sanitize_info_for_multiprocessing(info)
         if self._profile_sps_enabled:
@@ -3113,6 +3145,76 @@ class TribesGymWrapper(gym.Env):
             if max(abs(tx - cx), abs(ty - cy)) <= bound:
                 return True
         return False
+
+    def _init_search_teacher(self):
+        """POLYVISION_TEACHER (training only, Phase 1 only): report a search teacher's choice in info.
+
+        Unset (the default) adds nothing to info and never calls the Java search, so environment outputs are
+        unchanged. With `lookahead_visible`, every decision state's info carries `teacher_slot`: the legal slot the
+        fog-respecting one-step lookahead (tuned weights) would choose, exactly as tools/evaluate_search_policy.py
+        --weights tuned_visible --search-seeding per_decision plays it. The search runs on state copies; observations, legal sets, rewards and transitions are untouched.
+        """
+        self._teacher_mode = search_teacher.parse_teacher_mode(os.environ.get(search_teacher.TEACHER_ENV_VAR))
+        combat_teacher = search_teacher.is_combat_teacher(self._teacher_mode)
+        if self._teacher_mode is not None and self._is_combat_mode != combat_teacher:
+            raise ValueError(f"{search_teacher.TEACHER_ENV_VAR}={self._teacher_mode} does not fit this phase "
+                             "(lookahead_visible: Phase 1; tactical_search: combat)")
+        self._teacher_enabled = self._teacher_mode is not None
+        self._teacher_java_weights = None
+        self._teacher_full_information = False
+        self._teacher_seed_episode, self._teacher_decision_index = None, 0
+        if self._teacher_enabled and not combat_teacher:
+            weights, full_information = search_teacher.TEACHER_MODES[self._teacher_mode]
+            self._teacher_java_weights = search_teacher.java_weight_array(self.tribes_env._gateway, weights)
+            self._teacher_full_information = bool(full_information)
+        self._teacher_is_end_turn_col = int(self.LEGAL_ACTION_FEATURE_NAMES.index("is_end_turn"))
+
+    def set_teacher_enabled(self, enabled):
+        """Switch the configured teacher off (e.g. once its loss weight has decayed to 0) or back on."""
+        enabled = bool(enabled)
+        if enabled and self._teacher_mode is None:
+            raise RuntimeError(f"No teacher configured; set {search_teacher.TEACHER_ENV_VAR} before creating the env")
+        self._teacher_enabled = enabled
+        return self._teacher_enabled
+
+    def teacher_choose_slot(self, legal_global_ids_padded, legal_action_valid_mask, legal_action_features_padded,
+                            legal_id_to_raw_index):
+        """The teacher's legal slot for the current (live) state.
+
+        Same logic as tools/evaluate_search_policy.py LookaheadSearchPolicy with --search-seeding per_decision:
+        call once per decision state, in order (the decision index seeds the search)."""
+        turns_remaining = max(0, int(self.MAX_TURNS) - int(self._turn_count))
+        if self._teacher_seed_episode != self._episode_index:
+            self._teacher_seed_episode, self._teacher_decision_index = self._episode_index, 0
+        seed = search_teacher.decision_seed(self._last_reset_seed, self._teacher_decision_index)
+        self._teacher_decision_index += 1
+        if search_teacher.is_combat_teacher(self._teacher_mode):
+            # Combat: label only decisions where a tactical sequence beats stopping now (-1 elsewhere).
+            return search_teacher.tactical_slot(
+                self.tribes_env._env, self.tribes_env._gateway, np.asarray(legal_global_ids_padded).reshape(-1),
+                np.asarray(legal_action_valid_mask, dtype=bool).reshape(-1), legal_id_to_raw_index, seed,
+                self._teacher_mode)
+        scores = search_teacher.lookahead_scores_seeded(
+            self.tribes_env._env, self._teacher_java_weights, turns_remaining, self._teacher_full_information, seed)
+        feats = np.asarray(legal_action_features_padded)
+        return search_teacher.select_lookahead_slot(
+            scores,
+            np.asarray(legal_global_ids_padded).reshape(-1),
+            np.asarray(legal_action_valid_mask, dtype=bool).reshape(-1),
+            feats[:, self._teacher_is_end_turn_col] > 0.5,
+            legal_id_to_raw_index,
+        )
+
+    def _attach_teacher_info(self, info, legal_global_ids_padded, legal_action_valid_mask,
+                             legal_action_features_padded, legal_id_to_raw_index, decision_state):
+        t0 = time.perf_counter()
+        slot = -1
+        if decision_state and np.any(legal_action_valid_mask):
+            slot = self.teacher_choose_slot(
+                legal_global_ids_padded, legal_action_valid_mask, legal_action_features_padded, legal_id_to_raw_index)
+        info[search_teacher.TEACHER_SLOT_INFO_KEY] = int(slot)
+        if self._profile_sps_enabled:
+            info["profile_env_teacher_s"] = float(time.perf_counter() - t0)
 
     def _sanitize_info_value(self, value):
         # Keep common scalar types as-is.
@@ -5392,6 +5494,11 @@ class TribesGymWrapper(gym.Env):
         "turn_penalty": 0.0,            # event: penalty per turn ended (a cost of time, pushing for an early win)
     }
 
+    # Outcome terms: what the game result and its timing pay. Everything else is shaping ("who is ahead" potential
+    # terms and per-step events) and is multiplied by POLYVISION_COMBAT_REWARD_SHAPING_SCALE (default 1), so a run
+    # can fade the shaping out or train on the outcome alone (0).
+    COMBAT_OUTCOME_TERMS = ("win", "loss", "timeout", "early_win", "terminal_potential", "turn_penalty")
+
     @classmethod
     def _load_combat_reward_weights(cls, environ=None):
         environ = os.environ if environ is None else environ
@@ -5410,6 +5517,14 @@ class TribesGymWrapper(gym.Env):
             raise ValueError("Combat reward needs loss < timeout < win")
         if not 0.0 <= weights["terminal_potential"] <= 1.0:
             raise ValueError("POLYVISION_COMBAT_REWARD_TERMINAL_POTENTIAL must be between 0 and 1")
+        raw_scale = environ.get("POLYVISION_COMBAT_REWARD_SHAPING_SCALE")
+        scale = 1.0 if raw_scale is None or str(raw_scale).strip() == "" else float(raw_scale)
+        if not (np.isfinite(scale) and scale >= 0.0):
+            raise ValueError(f"POLYVISION_COMBAT_REWARD_SHAPING_SCALE must be >= 0, got {raw_scale!r}")
+        if scale != 1.0:
+            for name in weights:
+                if name not in cls.COMBAT_OUTCOME_TERMS:
+                    weights[name] *= scale
         return weights
 
     @staticmethod
@@ -5637,6 +5752,42 @@ class TribesGymWrapper(gym.Env):
             "combat_end_min_unit_dist_to_enemy_capital": int(dist),
             "combat_first_contact_tick": int(self._combat_first_contact_tick),
         }
+
+    def _select_combat_opponent(self):
+        """Self-play league only: pick this game's opponent (SimpleAgent or a snapshot playing tribe 1)."""
+        if self._combat_league is None or self._catalog is None:
+            return
+        from pol_env.Tribes.py.combat_selfplay import EXTERNAL_OPPONENT, SIMPLE_OPPONENT, OpponentView, play_external_turn
+
+        opponent = self._combat_league.choose(self)
+        self._combat_opponent = opponent
+        java = self.tribes_env._env
+        if opponent is None:
+            java.setOpponentAgent(SIMPLE_OPPONENT, 0)  # reseeded with the episode seed by the reset
+            self.tribes_env.opponent_turn_hook = None
+            return
+        opponent.reseed(int(self._last_reset_seed or 0) * 31 + 7)
+        java.setOpponentAgent(EXTERNAL_OPPONENT, 0)
+        state = {}
+
+        def hook():
+            if "view" not in state:  # built at the first opponent turn, after this game's reset bookkeeping
+                state["view"] = OpponentView(self)
+            play_external_turn(self, opponent, state["view"])
+
+        self.tribes_env.opponent_turn_hook = hook
+
+    def _combat_opponent_end_info(self, outcome):
+        """End-of-game opponent facts; with a league, also records the result for snapshot sampling."""
+        if self._combat_league is None:
+            return {}
+        snapshot = self._combat_opponent
+        won = float(outcome == "win")
+        self._combat_league.record(snapshot.path if snapshot is not None else None, outcome == "win")
+        info = {"combat_end_raw_opponent_snapshot": float(snapshot is not None),
+                "combat_end_raw_league_pool_size": float(len(self._combat_league.pool))}
+        info["combat_end_raw_win_vs_snapshot" if snapshot is not None else "combat_end_raw_win_vs_simple"] = won
+        return info
 
     def combat_reward_config(self):
         """Active combat reward weights (for logging and run records)."""
@@ -6022,7 +6173,7 @@ class TribesGymWrapper(gym.Env):
             width, height = int(dims[0]), int(dims[1])
         else:
             width, height = 0, 0
-        layout = observation_layout(width, height, getattr(self, "RULES_VERSION", None))
+        layout = observation_layout(width, height, getattr(self, "RULES_VERSION", None), getattr(self, "FOG_MEMORY", None))
 
         # 1. Terrain Channel (1 channel: width x height)
         terrain_raw = np.asarray(board.get("terrain", []), dtype=np.int16)
@@ -6173,6 +6324,10 @@ class TribesGymWrapper(gym.Env):
         if layout.diplomacy_units_end > layout.diplomacy_units_start:
             features.extend(self._diplomacy_unit_channels(unit_map, fog_mask, width, height, controlled_tribe))
 
+        # 6c. Combat fog memory only: remembered and inferred enemy units we cannot see.
+        if layout.fog_memory_end > layout.fog_memory_start:
+            features.extend(self._fog_memory_channels(obs_dict.get("fogMemory"), width, height))
+
         # 7. Legacy Scalars (6 values)
         tribes_info = obs_dict.get("tribes", {})
         tribe0 = tribes_info.get(str(controlled_tribe), {}) if isinstance(tribes_info, dict) else {}
@@ -6242,6 +6397,10 @@ class TribesGymWrapper(gym.Env):
         if layout.diplomacy_scalar_end > layout.diplomacy_scalar_start:
             features.extend(self._diplomacy_scalars(obs_dict, controlled_tribe, effective_techs))
 
+        # 12. Combat fog memory only: hidden tracked units, estimated never-seen units, known enemy unit capacity.
+        if layout.fog_scalar_end > layout.fog_scalar_start:
+            features.extend(self._fog_memory_scalars(obs_dict.get("fogMemory")))
+
         if len(features) != layout.expected_obs_dim:
             raise ObservationContractError(
                 f"Constructed observation vector length {len(features)} != expected {layout.expected_obs_dim}"
@@ -6249,6 +6408,31 @@ class TribesGymWrapper(gym.Env):
 
         return np.array(features, dtype=np.float32)
     
+    # Java FogMemory grid keys, in FOG_MEMORY_CHANNELS order.
+    FOG_MEMORY_GRID_KEYS = ("presence", "attack", "lastSeen", "unseen")
+
+    def _fog_memory_channels(self, block, width, height):
+        """FOG_MEMORY_CHANNELS from the observation's fogMemory block (zeros if absent), each clipped to [0, 1]."""
+        out = []
+        for key in self.FOG_MEMORY_GRID_KEYS:
+            grid = np.zeros((width, height), dtype=np.float32)
+            raw = block.get(key) if isinstance(block, dict) else None
+            if raw is not None:
+                arr = np.asarray(raw, dtype=np.float32)
+                if arr.shape == (width, height):
+                    grid = np.clip(arr, 0.0, 1.0)
+            out.extend(grid.flatten())
+        return out
+
+    def _fog_memory_scalars(self, block):
+        if not isinstance(block, dict):
+            return [0.0] * FOG_MEMORY_SCALAR_DIM
+        return [
+            min(float(block.get("trackedHidden", 0)) / 10.0, 1.0),
+            min(float(block.get("unseenEstimate", 0.0)) / 10.0, 1.0),
+            min(float(block.get("knownEnemyCapacity", 0)) / 20.0, 1.0),
+        ]
+
     # Java unit-type keys of the 2.15 Diplomacy units (core.Types.UNIT).
     DIPLOMACY_UNIT_TYPE_KEYS = {"CLOAK": 12, "DAGGER": 13}
 

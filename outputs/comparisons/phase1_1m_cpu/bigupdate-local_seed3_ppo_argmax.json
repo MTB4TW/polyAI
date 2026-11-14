@@ -1,0 +1,29 @@
+{
+  "baseline": {
+    "evaluation": "20261113_baseline-local-1m-cpu-seed3_validation_canonical",
+    "mean_spt": 17.296,
+    "network_arch": "spatial_resnet_local"
+  },
+  "bootstrap": {
+    "samples": 5000,
+    "seed": 42,
+    "unit": "map"
+  },
+  "candidate": {
+    "evaluation": "20261113_bigupdate-local-1m-cpu-seed3_validation_canonical",
+    "mean_spt": 15.328,
+    "network_arch": "spatial_resnet_local"
+  },
+  "difference_ci95": [
+    -2.52,
+    -1.444
+  ],
+  "losses": 150,
+  "maps": 250,
+  "mean_difference": -1.968,
+  "policy": "ppo_argmax",
+  "pool": "validation",
+  "ties": 29,
+  "warnings": [],
+  "wins": 71
+}

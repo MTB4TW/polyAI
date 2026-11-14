@@ -209,3 +209,23 @@ class UnitPreferenceAndTempoTests(unittest.TestCase):
         terms = TribesGymWrapper._combat_phi_terms(w, s)
         self.assertAlmostEqual(terms["rider"], 0.6)
         self.assertNotIn("rider", TribesGymWrapper._combat_phi_terms(self.wrapper(), s))
+
+
+class ShapingScaleTests(unittest.TestCase):
+    def test_scale_multiplies_shaping_not_outcome(self):
+        from pol_env.Tribes.py.register_env import TribesGymWrapper as W
+
+        base = W._load_combat_reward_weights({"POLYVISION_COMBAT_REWARD_RIDER": "0.3"})
+        half = W._load_combat_reward_weights({"POLYVISION_COMBAT_REWARD_RIDER": "0.3",
+                                              "POLYVISION_COMBAT_REWARD_SHAPING_SCALE": "0.5"})
+        zero = W._load_combat_reward_weights({"POLYVISION_COMBAT_REWARD_RIDER": "0.3",
+                                              "POLYVISION_COMBAT_REWARD_SHAPING_SCALE": "0"})
+        for name in W.COMBAT_OUTCOME_TERMS:
+            self.assertEqual(half[name], base[name], name)
+            self.assertEqual(zero[name], base[name], name)
+        self.assertAlmostEqual(half["rider"], 0.15)
+        self.assertAlmostEqual(half["city"], base["city"] / 2)
+        shaping = [n for n in W.COMBAT_REWARD_DEFAULTS if n not in W.COMBAT_OUTCOME_TERMS]
+        self.assertTrue(all(zero[n] == 0.0 for n in shaping))
+        with self.assertRaises(ValueError):
+            W._load_combat_reward_weights({"POLYVISION_COMBAT_REWARD_SHAPING_SCALE": "-1"})
