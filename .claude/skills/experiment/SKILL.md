@@ -16,5 +16,8 @@ Arguments: `NAME ARCH STEPS [SEED]`, where ARCH is `mlp`, `spatial_resnet` or `s
 3. Submit:
    `MAIL_USER=<their stanford email, if they gave one> TRACK=1 WANDB_UPLOAD=1 WANDB_LOG_EVAL=1 cluster/run_experiment.sh NAME ARCH STEPS SEED`
    Leave out `TRACK`/`WANDB_UPLOAD`/`WANDB_LOG_EVAL` if `wandb login` has not been done on this account.
+   For a PPO variant, add `EXTRA_PPO_ARGS="--norm-obs --norm-returns"` (any `ppo.py` flags except the ones the
+   script sets itself: model path, exp name, seed, arch, steps). It is recorded in `outputs/experiments/NAME.json`;
+   put the variant in NAME too (e.g. `resnet-local-normobs-16m-seed1`).
 4. Report the two job IDs, the model path, and the evaluation folder name the script printed.
 5. Do not wait or poll. When the user says the jobs finished, use the `compare` skill.

@@ -18,6 +18,10 @@
 #                               artifact when WANDB_UPLOAD=1)
 #   WANDB_PROJECT=polyAI        W&B project for all of the above
 #   NUM_ENVS=16                 parallel environments for training
+#   EXTRA_PPO_ARGS="--norm-obs --learning-rate 3e-4"
+#                               extra ppo.py flags, appended last (so they override the job's
+#                               defaults) and recorded in outputs/experiments/NAME.json. Split on
+#                               whitespace; only letters, digits, spaces and . _ = + : , / - allowed.
 #
 # Outputs:
 #   runs/experiments/NAME/NAME.cleanrl_model (+ .action_interface.json sidecar)
@@ -43,6 +47,18 @@ case "$ARCH" in
 esac
 [[ "$STEPS" =~ ^[0-9]+$ ]] || { echo "Invalid STEPS: $STEPS" >&2; usage; }
 [[ "$SEED" =~ ^[0-9]+$ ]] || { echo "Invalid SEED: $SEED" >&2; usage; }
+EXTRA_PPO_ARGS=${EXTRA_PPO_ARGS:-}
+if ! [[ "$EXTRA_PPO_ARGS" =~ ^[A-Za-z0-9\ ._=+:,/-]*$ ]]; then
+    echo "EXTRA_PPO_ARGS may only contain letters, digits, spaces and . _ = + : , / - (got: $EXTRA_PPO_ARGS)" >&2
+    exit 2
+fi
+for word in $EXTRA_PPO_ARGS; do
+    case "${word%%=*}" in
+        --model-path|--exp-name|--seed|--network-arch|--total-timesteps|--save-model|--no-save-model)
+            echo "EXTRA_PPO_ARGS must not set ${word%%=*}: run_experiment.sh sets it (use NAME ARCH STEPS SEED)" >&2
+            exit 2 ;;
+    esac
+done
 for flag in TRACK WANDB_UPLOAD WANDB_LOG_EVAL; do
     value=${!flag:-0}
     [ "$value" = 0 ] || [ "$value" = 1 ] || { echo "$flag must be 0 or 1, got: $value" >&2; exit 2; }
@@ -69,6 +85,7 @@ fi
 
 TRAIN_OUT=$(EXP_NAME="$NAME" NETWORK_ARCH="$ARCH" TOTAL_TIMESTEPS="$STEPS" SEED="$SEED" \
     MODEL_PATH="$MODEL_PATH" TRACK="${TRACK:-0}" WANDB_UPLOAD="${WANDB_UPLOAD:-0}" \
+    EXTRA_PPO_ARGS="$EXTRA_PPO_ARGS" \
     sbatch --parsable --job-name="train_$NAME" ${MAIL_ARGS[@]+"${MAIL_ARGS[@]}"} \
     cluster/train_farmshare.sbatch)
 TRAIN_JOB=${TRAIN_OUT%%;*}
@@ -96,6 +113,7 @@ cat > "$RECORD" <<EOF
   "network_arch": "$ARCH",
   "total_timesteps": $STEPS,
   "seed": $SEED,
+  "extra_ppo_args": "$EXTRA_PPO_ARGS",
   "submitted_utc": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
   "submitted_by": "$(whoami)",
   "git_commit": "$GIT_COMMIT",
@@ -112,6 +130,7 @@ EOF
 
 echo "Submitted experiment '$NAME'"
 echo "  train job $TRAIN_JOB  -> $MODEL_PATH"
+[ -z "$EXTRA_PPO_ARGS" ] || echo "  extra PPO args: $EXTRA_PPO_ARGS"
 echo "  eval job  $EVAL_JOB (starts after training succeeds) -> outputs/evaluations/$EVAL_ID"
 echo "  record    $RECORD"
 echo "Check progress with: squeue -u \$USER"
