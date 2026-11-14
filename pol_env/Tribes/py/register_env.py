@@ -367,6 +367,14 @@ class TribesGymWrapper(gym.Env):
             self.PHASE1_OPENING_VERSION = "combat_no_scripted_opening_v1"
             self.PHASE1_ENVIRONMENT_VERSION = f"combat_v5_scaled_scalars_horizon_{self.MAX_TURNS}"
             self._combat_reward_weights = self._load_combat_reward_weights()
+        # Self-play league (combat_selfplay.py; opt-in, POLYVISION_COMBAT_LEAGUE=1): snapshots play tribe 1 in some games.
+        self._combat_league = None
+        self._combat_opponent = None
+        if self._is_combat_mode and str(os.environ.get("POLYVISION_COMBAT_LEAGUE", "0")).strip() in ("1", "true"):
+            from pol_env.Tribes.py.combat_selfplay import CombatLeague
+
+            self._combat_league = CombatLeague(rng=np.random.default_rng(
+                (int(os.environ.get("POLYVISION_BASE_SEED", "42")) * 7919 + os.getpid()) % (2**32)))
             self._combat_prev_potential = 0.0
             self._combat_first_contact_tick = -1
             self._combat_prev_state = None
@@ -583,6 +591,7 @@ class TribesGymWrapper(gym.Env):
         self._last_reset_seed = int(episode_seed)
         self._validate_level_file_is_square(self._current_level_file)
         t_java0 = time.perf_counter() if self._profile_sps_enabled else None
+        self._select_combat_opponent()
         obs = self.tribes_env.reset(self._current_level_file, self._last_reset_seed, mode=self._engine_game_mode)
         if self._is_combat_mode and len(obs.get("tribes", {})) != 2:
             raise ValueError("Combat training requires a two-player map pool")
@@ -1377,6 +1386,7 @@ class TribesGymWrapper(gym.Env):
             if self._combat_first_contact_tick < 0 and self._combat_enemy_visible(obs):
                 self._combat_first_contact_tick = int(obs.get("tick", 0) or 0)
             if terminated or truncated:
+                info.update(self._combat_opponent_end_info(outcome))
                 info.update(self._combat_end_diagnostics(obs))
                 info.update(self._combat_end_breakdown(post_state))
                 info.update(self._combat_end_techs(obs))
@@ -5650,6 +5660,42 @@ class TribesGymWrapper(gym.Env):
             "combat_end_min_unit_dist_to_enemy_capital": int(dist),
             "combat_first_contact_tick": int(self._combat_first_contact_tick),
         }
+
+    def _select_combat_opponent(self):
+        """Self-play league only: pick this game's opponent (SimpleAgent or a snapshot playing tribe 1)."""
+        if self._combat_league is None or self._catalog is None:
+            return
+        from pol_env.Tribes.py.combat_selfplay import EXTERNAL_OPPONENT, SIMPLE_OPPONENT, OpponentView, play_external_turn
+
+        opponent = self._combat_league.choose(self)
+        self._combat_opponent = opponent
+        java = self.tribes_env._env
+        if opponent is None:
+            java.setOpponentAgent(SIMPLE_OPPONENT, 0)  # reseeded with the episode seed by the reset
+            self.tribes_env.opponent_turn_hook = None
+            return
+        opponent.reseed(int(self._last_reset_seed or 0) * 31 + 7)
+        java.setOpponentAgent(EXTERNAL_OPPONENT, 0)
+        state = {}
+
+        def hook():
+            if "view" not in state:  # built at the first opponent turn, after this game's reset bookkeeping
+                state["view"] = OpponentView(self)
+            play_external_turn(self, opponent, state["view"])
+
+        self.tribes_env.opponent_turn_hook = hook
+
+    def _combat_opponent_end_info(self, outcome):
+        """End-of-game opponent facts; with a league, also records the result for snapshot sampling."""
+        if self._combat_league is None:
+            return {}
+        snapshot = self._combat_opponent
+        won = float(outcome == "win")
+        self._combat_league.record(snapshot.path if snapshot is not None else None, outcome == "win")
+        info = {"combat_end_raw_opponent_snapshot": float(snapshot is not None),
+                "combat_end_raw_league_pool_size": float(len(self._combat_league.pool))}
+        info["combat_end_raw_win_vs_snapshot" if snapshot is not None else "combat_end_raw_win_vs_simple"] = won
+        return info
 
     def combat_reward_config(self):
         """Active combat reward weights (for logging and run records)."""

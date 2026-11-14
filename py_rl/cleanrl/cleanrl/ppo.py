@@ -1567,6 +1567,10 @@ if __name__ == "__main__":
     run_name = f"{args.env_id}__{args.exp_name}__{args.seed}__{int(time.time())}"
     run_dir = os.path.join("runs", run_name)
     os.makedirs(run_dir, exist_ok=True)
+    if _env_flag_bool("POLYVISION_COMBAT_LEAGUE_SELF", default=False):
+        # Self-play league: env workers (started below, inheriting the environment) draw opponents from this run's
+        # periodic checkpoints (pol_env/Tribes/py/combat_selfplay.py).
+        os.environ["POLYVISION_COMBAT_LEAGUE_SELF_DIR"] = os.path.abspath(run_dir)
     profile_enabled = _env_flag_bool("POLYVISION_PROFILE_SPS", default=False)
     profile_every_n_steps = max(1, _env_flag_int("POLYVISION_PROFILE_EVERY_N_STEPS", default=1000))
     profile_write_json = _env_flag_bool("POLYVISION_PROFILE_WRITE_JSON", default=True)

@@ -2,6 +2,32 @@
 
 All notable changes to this project are documented in this file.
 
+## [Phase2-Combat_Selfplay_League-064] - (2026-11-14)
+
+### Scope
+- Self-play opponents (opt-in, `POLYVISION_COMBAT_LEAGUE=1`; `pol_env/Tribes/py/combat_selfplay.py`): in some games
+  a frozen policy snapshot plays tribe 1 instead of SimpleAgent. Java needs no change: the "external" opponent type
+  leaves tribe 1's turn to Python. The opponent's own fogged observation and legal actions are relabelled so it is
+  tribe 0 (`swap_tribes`) and encoded by a copy of the wrapper (`OpponentView`), so a snapshot plays with exactly
+  the interface it was trained on. `gym_env.py` gains a hook (one call after `stepByIndex`) that plays that turn.
+- `CombatLeague`: SimpleAgent with probability `POLYVISION_COMBAT_LEAGUE_SIMPLE_PROB` (default 0.5), otherwise a
+  snapshot by prioritised fictitious self-play, weight (1 - smoothed learner win rate)^2, over the newest 8 of: the
+  learner's own periodic checkpoints (`POLYVISION_COMBAT_LEAGUE_SELF=1`, wired by `ppo.py`) and
+  `POLYVISION_COMBAT_LEAGUE_GLOB`. Snapshots that do not fit the environment are rejected, not crashed on.
+- End-of-game info: `combat_end_raw_opponent_snapshot`, `combat_end_raw_win_vs_simple` / `_vs_snapshot`,
+  `combat_end_raw_league_pool_size` (logged by the existing `end_raw/` W&B tracking).
+- `cluster/combat_selfplay_v2.env`: v2 weights + league, snapshots every 100k steps, warm start via `INIT_FROM`.
+- Limitation: the opponent view does not track its units' previous tiles, so the "move back to the previous
+  tile" action feature is always 0 for the opponent.
+
+### Validation
+- `tools/tests/test_combat_selfplay.py`: the swap relabels tribes, units, cities, the active tribe, Diplomacy
+  arrays and action fields, and is its own inverse; the pool keeps the newest snapshots; PFSP weighting;
+  unloadable snapshots are rejected once.
+- Live: a real 2.15 composed snapshot played tribe 1 in 6 games (120 opponent turns from Python, 269 decisions over
+  3 games: it moved, trained units and grew its score; its view was relabelled to tribe 0 on every decision).
+- Default runs are unchanged: no league unless `POLYVISION_COMBAT_LEAGUE=1`. Not run on Farmshare yet.
+
 ## [Phase2-Combat_Outcome_Finetune-063] - (2026-11-14)
 
 ### Scope
