@@ -27,3 +27,22 @@ Current reference: **v5 PARITY002 MLP, 16M, seed 3** (validation 20.52, test 20.
 | 2026-08-14 | Seed 1 | mlp | — | 1 | PolyVision upstream | 14.58 | — | — | `20260814T110912Z_validation_canonical` | Older mixed opening; shelved. |
 
 Baselines on the same 250 validation maps: visible greedy 7.93, random legal 6.67.
+
+## Combat (Phase 2)
+
+Combat is judged by win rate against SimpleAgent (11×11, 1v1, CAPITALS mode, 20 turns). There is no canonical
+combat evaluation yet, so these are **diagnostics from training games** (rate over the last 500 games, averaged over
+each run's final 250k steps; about 9,000 games per run), not canonical results.
+
+| Date | Name | Steps | Seeds | Ran by | Win (mean, per seed) | Loss | Timeout | Notes |
+|---|---|---:|---|---|---|---:|---:|---|
+| 2026-11-13 | combat_cap_all_2m | 2M | 1, 2, 3 | Kevin | **47.1%** (46.2, 48.3, 46.9) | 2.1% | 48.9% | All shaping, tech and capital terms. Best; still rising at 2M. W&B `vis7ipn7`, `lodsg4x4`, `4qzq4ajx`. |
+| 2026-11-13 | combat_cap_good_2m | 2M | 1, 2, 3 | Kevin | 38.9% (41.7, 37.3, 37.8) | 1.5% | 59.5% | As `cap_all` without regional attack and early-win taper. Flat since 1M. W&B `ggq4vz9n`, `vse7p4e2`, `5l9u6h3f`. |
+| 2026-11-13 | combat_cap_only_2m | 2M | 1, 2, 3 | Kevin | 36.8% (35.1, 37.9, 37.3) | 2.7% | 57.6% | Default reward plus `capital_hold=1`, `capital_region_kill=0.5`. W&B `liv3ko74`, `medxoi7u`, `p5li4rd7`. |
+| 2026-11-13 | combat_none_2m | 2M | 1, 2, 3 | Kevin | 33.9% (42.9, 29.3, 29.5) | 1.9% | 65.0% | Default combat reward (win 30, loss −10, timeout 0). W&B `ydaqpk19`, `f688v065`, `3dhods8m`. |
+
+All four: commit `64c8095`, `spatial_resnet_local`, 16 envs, seeded-random maps from `phase2_pool_1v1/train`.
+In `cap_all`, 47% of timeouts end with one of our units within 1 tile of the enemy capital; the army is mostly
+warriors (12.6 of 15.9 units), and the tech terms cut Philosophy/Meditation from 64%/80% (`none`) to about 1%.
+Tech-researched rates from these runs undercount by the loss rate (fixed in CHANGELOG 060).
+
