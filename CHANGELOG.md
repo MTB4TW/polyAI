@@ -2,6 +2,26 @@
 
 All notable changes to this project are documented in this file.
 
+## [Eval-Canonical_Combat_Evaluation-062] - (2026-11-14)
+
+### Scope
+- New canonical combat evaluator `tools/evaluate_combat.py` (pure helpers in `tools/combat_eval_core.py`), paired
+  comparison `tools/compare_combat_evals.py`, and Farmshare job `cluster/eval_combat_farmshare.sbatch`
+  (docs/evaluation.md, "Canonical combat (Phase 2) evaluation").
+- New map pools `levels/phase2_pool_1v1/eval_validation` and `eval_test` (120 maps each, seeds 30000+ and 40000+),
+  pinned in `eval_manifest.json`. `tools/generate_phase2_maps.py` gains `--pool/--count/--start-seed`; with no
+  arguments it regenerates train and validation exactly as before (verified byte-identical for map 10000).
+- Canonical: `eval_validation`, 5 replicates, seed 42, `ppo_argmax` + `ppo_sampled` + `random_legal`. Episode seeds
+  depend only on map and replicate, so evaluations pair map by map. `eval_test` needs `--confirm-test`.
+
+### Validation
+- `tools/tests/test_combat_eval.py` (10 tests): manifest matches the files and is reproducible, eval maps are
+  disjoint from training, tribe order follows the engine, seeds pair across policies, canonical classification,
+  per-map statistics, paired comparison and its refusal of unpaired evaluations.
+- A small 2.15 composed checkpoint evaluated twice on 4 maps × 2 replicates gave identical episodes; the evaluator
+  refuses `eval_test` without `--confirm-test`. About 0.4 s per game for a weak policy.
+- No model evaluated canonically yet.
+
 ## [Phase2-Combat_Cap_All_v2_Rules_2_15_Composed-061] - (2026-11-14)
 
 ### Scope

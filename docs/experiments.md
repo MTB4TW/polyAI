@@ -30,9 +30,10 @@ Baselines on the same 250 validation maps: visible greedy 7.93, random legal 6.6
 
 ## Combat (Phase 2)
 
-Combat is judged by win rate against SimpleAgent (11×11, 1v1, CAPITALS mode, 20 turns). There is no canonical
-combat evaluation yet, so these are **diagnostics from training games** (rate over the last 500 games, averaged over
-each run's final 250k steps; about 9,000 games per run), not canonical results.
+Combat is judged by win rate against SimpleAgent (11×11, 1v1, CAPITALS mode, 20 turns). The canonical combat
+evaluation (`tools/evaluate_combat.py`, docs/evaluation.md, CHANGELOG 062) was added on 2026-11-14; the rows below
+predate it and are **diagnostics from training games** (rate over the last 500 games, averaged over each run's final
+250k steps; about 9,000 games per run), not canonical results.
 
 | Date | Name | Steps | Seeds | Ran by | Win (mean, per seed) | Loss | Timeout | Notes |
 |---|---|---:|---|---|---|---:|---:|---|

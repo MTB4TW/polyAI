@@ -1,0 +1,1695 @@
+{
+  "schema_version": "polyvision-combat-eval-pools-v1",
+  "pools": {
+    "eval_validation": {
+      "start_seed": 30000,
+      "maps": [
+        {
+          "filename": "map_2p_030000.csv",
+          "csv_sha256": "53986ebea4bb299c30e2ea46a2609e76e2a768f85c9f2266f002a3abe4c04e83",
+          "map_seed": 30000,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_030001.csv",
+          "csv_sha256": "82c0972624762945704b0e3893915165d02f107b00bd320585945aa9fc51762e",
+          "map_seed": 30001,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_030002.csv",
+          "csv_sha256": "974e88bc1f5ae8f5cbc50f54ffb051cf80e94e2b74b09e2a0a8cd30d66375619",
+          "map_seed": 30002,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_030003.csv",
+          "csv_sha256": "ae774e513e23d2fcb5a2cfbfb356181912562cb76ff7339d0f71601f65b95d86",
+          "map_seed": 30003,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_030004.csv",
+          "csv_sha256": "e0d45b23b548fc4636b23fa85b8c5318e77ab8cee078fde7db452f9882c592e8",
+          "map_seed": 30004,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_030005.csv",
+          "csv_sha256": "9c4ca15a2942e79367a75d15b6a5abfc842d93bb352a079c9df8eaa26bf7879c",
+          "map_seed": 30005,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_030006.csv",
+          "csv_sha256": "b65468014ee5cdbe6320489f9d7455dd3f7ea04eae71e746a210dd4e7a34bc50",
+          "map_seed": 30006,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_030007.csv",
+          "csv_sha256": "d447d00417985401b9f5209f6940ad7ba66c78316ce7338c8f681216b0fa45a4",
+          "map_seed": 30007,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_030008.csv",
+          "csv_sha256": "6cbbb37176d77a48b0668b040da7d78e7f332dfcaebb4db1e0b2554226802d5a",
+          "map_seed": 30008,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_030009.csv",
+          "csv_sha256": "b014bb63d7a94b9fb8d019927eb308ff2f6cc4a65af0b51bf4255cd58bb563a8",
+          "map_seed": 30009,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_030010.csv",
+          "csv_sha256": "374046c2d2cd13958ed6da8171f05534c40bd380f44bff2a3bec0ca97be7599c",
+          "map_seed": 30010,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_030011.csv",
+          "csv_sha256": "12173b54862eb50076690feb034d44784b442278f3d64c2c7513132d244e0d77",
+          "map_seed": 30011,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_030012.csv",
+          "csv_sha256": "7e006ce1539678c5f5308f4419755e94561ab42348341cf45b8f941abddf1255",
+          "map_seed": 30012,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_030013.csv",
+          "csv_sha256": "c11e089ffbdc1e1abd1748295de707c18946d4fc344124e4c290be7860bc98c7",
+          "map_seed": 30013,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_030014.csv",
+          "csv_sha256": "c0160bfef0d7372567b0513035f0262ba20ac8f670b38928d7108d866347d6aa",
+          "map_seed": 30014,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_030015.csv",
+          "csv_sha256": "1238ed026e8276c16ce33711a24088725c6704d777339e41cc30106ac08a277e",
+          "map_seed": 30015,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_030016.csv",
+          "csv_sha256": "b5f9860e0f4339fbd460a9f8a9fc9e8e01c594687917ca0907d3fc5ec1240d51",
+          "map_seed": 30016,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_030017.csv",
+          "csv_sha256": "306c8a3b3f26b89cbfd72b1a921945f16fb70112baba65bb56f2a7bdb32efcef",
+          "map_seed": 30017,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_030018.csv",
+          "csv_sha256": "03419445083e2a3597752f4d0b830a28baa21c547b5cac1df9cf04366adf0d09",
+          "map_seed": 30018,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_030019.csv",
+          "csv_sha256": "50bba5086426d309b68507a74fcef534eb1acb72ab777a1cc7b0fc68fdd2b41b",
+          "map_seed": 30019,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_030020.csv",
+          "csv_sha256": "91bb0be8e4f1249dd39a6627b70a5bd755a99655f40c1b718d010a4512ee0f31",
+          "map_seed": 30020,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_030021.csv",
+          "csv_sha256": "7695ffb80538810666b087059020db51b04a323c3a0375eec17ec7fc55689670",
+          "map_seed": 30021,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_030022.csv",
+          "csv_sha256": "4f59ddb31f94015f08013830faba151c893cc8fbf9c68d1ff4129c6962e6886f",
+          "map_seed": 30022,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_030023.csv",
+          "csv_sha256": "4ad7b9311d41669ed516f2c298c4cc653560ff25802c484227a6ce8c8260f278",
+          "map_seed": 30023,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_030024.csv",
+          "csv_sha256": "508fcd36890ccb15fc478e6ce5a5fdbfd6340d133d3d581a99d9f86270c4b39c",
+          "map_seed": 30024,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_030025.csv",
+          "csv_sha256": "7f9acd843df8e778fd370713e9d2ea8e1bb13a77306df957d6a17fb79fa14b88",
+          "map_seed": 30025,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_030026.csv",
+          "csv_sha256": "f39c4c6e53da6d6167d316006bca6441653e82adb049ecb92d422f15212e4309",
+          "map_seed": 30026,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_030027.csv",
+          "csv_sha256": "a0105f398e37be72180d55b2a503476551b3e9e73112a4a2dd550eedde81c38b",
+          "map_seed": 30027,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_030028.csv",
+          "csv_sha256": "35bbf17e8b74d8b8742828d75237f8fa4a74517391a54c725ef3c365082c1657",
+          "map_seed": 30028,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_030029.csv",
+          "csv_sha256": "ba6dd8d1c5d9c1ec88b922b9e632686a25c9dcf4282cec6457af741d61df93d6",
+          "map_seed": 30029,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_030030.csv",
+          "csv_sha256": "6caea62a6783294971e5a064c130e86b106ffa04c8788fd4bed2f3c9d2ee84af",
+          "map_seed": 30030,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_030031.csv",
+          "csv_sha256": "af2ff4a6488e3f033cca5d8e68b3e12630a72416485c62dee7d1f5187456f70d",
+          "map_seed": 30031,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_030032.csv",
+          "csv_sha256": "f63aa12d3784ab53a2c80d4bdf4fd14bf9d4516bca8fbaa62b7e9c18ab29dfb2",
+          "map_seed": 30032,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_030033.csv",
+          "csv_sha256": "68881d330bc2010fb0a5d33f51325136d0ca7edbefbf193fb9a4a02d267b4cc7",
+          "map_seed": 30033,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_030034.csv",
+          "csv_sha256": "b2866f090dd6a07b9131aebd29b5ccf080062caff7eb976cd2bdd8abe9fccb78",
+          "map_seed": 30034,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_030035.csv",
+          "csv_sha256": "a2007db84556fa01aae2021a59a97ab9efcbad05d6a243226a21e19f4264ab31",
+          "map_seed": 30035,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_030036.csv",
+          "csv_sha256": "1225e6e85b8e28a2ac9d938345b66a26d8fa295155cdedbb6485c74b75ff8808",
+          "map_seed": 30036,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_030037.csv",
+          "csv_sha256": "178630c7786f02aac808a7ff5f07cad002e0db45489e6df6c0581da67185f5df",
+          "map_seed": 30037,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_030038.csv",
+          "csv_sha256": "357ca5fb2078cb29a0ab72e73fb8f1f784367f625f4b8a74e800663ff95b91c1",
+          "map_seed": 30038,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_030039.csv",
+          "csv_sha256": "b1a387d36f3c35f8d713297324227981eeef0e58c7bedc9466f4e87d955a7fa7",
+          "map_seed": 30039,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_030040.csv",
+          "csv_sha256": "5aee58601a04d7ceb536b1c94dcc9d58cd29b4b802570934e7c3e53faa94df9b",
+          "map_seed": 30040,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_030041.csv",
+          "csv_sha256": "29158828a74c711a7a8ef862280e7d9143241f3aee61cf5e2af7f2f9b274c0bc",
+          "map_seed": 30041,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_030042.csv",
+          "csv_sha256": "284c1e6781694e1eb7b7555b2666c70ad33088caa7b17067e9f5295fbce35d0e",
+          "map_seed": 30042,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_030043.csv",
+          "csv_sha256": "91432dc7776f9fc9e6674240c1e0eba9753881b768f7616170340dbf429808a1",
+          "map_seed": 30043,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_030044.csv",
+          "csv_sha256": "7eccac28b9d8437cb4f33822b6d32b4cf3e39479670d955999c2db9484c75a5d",
+          "map_seed": 30044,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_030045.csv",
+          "csv_sha256": "f5f7563d29892f4831e13a0a7fa3f537a0f95e63bc9185806c50ccbde19fe558",
+          "map_seed": 30045,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_030046.csv",
+          "csv_sha256": "0fcff32cb8241ab0de80c154420c6bfc3806e4400df0f7c76d9a74adc0195e5a",
+          "map_seed": 30046,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_030047.csv",
+          "csv_sha256": "b3909c6a8afddde2fcc5504ad43924819d12ed4fc48829155b5262c397e4b9fb",
+          "map_seed": 30047,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_030048.csv",
+          "csv_sha256": "156b9f16eebe68ca8f31f0a127ade94ce2d6f7d75fedc3e217e36809ebb46490",
+          "map_seed": 30048,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_030049.csv",
+          "csv_sha256": "563074a6341484be493e180bf44021f9b8d1e6caa9e050953b4b8775ddf30516",
+          "map_seed": 30049,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_030050.csv",
+          "csv_sha256": "d5d8d0f6c5a8be3999febabfe0e8d3fd17717f7ec3af22b9e69b56f37032835a",
+          "map_seed": 30050,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_030051.csv",
+          "csv_sha256": "1bcd7934660db9b31ba0f62f96159f565fc81436c81e85dee593d9907e6c26be",
+          "map_seed": 30051,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_030052.csv",
+          "csv_sha256": "b1fddf6e3c86c1fc3c5e4c713ff693b5d4cb7d2b15e044a462a26d793d281a7b",
+          "map_seed": 30052,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_030053.csv",
+          "csv_sha256": "9069bce7feba346bf45a3a26169b1579ba151c5acd0356914ba75b486cddb6da",
+          "map_seed": 30053,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_030054.csv",
+          "csv_sha256": "5e82bd62e02c77ae7fc72e06ea6139af3f03b222ac29bc0417c119e5310f91b2",
+          "map_seed": 30054,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_030055.csv",
+          "csv_sha256": "0d107744821c1fbbdd2f0933f6f4e09eca08c3ddd81f9770c4ef0449a851c895",
+          "map_seed": 30055,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_030056.csv",
+          "csv_sha256": "31da6bc0e29160ac4457a7897e14ac927e5a5194330c6ed9935103e03c3f0790",
+          "map_seed": 30056,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_030057.csv",
+          "csv_sha256": "e8769eef8a40e7b5abee6b38b886ea740083e1bd9a5a2e1e532e919bc163d288",
+          "map_seed": 30057,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_030058.csv",
+          "csv_sha256": "5f215fd6fe90b72d1ec73f8d14e52da1d22673e29ab2708f52b30a656230dac2",
+          "map_seed": 30058,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_030059.csv",
+          "csv_sha256": "863da75e68d25a2e7f7f596d32767cc655c401e05b8af4e1ed6b8bdd4d3ab5d8",
+          "map_seed": 30059,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_030060.csv",
+          "csv_sha256": "0027246a152e8a0acdfc4fa79bc9ac01ab60ae3ebf5930ade0d4d4c7f364ffda",
+          "map_seed": 30060,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_030061.csv",
+          "csv_sha256": "dc2cabdf2ed47d0a29beb549d715ae4e32f400333b191616f9cc68ba01284b41",
+          "map_seed": 30061,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_030062.csv",
+          "csv_sha256": "4bbf77c62725e93d628183557cf1c63b6370ee9633bc61fa5935e7b046ac06a5",
+          "map_seed": 30062,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_030063.csv",
+          "csv_sha256": "471b416ff1438650312e6cbafba7045790d606507b790256663b3e32e6274cab",
+          "map_seed": 30063,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_030064.csv",
+          "csv_sha256": "9f81cae049fa26d44564e337f176c2dbd1c637d0b142b435bf9a3ef3daf0f9c3",
+          "map_seed": 30064,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_030065.csv",
+          "csv_sha256": "554162b7202a2a365a79baca1e3a780a8793c0c6ec4940c4ae519a71bdc04fe3",
+          "map_seed": 30065,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_030066.csv",
+          "csv_sha256": "a480f36b1632fb8b6dc2a476eb4af3f197551aa6a44e7f400708bded48a9dcd4",
+          "map_seed": 30066,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_030067.csv",
+          "csv_sha256": "0574fa807f63ff666856097acd52f10a1d9caa4420d601b64f6870a78a6c452c",
+          "map_seed": 30067,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_030068.csv",
+          "csv_sha256": "a14a08f1e499d951dc1e558dd1d70beef32b78275e9a10b845f6849a9447eb21",
+          "map_seed": 30068,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_030069.csv",
+          "csv_sha256": "f26ffad36b0ecf4685f8666cae06b55640c5c81307283f5194c43693eba8dac8",
+          "map_seed": 30069,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_030070.csv",
+          "csv_sha256": "6cf0099492d0868ea0613ba60775104c16e9320e201782ddaadba27a4d3f9469",
+          "map_seed": 30070,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_030071.csv",
+          "csv_sha256": "bacb4575ce779dcb6e34d7c7b4cc65209dafdaf35efd759da868cc2d2086f06d",
+          "map_seed": 30071,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_030072.csv",
+          "csv_sha256": "0b96758b70fa9a66897defc429ff37a5bb9a2fc2ca5811edd6c4cec5f5851a76",
+          "map_seed": 30072,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_030073.csv",
+          "csv_sha256": "c8db2bc14177965d103fcc64d4a093c83ed1fda1477c88f9ef0fca51450d4414",
+          "map_seed": 30073,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_030074.csv",
+          "csv_sha256": "d442d23675911e1e0c5e9906a72c7c0d180bd25ccfdbfa60530fb4bca0828489",
+          "map_seed": 30074,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_030075.csv",
+          "csv_sha256": "feac6bda2b1fc0c330147acaf7251173169e458f48f6075d7c495d340f624978",
+          "map_seed": 30075,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_030076.csv",
+          "csv_sha256": "8bdcfa2be13838bff355b1b412cccd0bb0d56bd60239623eadf6899cca9b3b19",
+          "map_seed": 30076,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_030077.csv",
+          "csv_sha256": "fb1c6c8e28930605371cbb22e95b73daba7d56d985ccd41b18740a1a3f362d2e",
+          "map_seed": 30077,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_030078.csv",
+          "csv_sha256": "1e977f3824f5ce5b9a995fe122a8959d77870a026b3b47528e231850e8cdf277",
+          "map_seed": 30078,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_030079.csv",
+          "csv_sha256": "52b1b5c4e6a8c7ff20bc4970562f8ce85661c1237a63172e5f1aa1acbd3e16da",
+          "map_seed": 30079,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_030080.csv",
+          "csv_sha256": "672ad09d43245020dc9c4f2a3f8b2ba93bbfcefa1496301d8c041acacb3ba1fc",
+          "map_seed": 30080,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_030081.csv",
+          "csv_sha256": "dce855cbf2fd0ef9246b333ac064f3d63f019c1e7f9a63f1e00f3f3ee3a233e7",
+          "map_seed": 30081,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_030082.csv",
+          "csv_sha256": "52c579c6961c97ad5377ed44bef4fd160c39ce33df74e79894418d503b6ff377",
+          "map_seed": 30082,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_030083.csv",
+          "csv_sha256": "91b5ee380f8dd8f75168d63bab5f3e84db10171dd9ccc9141a127d2f65ca0962",
+          "map_seed": 30083,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_030084.csv",
+          "csv_sha256": "f1326dc9c73a8cacc367cfa54d431fbd1105450b89b690209239a9f822ef56c5",
+          "map_seed": 30084,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_030085.csv",
+          "csv_sha256": "cb9ceb19a0af0074366c3520e45087360099afd1cd9782107100dd7dfc039d26",
+          "map_seed": 30085,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_030086.csv",
+          "csv_sha256": "a3e504b4df779b340d279fed7998d2c2d3c9d45cb81c8328db168b50c22728dd",
+          "map_seed": 30086,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_030087.csv",
+          "csv_sha256": "81cefff46de81f88285426ebd3ac4a1a8e8f8a02183139e210161d88afab8c15",
+          "map_seed": 30087,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_030088.csv",
+          "csv_sha256": "7e2db91d791656127a08f52d1a4f05a8eca5cf72be7c852031e4701cc64e4dfe",
+          "map_seed": 30088,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_030089.csv",
+          "csv_sha256": "0b91b8e8ae1ec5cc7f3cc105f3e54c1a8fbc0e499e464f337c56f0da776acf36",
+          "map_seed": 30089,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_030090.csv",
+          "csv_sha256": "44ec66c63ad3e422924a3eb3786e25868b30c9cd911f2be1e0062c471a62d6e5",
+          "map_seed": 30090,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_030091.csv",
+          "csv_sha256": "41fb4d3ec4b14fb16aea271602b2c6c4d096140db16d99fadb73c150f0d23850",
+          "map_seed": 30091,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_030092.csv",
+          "csv_sha256": "f69ca7b337fb773a1a23e89072e48a299986d78075d226713baff2181a50da10",
+          "map_seed": 30092,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_030093.csv",
+          "csv_sha256": "c076e1b8322eb9f46dc2c10bda485b548af5f8bec7ba6ded58fd7e65b705ddc3",
+          "map_seed": 30093,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_030094.csv",
+          "csv_sha256": "d970a3ba5d5951d6c99394a2bc8f862e91a30a46f145718f58047697ba094ae6",
+          "map_seed": 30094,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_030095.csv",
+          "csv_sha256": "8a8c9888d519935595dc2a6d790e196978fe5965e737565e7f93dd5369d43865",
+          "map_seed": 30095,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_030096.csv",
+          "csv_sha256": "45a08c85a0a1fe832780baad83b85d74268e7b7f893906ecf30ac1f15c3b217c",
+          "map_seed": 30096,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_030097.csv",
+          "csv_sha256": "e9000b91583c6220bd1219e199d36dbb61d701f6f905aa57a4ad05e6e5b17eb3",
+          "map_seed": 30097,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_030098.csv",
+          "csv_sha256": "65d3865243515ee9323f29e323544de519631a39a8e896bf4cecf7f52b149295",
+          "map_seed": 30098,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_030099.csv",
+          "csv_sha256": "e9eb68459369d49fa0ffbd4d352090e023e6a94ac1d91089f04b3bd77ba878c2",
+          "map_seed": 30099,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_030100.csv",
+          "csv_sha256": "f89208501f210e22a800374528938ddafdef7954609aaafc17ea9309c5a1987e",
+          "map_seed": 30100,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_030101.csv",
+          "csv_sha256": "58b1be9fb2264339cb6b1c38d31bcab36b904c68df4f105f2d7b66709b395a0b",
+          "map_seed": 30101,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_030102.csv",
+          "csv_sha256": "5ed3c2cab910848e2879eede7311c7206d130c0c9ed0402c0ec42b7d35e53590",
+          "map_seed": 30102,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_030103.csv",
+          "csv_sha256": "02684ecd4a1f307f3b81289e1ce6749e74ed0202488d36d38b00b85d7d4fd06f",
+          "map_seed": 30103,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_030104.csv",
+          "csv_sha256": "7e5fd9f8cf6d5d836e688c314763d928e53379de7c9796bb4080e61c4dfef2b4",
+          "map_seed": 30104,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_030105.csv",
+          "csv_sha256": "56132ea7d92f2dd1f43bb0d7630089dfa0410b2952e2ddac8c1ce16ed54a412b",
+          "map_seed": 30105,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_030106.csv",
+          "csv_sha256": "67d368ca4f866c23aa2bfbc37f7016f77c7b1829be27329eaa8579139d22ff7e",
+          "map_seed": 30106,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_030107.csv",
+          "csv_sha256": "eb65fc8b67bd6dcd4e6f15c041a131056225a415eb16334938f9ff1bcd4f1e8c",
+          "map_seed": 30107,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_030108.csv",
+          "csv_sha256": "64a5c03a53fb0d9dc5aea2bdc2ca93042542aa9b246acef30ea859fec6bd076d",
+          "map_seed": 30108,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_030109.csv",
+          "csv_sha256": "61b3e7bc2294e13cf5e3adc6da551252c6c6a5f7c167ed9edf22cb6c06c6ce14",
+          "map_seed": 30109,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_030110.csv",
+          "csv_sha256": "dcda55c7aae8ff7679d9bdd2494704227e99ca537f51da9908fb8f7aa3b4e49c",
+          "map_seed": 30110,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_030111.csv",
+          "csv_sha256": "d2b86f640a9c60638cc254419fa49d9bcd7cc7de7338adc56c1652c16e879b89",
+          "map_seed": 30111,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_030112.csv",
+          "csv_sha256": "c29b03a87e9a0636b26239df4a6d3b24982b86da05989555ea8e3a0270194aab",
+          "map_seed": 30112,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_030113.csv",
+          "csv_sha256": "d620cd926e6ffb9cf8607d40fd3f5f486bc4ff5a767557b2c9fe61ff13569050",
+          "map_seed": 30113,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_030114.csv",
+          "csv_sha256": "4f4b4b2a250e45ba4a72139e7a9610bdecab75d67ad85c95ffc7a17674ade8be",
+          "map_seed": 30114,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_030115.csv",
+          "csv_sha256": "27e46350ec2ccb9e6511779a97de6d7a0c1d1b13e4da767e70fc693ed0d9786b",
+          "map_seed": 30115,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_030116.csv",
+          "csv_sha256": "7621ba42348b8e4f0b394d0837225172c7340cd2920c7c183b8bf94495c9d481",
+          "map_seed": 30116,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_030117.csv",
+          "csv_sha256": "531166fbe6b7ee2efbbea82cab6ab5134a68c82aa4c57868c6f92b04a92d235d",
+          "map_seed": 30117,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_030118.csv",
+          "csv_sha256": "de2b3c79c32c9889ac9f2bc8d10ff34c5a623185d3010120d77d79701d385b0a",
+          "map_seed": 30118,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_030119.csv",
+          "csv_sha256": "e815c0c67ea227be8c6aa83379454df7f50d1aefb75c75f7cbc7ec623d54c4ed",
+          "map_seed": 30119,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        }
+      ]
+    },
+    "eval_test": {
+      "start_seed": 40000,
+      "maps": [
+        {
+          "filename": "map_2p_040000.csv",
+          "csv_sha256": "8222f19cfa2d531ecaa6966e84d21f9fa1acfa3c0444554d9eb14c31898c55e8",
+          "map_seed": 40000,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_040001.csv",
+          "csv_sha256": "9bd080a2b66ae7cef5513caa6b3e563d9804d4424e427d2ac2afc3f542713cd9",
+          "map_seed": 40001,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_040002.csv",
+          "csv_sha256": "b2c60939a43b89e49db15c5d729acd090414a37613b355780318d61ebfab4e88",
+          "map_seed": 40002,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_040003.csv",
+          "csv_sha256": "e20122bc4c4d50f4fb7154dc763a6e6fc8137f2bf635ac98f3e66a6edc966302",
+          "map_seed": 40003,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_040004.csv",
+          "csv_sha256": "17541d4dd699b7440d4c2a759bdbc5258f5ab3533a27f49ae02754c54762c570",
+          "map_seed": 40004,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_040005.csv",
+          "csv_sha256": "ed9e3cf4abc01784338372ec513bb0787ea35fb6490fd8c2b098b4ca92eafb27",
+          "map_seed": 40005,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_040006.csv",
+          "csv_sha256": "9c1ee1ed54d57183a48add2fd8ce1fdfedea2981828e1cc85945307a2aa4e689",
+          "map_seed": 40006,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_040007.csv",
+          "csv_sha256": "50dd71e78090d12d8a1c2966527bddb22d08d08b4846cf4941629b3d99b8e28c",
+          "map_seed": 40007,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_040008.csv",
+          "csv_sha256": "202614b3128e3a98cd5cc6f1354aa4f7256dab937169f1660f09138c4ab71de5",
+          "map_seed": 40008,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_040009.csv",
+          "csv_sha256": "b2577395caa11f6cbabe838afac0cb13e5e212bce005459c43fffdbc33ab777e",
+          "map_seed": 40009,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_040010.csv",
+          "csv_sha256": "87a70c4666619c2b9011b7d92c16342e4540929feab24392a758f166cca379c4",
+          "map_seed": 40010,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_040011.csv",
+          "csv_sha256": "3d8c3b2a740dfebc866261404641215bee71c9fc7cdf028bdf8fdd2e61e98b1b",
+          "map_seed": 40011,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_040012.csv",
+          "csv_sha256": "455942ff92c9378a49a994e43402bb95d311767ae969719ff25c1cb5b75aa57a",
+          "map_seed": 40012,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_040013.csv",
+          "csv_sha256": "1779d42a4e7083f1fbce12e74f274b22801614f0014bb2b54c468d6410d6ee9e",
+          "map_seed": 40013,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_040014.csv",
+          "csv_sha256": "d4c11cd3b646cb78d389fef4302437386930ca02e5d50282ba2a5b14f1a3e771",
+          "map_seed": 40014,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_040015.csv",
+          "csv_sha256": "409b37fd8201e5f9514b5eefbc3ce5d59170a5146278508cbcb17dbe37d15196",
+          "map_seed": 40015,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_040016.csv",
+          "csv_sha256": "4b32ed817613d595980dd3d006d511f95451af13cdcec9412cb29673cf79f91f",
+          "map_seed": 40016,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_040017.csv",
+          "csv_sha256": "257902b61247de4cf8a59ce3507aee8a260e34b5e14d2b8f4015df973c2c9509",
+          "map_seed": 40017,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_040018.csv",
+          "csv_sha256": "37a50b60bfdcab849278612a7c8170ebf0a5c708da9c8059fdc9180ae59bd882",
+          "map_seed": 40018,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_040019.csv",
+          "csv_sha256": "a09d5140c7944a2ef90dd17ff853893e77758f76e5057bfc7af7a01d840c7834",
+          "map_seed": 40019,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_040020.csv",
+          "csv_sha256": "a0d2366c82639c988988e44901f2bb6caec0445ed3a54eafe8ec53c8cc54489f",
+          "map_seed": 40020,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_040021.csv",
+          "csv_sha256": "8677bc78bc6b7eecc9214af6ce7f0ce96858cb8ca1f979fc6e15cb37f0e501f9",
+          "map_seed": 40021,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_040022.csv",
+          "csv_sha256": "4c06309d61cebfb1ae48022dca6348c98e6b52a0e870e364fbcef42eb907e8a4",
+          "map_seed": 40022,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_040023.csv",
+          "csv_sha256": "63ed65c6868a6afee8f9703452428cbac803294cb1c2e52124ded57654039d2a",
+          "map_seed": 40023,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_040024.csv",
+          "csv_sha256": "1265f1b7347939ca91b3f741e1347b0301bbbac4fde09303fd4d55f60906b740",
+          "map_seed": 40024,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_040025.csv",
+          "csv_sha256": "911214835094170c900e7ea4adc105e49ba0fe0fc02ffa8a4611e981f3ef8818",
+          "map_seed": 40025,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_040026.csv",
+          "csv_sha256": "61c0bc64d760ed5b0ac4f25a328ec1a6a655924d2ec377c59e12ab6885012110",
+          "map_seed": 40026,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_040027.csv",
+          "csv_sha256": "b9474bb205dd1f665ea7340ab7b3f0589a921ccc885fac096993501b475e5045",
+          "map_seed": 40027,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_040028.csv",
+          "csv_sha256": "58462a0e8cb7f52c36edf2e8f4f3acb8c124e9c2873c2aff0f8e0ccff54602c1",
+          "map_seed": 40028,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_040029.csv",
+          "csv_sha256": "9d31a3bb05642d571fb54beba61dfbb6d5ae305bea923e771d03b6fd0c61427b",
+          "map_seed": 40029,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_040030.csv",
+          "csv_sha256": "a2670a6c6b99b4bcc6f46372e66d8e9fabf749e1cbaf78d726bae09434fbc467",
+          "map_seed": 40030,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_040031.csv",
+          "csv_sha256": "a32a4a1b20299bfd957be23c09d5a0ecfed620daac23f989d31bf867070e6734",
+          "map_seed": 40031,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_040032.csv",
+          "csv_sha256": "5b17063cf2a033c34c3e24c9f56f7b99c2cecd9f7c29cc4d3f710be0307bcdcc",
+          "map_seed": 40032,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_040033.csv",
+          "csv_sha256": "bc5fcbdecb486b1d439e5b0b383ce049f5e521cbc523f2b2d74eb89b297532c6",
+          "map_seed": 40033,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_040034.csv",
+          "csv_sha256": "0eeb11469795de0ebb5ecf8d62314b1769de36aa0113f5215c9466bee1793357",
+          "map_seed": 40034,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_040035.csv",
+          "csv_sha256": "6c9dac5ad0c2d4cc399b765bd9c77fd6518d2a302fbee74eeb335cebb41a524d",
+          "map_seed": 40035,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_040036.csv",
+          "csv_sha256": "3084a15ee4277ffdf6659429e16168fc7402e2e755f7f9bc9d74b1ef372c5155",
+          "map_seed": 40036,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_040037.csv",
+          "csv_sha256": "8d621babb7adf7f5096b845e307ed7281e4a5ba3e2bad16faf69e228452a9c82",
+          "map_seed": 40037,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_040038.csv",
+          "csv_sha256": "96182fc9503bdd003ad402949f37703f3a82d1c1689a128f1db077df1b1ee2cd",
+          "map_seed": 40038,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_040039.csv",
+          "csv_sha256": "db46790141ed6d3a53fc8885d8993788f86f44f556fe3020889a8de137173ff2",
+          "map_seed": 40039,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_040040.csv",
+          "csv_sha256": "266d50fca050a23d4d09a359bede7981ddb93db8bd0f06beb87cb410433497ee",
+          "map_seed": 40040,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_040041.csv",
+          "csv_sha256": "fe0bb312291317e24a3746925f8552a9c0e7a0d51e310ce253157a7bd2d4984a",
+          "map_seed": 40041,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_040042.csv",
+          "csv_sha256": "83fb5dce998d1f8229b5bcc684ba76c587e083cfe20fced0dda31f1a2355ad7b",
+          "map_seed": 40042,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_040043.csv",
+          "csv_sha256": "b5d2e5da33b1f14a30fa3349c1428b4b8fa9313c2c149f8971fa46abd7e70289",
+          "map_seed": 40043,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_040044.csv",
+          "csv_sha256": "9690e122dbd9b75aa1ae5b5c0827e93b1a3d0c2312872a5b92888b5aef174279",
+          "map_seed": 40044,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_040045.csv",
+          "csv_sha256": "009c496ba43f26e9ac467eb143be78b72aa3cb2c77923357dbbc5f91a63f8471",
+          "map_seed": 40045,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_040046.csv",
+          "csv_sha256": "6672e87fe7e0efc1748bca1a78ec2e68f2708c40385d933146c6a0590fb71640",
+          "map_seed": 40046,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_040047.csv",
+          "csv_sha256": "f1f760d796bc34dab5473a4af14667d4ca12bc9e10fd4576237f27492809b5b6",
+          "map_seed": 40047,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_040048.csv",
+          "csv_sha256": "dde023e8f7f2e41f48782827401881379a82a35684bf5afa23804c42ae1d3690",
+          "map_seed": 40048,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_040049.csv",
+          "csv_sha256": "aa0c4af6f00136cf19841ae28554cf7e5414d9f1887bbc37b22574f65cb4916f",
+          "map_seed": 40049,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_040050.csv",
+          "csv_sha256": "40a16b71907c51d1f0db3c423e15c3f40e8f24bc55e4d3fef3c2ea8701ab8220",
+          "map_seed": 40050,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_040051.csv",
+          "csv_sha256": "d65d62a221dcf5d21ddb8f9fb3a8e54041e0f0e1a4b6e39ead8bfb31f03467d7",
+          "map_seed": 40051,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_040052.csv",
+          "csv_sha256": "68f8c1ba080e8260e1e47af84d7f821c1699422a1b051dd839e5cfa9f7115159",
+          "map_seed": 40052,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_040053.csv",
+          "csv_sha256": "4146b4d51f18b3d2705676f7d7d83de3000084fb436766e6e8df001c57e5fbf8",
+          "map_seed": 40053,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_040054.csv",
+          "csv_sha256": "7c24fd411f8ce03a93e9c349eee196a6acd64cf802640f60e0d47f99749785c1",
+          "map_seed": 40054,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_040055.csv",
+          "csv_sha256": "ca6b1994192dde64fd92403c2d8145ba3ee9f266bf6135ddda187edf2d71910f",
+          "map_seed": 40055,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_040056.csv",
+          "csv_sha256": "a11c08d70183c46c03606fcd0c8d957f4643a689c8f975450fea050a67dff2bf",
+          "map_seed": 40056,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_040057.csv",
+          "csv_sha256": "90c2d8cf6ef8fddb7967411bd3fa0c5ee2abda80f8060fb6acfdeb52b6921a87",
+          "map_seed": 40057,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_040058.csv",
+          "csv_sha256": "f310edd470199fe2896a643206c356400ee23ba8273e4ceda1e8fad70cefe770",
+          "map_seed": 40058,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_040059.csv",
+          "csv_sha256": "e6d14e74852b8eb132bdf0514789c6945bc8749448340343962eeaec69fd6ef3",
+          "map_seed": 40059,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_040060.csv",
+          "csv_sha256": "f583c29139680600d11612738eb09b5b60859d020fab1c376838d3c72db23881",
+          "map_seed": 40060,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_040061.csv",
+          "csv_sha256": "2ec38c6690540e056aae8b402da7546fee67273ca8fbf1fa0de4a5c32cccceb1",
+          "map_seed": 40061,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_040062.csv",
+          "csv_sha256": "763af1d15438046fbdcd0a4da0a57fc17ef4e3c88d038694dc6a00ce309fb115",
+          "map_seed": 40062,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_040063.csv",
+          "csv_sha256": "e177eeba9535b9db61d7f73cff1d09a31bdfcdeee27f03e27d9bef0db9fa7c84",
+          "map_seed": 40063,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_040064.csv",
+          "csv_sha256": "6c345ecebaf72f55c540efa010b675824b97f837ee3685545871bee7b0508cd4",
+          "map_seed": 40064,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_040065.csv",
+          "csv_sha256": "ca73be30877e418b0716965f036803fa826a8688576767912903ea2d3641c86c",
+          "map_seed": 40065,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_040066.csv",
+          "csv_sha256": "0bbb4fa56c42c179e23a1f9fd84fa3156f01052ff92cb5ad47674877c4346cb3",
+          "map_seed": 40066,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_040067.csv",
+          "csv_sha256": "32c5a987798008b6c390bb5009080dc4ac202a7b059951005fbafd1090054787",
+          "map_seed": 40067,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_040068.csv",
+          "csv_sha256": "089b8e36a7827bf2241407cfa78802a1b2fc91ea7668c8bfb750a2323e2c534e",
+          "map_seed": 40068,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_040069.csv",
+          "csv_sha256": "b479a53eadc3adada9b74ff476215d62ea8854d2fd21d33d7f32929908fd355b",
+          "map_seed": 40069,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_040070.csv",
+          "csv_sha256": "6e06417da14effbbcd672b39a1b10ce609bd37d5dbb8c855b6fa9a639b334933",
+          "map_seed": 40070,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_040071.csv",
+          "csv_sha256": "e464c4dc33ae9ead861dc02bffd097281405fc350a04c955cd7cd27a18539d59",
+          "map_seed": 40071,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_040072.csv",
+          "csv_sha256": "2cb6a608a787cbab19ecf9609700e1c0dc8cd339b351e5bef5baa30242b0a5c6",
+          "map_seed": 40072,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_040073.csv",
+          "csv_sha256": "2108d8385ed38c7970e70721bb4ef874e50452490c9ec20cd36ff1859ca37180",
+          "map_seed": 40073,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_040074.csv",
+          "csv_sha256": "fee8dcf0ecc1985ffe89a3eb1cf8828b865695d499739cc2212d13a8e42b5983",
+          "map_seed": 40074,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_040075.csv",
+          "csv_sha256": "165ab105da6f09625002ce9a1e95a7e96a28fd15296790b581dee86391988449",
+          "map_seed": 40075,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_040076.csv",
+          "csv_sha256": "f5be219cc3d12db34a546859429e74ce798a0c5dce92e9523941ac751bf58e5d",
+          "map_seed": 40076,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_040077.csv",
+          "csv_sha256": "3e64bcc1dfc2fbaacef67d76e85aa664aee98a1734425a658c17a4d7341eae1c",
+          "map_seed": 40077,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_040078.csv",
+          "csv_sha256": "fdf9bcca5553749af181f094338d7da9425fa250c546281bfb98dc466ebf8bb3",
+          "map_seed": 40078,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_040079.csv",
+          "csv_sha256": "b11028cacb784fd2d224fe7c7d119d2fa29e7bc4245385d2e0da282996710b9e",
+          "map_seed": 40079,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_040080.csv",
+          "csv_sha256": "021bca366770e3eedce1320bce17f731ac4bf03ad089a39a5282af345c298aa9",
+          "map_seed": 40080,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_040081.csv",
+          "csv_sha256": "a2c0b8af9792e535b1aaba54de1683128e63a8a42bd3bb23fe13f6e037395330",
+          "map_seed": 40081,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_040082.csv",
+          "csv_sha256": "7cc9e954500833e521345d88c500e8bf33ba314e6f466fa909a5ef324fe63cf3",
+          "map_seed": 40082,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_040083.csv",
+          "csv_sha256": "d7b2bc9b9cd74b8b1d2ead2129e3e1f161dccc5f6311ab017f02e0e32bfd6553",
+          "map_seed": 40083,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_040084.csv",
+          "csv_sha256": "b95309ca59ebf17065d4d6dbffd4e2d8a219e454c3e3157384b74b5b68870e00",
+          "map_seed": 40084,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_040085.csv",
+          "csv_sha256": "9bf05151b8d94b1a95f1f7319fe42920320128a9b3218678246876d6b70a0f55",
+          "map_seed": 40085,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_040086.csv",
+          "csv_sha256": "ec13c3bdb3ba6b39cc6a59a1ba8a1afefaf96f0f67f28acd0b5746500391ea66",
+          "map_seed": 40086,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_040087.csv",
+          "csv_sha256": "b1182d8e98190c9db5cf3724b1c9ec6c494ae796642beb0803f7479c990c8858",
+          "map_seed": 40087,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_040088.csv",
+          "csv_sha256": "d62e4b75b178e0f6d4a1c1a5aac58682924d1f1a6480a0a2aefcae5af3827cc2",
+          "map_seed": 40088,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_040089.csv",
+          "csv_sha256": "da5e2256b0bfea88b72597a7d2319736a62554e6065979e3b94ab3f90f3e61d1",
+          "map_seed": 40089,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_040090.csv",
+          "csv_sha256": "d7d1299d26e8841b90211a2b872c3f631d6a8d17146a2435e9f0754bd8ec2cb7",
+          "map_seed": 40090,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_040091.csv",
+          "csv_sha256": "c973ce6f9da5daa084abb60fa888993be38d034029fe023e2f6bf3d4ea187318",
+          "map_seed": 40091,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_040092.csv",
+          "csv_sha256": "c2f5df9f5956471a6ee6354bbff17c3c0636dd9812b2bfcfa209a92a3d7d676a",
+          "map_seed": 40092,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_040093.csv",
+          "csv_sha256": "1db5f8acaca575188ffdf13493d57b909cddd47a6cb69d441af948eba93ae2dd",
+          "map_seed": 40093,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_040094.csv",
+          "csv_sha256": "8ea3ad3905f3465d7c61cb1b304389c6b9227a209fbac0f29fc94e08f3ded61d",
+          "map_seed": 40094,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_040095.csv",
+          "csv_sha256": "120479360dff999d18b4e8b6c9ff758e7a0e28efa24827d16630cc28183da1e4",
+          "map_seed": 40095,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_040096.csv",
+          "csv_sha256": "7c346047845014745525581341d42eb75dbb9c04e8cd77425ab404146b0ac76c",
+          "map_seed": 40096,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_040097.csv",
+          "csv_sha256": "5bd58d71cb1c6b718e5a1ade72227d8bc6eb26a742aaef4413272e904630aa8d",
+          "map_seed": 40097,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_040098.csv",
+          "csv_sha256": "eae17669235dc8acf24b469a628d970b404a7c7c3894aa9a149fe958501821f2",
+          "map_seed": 40098,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_040099.csv",
+          "csv_sha256": "1999d62b8c1d79f74e14e263d740d8bd9eb0dd5d3b20b14fb8e82fe2203e6e1d",
+          "map_seed": 40099,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_040100.csv",
+          "csv_sha256": "c26c81786793c9c751f3b1d13442467a17b31943ca14092e4d9272c9b14b7ea2",
+          "map_seed": 40100,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_040101.csv",
+          "csv_sha256": "008fc47ae2916d58e913dcf4161f631a51a3ea5e5541d40d4419cda744b8cecf",
+          "map_seed": 40101,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_040102.csv",
+          "csv_sha256": "3cbecbbd1076278449be389ec680e4944a96482283635982dc88b6878c81a2cb",
+          "map_seed": 40102,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_040103.csv",
+          "csv_sha256": "b775ee60a42dd19b66ec94820f7fd04bde7833d3a09378efcae39fa7eb1a8802",
+          "map_seed": 40103,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_040104.csv",
+          "csv_sha256": "178823531e0591f0b72af77b72c0a1e792388e1348ce9539333387142133de6a",
+          "map_seed": 40104,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_040105.csv",
+          "csv_sha256": "53d692d2ba14f8fedbe9579c708dba7d435d7d7ce7e158094c0b99bd5f4a5d1f",
+          "map_seed": 40105,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_040106.csv",
+          "csv_sha256": "f88bfc6c69f2b02815d34065dffa6b90be7eaa33aaa01ce0075bf53f8e7e4b71",
+          "map_seed": 40106,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_040107.csv",
+          "csv_sha256": "af30ec161d906f62acf06b16f49434f3aded2cae0975fbae0676b63b6dd0f31f",
+          "map_seed": 40107,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_040108.csv",
+          "csv_sha256": "f9ee52ab6d714a5da70ea71dd74723d2139661294d860dca0f2c2daf2e52300d",
+          "map_seed": 40108,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_040109.csv",
+          "csv_sha256": "5c8bcc9e7448cf65ae533cc761238c190f9e9b1e129be4c655c57c444566356b",
+          "map_seed": 40109,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_040110.csv",
+          "csv_sha256": "c02688c212e09ffb70aee2a04133fc95f9e638c0f7273efaadd27490d53beadb",
+          "map_seed": 40110,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_040111.csv",
+          "csv_sha256": "4b0e2650260035488e8816c985333b959e602c7d23d92adf9f78974d3a36ccc0",
+          "map_seed": 40111,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_040112.csv",
+          "csv_sha256": "1f6f0e3de92b604f1cdb2c4f401471853e2bab2268e44690dea38e83811f1711",
+          "map_seed": 40112,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_040113.csv",
+          "csv_sha256": "58a775bcb025e818fa42ec6610e419391468374fe59f60627d8b940869dc9d5c",
+          "map_seed": 40113,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_040114.csv",
+          "csv_sha256": "665b0a3bf11a8cc3a928087d940d8cb9777d61e908cf049de73c73dea2d5227c",
+          "map_seed": 40114,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_040115.csv",
+          "csv_sha256": "b8a13ee84823a7568613498644368eff93d4b4a323229da05dc6e37d826210de",
+          "map_seed": 40115,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_040116.csv",
+          "csv_sha256": "1d7edc8a1949ea05f39f4715a4526176e69c673018df118759884e43210a4f72",
+          "map_seed": 40116,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        },
+        {
+          "filename": "map_2p_040117.csv",
+          "csv_sha256": "b7eb56ca1717446b78cbd3a03fd76cdebfdc50c6b8f365067694e98035437b37",
+          "map_seed": 40117,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "IMPERIUS"
+        },
+        {
+          "filename": "map_2p_040118.csv",
+          "csv_sha256": "e93b180270b5e91e656285683e271b8365a858e4f8848cdaeca82164db59fb64",
+          "map_seed": 40118,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "XIN_XI"
+        },
+        {
+          "filename": "map_2p_040119.csv",
+          "csv_sha256": "38ac424e15eff90a30b6a3e7a64ef5cc6b14726f1c46a01b0f75b9ac1cb6bb14",
+          "map_seed": 40119,
+          "our_tribe": "BARDUR",
+          "opponent_tribe": "OUMAJI"
+        }
+      ]
+    }
+  }
+}
