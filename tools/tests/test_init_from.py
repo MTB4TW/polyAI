@@ -60,6 +60,10 @@ class CatalogTest(unittest.TestCase):
         self.assertEqual(I.legacy_scalar_scales(COMBAT_VERSION), (50.0, 1000.0, 6.0, 10.0, 20.0, 1.0))
         self.assertIsNone(I.legacy_scalar_scales(PHASE1_VERSION))
         self.assertIsNone(I.legacy_scalar_scales("combat_v3_horizon_20"))  # pre-scaling combat
+        # The rules switch appends a suffix; the scaling must still be recognised.
+        self.assertEqual(I.legacy_scalar_scales(COMBAT_VERSION + "+rules_polytopia_2_15"),
+                         (50.0, 1000.0, 6.0, 10.0, 20.0, 1.0))
+        self.assertIsNone(I.legacy_scalar_scales(PHASE1_VERSION + "+rules_polytopia_2_15"))
 
 
 class SpatialTransferTest(unittest.TestCase):

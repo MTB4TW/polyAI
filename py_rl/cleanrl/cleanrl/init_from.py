@@ -40,7 +40,8 @@ N_LEGACY_SCALARS = 6
 # Must match TribesGymWrapper.COMBAT_LEGACY_SCALAR_SCALES (the tick scale is the combat horizon);
 # tools/tests/test_init_from.py checks this against register_env.py.
 COMBAT_LEGACY_SCALAR_BASE_SCALES = (50.0, 1000.0, 6.0, 10.0, None, 1.0)
-SCALED_COMBAT_VERSION_RE = re.compile(r"^combat_v\d+_scaled_scalars_horizon_(\d+)$")
+# A rules suffix such as "+rules_polytopia_2_15" (POLYVISION_RULES) may follow the horizon.
+SCALED_COMBAT_VERSION_RE = re.compile(r"^combat_v\d+_scaled_scalars_horizon_(\d+)(\+.*)?$")
 WRAPPER_PREFIX = "policy."  # ObsNormalizedAgent (--norm-obs) nests the network under `policy.`
 NORMALIZER_PREFIX = "obs_normalizer."
 ACTION_TYPE_TABLE_SUFFIX = "action_type_embedding.weight"
