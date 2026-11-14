@@ -30,6 +30,8 @@ from pol_env.Tribes.py.environment_contract import (
     extract_owned_cities,
     observation_layout,
     validate_checkpoint_compatibility,
+    DIPLOMACY_TECHNOLOGIES,
+    DIPLOMACY_UNIT_TYPES,
 )
 from pol_env.Tribes.py.register_env import GlobalActionCatalog, TribesGymWrapper
 
@@ -62,6 +64,9 @@ class TestParity002HumanInformationParity(unittest.TestCase):
             if m:
                 java_techs.append(m.group(1))
 
+        # Techs that exist only under the 2.15 rules are appended after the 2020 ones (RULES_ONLY_VOCAB).
+        self.assertEqual(tuple(java_techs[len(TECHNOLOGY_ORDER):]), DIPLOMACY_TECHNOLOGIES)
+        java_techs = java_techs[: len(TECHNOLOGY_ORDER)]
         self.assertEqual(len(java_techs), len(TECHNOLOGY_ORDER), f"Java tech enum count {len(java_techs)} != Python {len(TECHNOLOGY_ORDER)}")
         self.assertEqual(tuple(java_techs), TECHNOLOGY_ORDER)
         self.assertEqual(len(TECHNOLOGY_ORDER), 24)
@@ -93,6 +98,11 @@ class TestParity002HumanInformationParity(unittest.TestCase):
             if m:
                 java_units.append((m.group(1), int(m.group(2))))
 
+        # Units that exist only under the 2.15 rules are appended, with the next keys.
+        extra_units = java_units[len(SUPPORTED_UNIT_TYPES):]
+        self.assertEqual(tuple(u[0] for u in extra_units), DIPLOMACY_UNIT_TYPES)
+        self.assertEqual(tuple(u[1] for u in extra_units), tuple(range(12, 12 + len(DIPLOMACY_UNIT_TYPES))))
+        java_units = java_units[: len(SUPPORTED_UNIT_TYPES)]
         self.assertEqual(len(java_units), len(SUPPORTED_UNIT_TYPES), f"Java unit count {len(java_units)} != Python {len(SUPPORTED_UNIT_TYPES)}")
         self.assertEqual(len(SUPPORTED_UNIT_TYPES), 12)
         self.assertEqual(tuple(u[0] for u in java_units), SUPPORTED_UNIT_TYPES)

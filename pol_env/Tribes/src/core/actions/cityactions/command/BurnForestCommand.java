@@ -24,7 +24,7 @@ public class BurnForestCommand implements ActionCommand {
             Tribe t = gs.getTribe(city.getTribeId());
             b.setTerrainAt(targetPos.x, targetPos.y, Types.TERRAIN.PLAIN);
             b.setResourceAt(targetPos.x, targetPos.y, Types.RESOURCE.CROPS);
-            t.subtractStars(TribesConfig.BURN_FOREST_COST);
+            t.subtractStars(TribesConfig.burnForestCost());
             return true;
         }
         return false;

@@ -36,8 +36,13 @@ public class AttackCommand implements ActionCommand {
             Unit target = (Unit) gs.getActor(targetId);
 
             attacker.transitionToStatus(Types.TURN_STATUS.ATTACKED);
+            // 2.15 rules: a ranged shot sets the attacker's direction (used for forced-spawn pushes).
+            if (core.RulesVersion.modern() && attacker.getType().isRanged())
+                attacker.setLastDirection(target.getPosition().x - attacker.getPosition().x,
+                        target.getPosition().y - attacker.getPosition().y);
             Tribe attackerTribe = gs.getTribe(attacker.getTribeId());
             attackerTribe.resetPacifistCount();
+            core.DiplomacyRules.recordHostility(gs, attacker.getTribeId(), target.getTribeId());
 
             Pair<Integer, Integer> results = getAttackResults(action, gs);
             int attackResult = results.getFirst();
@@ -69,6 +74,7 @@ public class AttackCommand implements ActionCommand {
                     case WARRIOR:
                     case KNIGHT:
                     case SUPERUNIT:
+                    case DAGGER:
                         gs.getBoard().tryPush(attackerTribe, attacker, attacker.getPosition().x, attacker.getPosition().y, target.getPosition().x, target.getPosition().y, gs.getRandomGenerator());
                 }
             } else {
@@ -79,7 +85,9 @@ public class AttackCommand implements ActionCommand {
 
                 //Check if this unit is in target's attacking range (we can use chebichev distance)
                 double distance = Vector2d.chebychevDistance(attacker.getPosition(), target.getPosition());
-                if (distance <= target.RANGE) {
+                // 2.15 rules: Stiff targets (Cloak) never retaliate; Surprise attackers (Dagger) draw no retaliation.
+                boolean noRetaliation = target.getType().isStiff() || attacker.getType().hasSurprise();
+                if (distance <= target.RANGE && !noRetaliation) {
                     //Deal damage based on targets defence stat, regardless of this units defence stat
                     attacker.setCurrentHP(attacker.getCurrentHP() - defenceResult);
                     //Check if attack kills this unit, if it does add a kill to the target
@@ -107,11 +115,19 @@ public class AttackCommand implements ActionCommand {
     private Pair<Integer, Integer> getAttackResults(Attack action, GameState gs) {
         Unit attacker = (Unit) gs.getActor(action.getUnitId());
         Unit target = (Unit) gs.getActor(action.getTargetId());
+        return computeAttackResults(attacker, target, gs, false);
+    }
+
+    /**
+     * Damage dealt by attacker and by target (the pair). With fullHealthAttacker the attacker counts as unhurt,
+     * as for a Cloak's infiltration damage (2.15 rules).
+     */
+    public static Pair<Integer, Integer> computeAttackResults(Unit attacker, Unit target, GameState gs, boolean fullHealthAttacker) {
         Vector2d targetPos = target.getPosition();
         Tribe targetTribe = gs.getTribe(target.getTribeId());
 
-        double attackForce = attacker.ATK * ((double) attacker.getCurrentHP() / attacker.getMaxHP());
-        double defenceForce = target.DEF * ((double) target.getCurrentHP() / target.getMaxHP());
+        double attackForce = attacker.ATK * (fullHealthAttacker ? 1.0 : ((double) attacker.getCurrentHP() / attacker.getMaxHP()));
+        double defenceForce = target.getDefenceStat() * ((double) target.getCurrentHP() / target.getMaxHP());
         double accelerator = TribesConfig.ATTACK_MODIFIER;
 
         // Defence bonuses:
@@ -120,7 +136,7 @@ public class AttackCommand implements ActionCommand {
         //     * in city tile, with no walls, and unit has the Fortify ability.
         //     * in water tile and Aquatism is researched.
         //     * in forest tile if Archery is researched.
-        //     * in mountain tile if Meditation is researched.
+        //     * in mountain tile if Meditation (2020 rules) or Climbing (2.15 rules) is researched.
 
         Types.TERRAIN targetTerrain = gs.getBoard().getTerrainAt(targetPos.x, targetPos.y);
         if (targetTerrain == CITY) {
@@ -132,7 +148,7 @@ public class AttackCommand implements ActionCommand {
                 else if (target.getType().canFortify())
                     defenceForce *= TribesConfig.DEFENCE_BONUS;
             }
-        } else if (targetTerrain == MOUNTAIN && targetTribe.getTechTree().isResearched(MEDITATION) ||
+        } else if (targetTerrain == MOUNTAIN && targetTribe.getTechTree().isResearched(TribesConfig.mountainDefenceTech()) ||
                 (targetTerrain.isWater() && targetTribe.getTechTree().isResearched(AQUATISM)) ||
                 (targetTerrain == FOREST && targetTribe.getTechTree().isResearched(ARCHERY))) {
             defenceForce *= TribesConfig.DEFENCE_BONUS;
@@ -141,7 +157,7 @@ public class AttackCommand implements ActionCommand {
         double totalDamage = attackForce + defenceForce;
 
         int attackResult = (int) Math.round((attackForce / totalDamage) * attacker.ATK * accelerator);
-        int defenceResult = (int) Math.round((defenceForce / totalDamage) * target.DEF * accelerator);
+        int defenceResult = (int) Math.round((defenceForce / totalDamage) * target.getDefenceStat() * accelerator);
 
         return new Pair<>(attackResult, defenceResult);
     }

@@ -163,6 +163,16 @@ public class SimpleAgent extends Agent {
             score = -1;
         }
 
+        //DIPLOMACY (2.15 rules only). The scripted opponent plays for conquest: it infiltrates when it can, builds
+        //embassies for their income, and never makes, accepts or breaks peace.
+        if (a.getActionType() == INFILTRATE) {
+            score = 4;
+        } else if (a.getActionType() == BUILD_EMBASSY) {
+            score = 2;
+        } else if (a.getActionType() == OFFER_PEACE || a.getActionType() == ACCEPT_PEACE || a.getActionType() == BREAK_PEACE) {
+            score = -2;
+        }
+
         return score;
 
     }

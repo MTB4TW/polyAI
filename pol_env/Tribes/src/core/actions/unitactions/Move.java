@@ -36,7 +36,7 @@ public class Move extends UnitAction
         Pathfinder tp = new Pathfinder(unit.getPosition(), new StepMove(gs, unit));
 
         //If the unit can move and the destination is vacant, try to reach it.
-        if(unit.canMove() && gs.getBoard().getUnitAt(destination.x, destination.y) == null) {
+        if(unit.canMove() && core.DiplomacyRules.looksVacant(gs, unit, destination.x, destination.y)) {
             ArrayList<PathNode> path = tp.findPathTo(destination);
 //            if(path == null)
 //            {

@@ -40,6 +40,15 @@ public class ExamineCommand implements ActionCommand {
             while (allTech && bonus == RESEARCH) {
                 bonus = Types.EXAMINE_BONUS.random(rnd);
             }
+            // 2.15 rules: the Explorer reward needs an unexplored tile in the 5x5 area centred on the ruin.
+            if (core.RulesVersion.modern()) {
+                boolean explorerOk = hasUnexploredTileNearby(gs, t, unit.getPosition());
+                while ((allTech && bonus == RESEARCH) || (!explorerOk && bonus == Types.EXAMINE_BONUS.EXPLORER)) {
+                    bonus = Types.EXAMINE_BONUS.random(rnd);
+                }
+                // Examining a ruin reveals a Cloak.
+                if (unit instanceof core.actors.units.Cloak) ((core.actors.units.Cloak) unit).setHidden(false);
+            }
 
             switch (bonus) {
                 case SUPERUNIT:
@@ -48,8 +57,18 @@ public class ExamineCommand implements ActionCommand {
                     Vector2d spawnPos = unit.getPosition().copy();
                     Types.TERRAIN terr = board.getTerrainAt(spawnPos.x, spawnPos.y);
                     //instead of a super unit, in the water we create a Battleship of out a warrior
-                    Types.UNIT unitType = terr.isWater() ? Types.UNIT.BATTLESHIP : Types.UNIT.SUPERUNIT;
+                    //2.15 rules (since 2.0.58): on land the ruin gives a veteran Swordsman instead of a Giant.
+                    //The water reward stays a Battleship: the 2.8.0 naval units are not implemented.
+                    boolean modernLand = core.RulesVersion.modern() && !terr.isWater();
+                    Types.UNIT unitType = terr.isWater() ? Types.UNIT.BATTLESHIP
+                            : (modernLand ? Types.UNIT.SWORDMAN : Types.UNIT.SUPERUNIT);
                     Unit newUnit = Types.UNIT.createUnit(spawnPos, 0, false, -1, unit.getTribeId(), unitType);
+                    if(modernLand)
+                    {
+                        newUnit.setVeteran(true);
+                        newUnit.setMaxHP(newUnit.getMaxHP() + core.TribesConfig.VETERAN_PLUS_HP);
+                        newUnit.setCurrentHP(newUnit.getMaxHP());
+                    }
                     if(terr.isWater())
                     {
                         ((Battleship)newUnit).setBaseLandUnit(Types.UNIT.WARRIOR);
@@ -57,7 +76,7 @@ public class ExamineCommand implements ActionCommand {
 
                     Unit unitInCity = board.getUnitAt(spawnPos.x, spawnPos.y);
                     if(unitInCity != null)
-                        gs.pushUnit(unitInCity, spawnPos.x, spawnPos.y);
+                        gs.pushUnit(unitInCity, spawnPos.x, spawnPos.y, unit.getTribeId());
 
                     board.addUnit((City)gs.getActor(handlerCityId), newUnit);
 
@@ -90,6 +109,18 @@ public class ExamineCommand implements ActionCommand {
 
             unit.setStatus(Types.TURN_STATUS.FINISHED);
             return true;
+        }
+        return false;
+    }
+
+    /** True if any tile within Chebyshev distance 2 of pos is still fogged for tribe t. */
+    public static boolean hasUnexploredTileNearby(GameState gs, Tribe t, Vector2d pos) {
+        int size = gs.getBoard().getSize();
+        for (int x = pos.x - 2; x <= pos.x + 2; x++) {
+            for (int y = pos.y - 2; y <= pos.y + 2; y++) {
+                if (x < 0 || y < 0 || x >= size || y >= size) continue;
+                if (!t.isVisible(x, y)) return true;
+            }
         }
         return false;
     }

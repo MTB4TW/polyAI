@@ -2,6 +2,112 @@
 
 All notable changes to this project are documented in this file.
 
+## [Env-Rules_Polytopia_2_15_Diplomacy_Step2-053] - (2026-11-14)
+
+### Scope
+Every remaining item of `docs/rules-parity.md` except the 2.8 naval rework, all behind
+`POLYVISION_RULES=polytopia_2_15`. Nothing changes under `tribes_2020`.
+- Step 2 (Phase 1): Lumber Huts leave their tile as forest; the Market replaces the Customs House in its
+  building slot (5★, Trade, needs an adjacent Sawmill/Windmill/Forge, +1★ per turn per level of each adjacent
+  one, max 8★, counted in city production); the ruin Explorer reward needs a fogged tile in the 5×5 around the
+  ruin; Shields is shown as Strategy.
+- 2.14.0: tribe starting stars (Xin-xi 7, Oumaji 6, Hoodrick 7, Quetzali 7, Yădakk 7, Luxidoor 2, others 5;
+  Bardur unchanged); Ai-Mo starts with Philosophy and a Mind Bender; techs can be researched backwards (a tech
+  whose child is researched is researchable, at its tier cost).
+- Diplomacy (2.1/2.2; Phase 2, Kevin's area): new tech `DIPLOMACY` (tier 3, after Strategy), units `CLOAK`
+  (trainable) and `DAGGER` (spawned by infiltration), unit action `INFILTRATE`, tribe actions `OFFER_PEACE`,
+  `ACCEPT_PEACE`, `BREAK_PEACE`, `BUILD_EMBASSY`; war/peace/offer/embassy state in `core.TribeRelations`;
+  hidden Cloaks are removed from other tribes' observations; capital vision with Diplomacy; embassy income;
+  infiltration denies a city's next income. The first embassy costs 4★ and each later one 2★ more (2.14.0).
+  Details and sources in `docs/rules-parity.md` ("Diplomacy").
+  `SimpleAgent` infiltrates and builds embassies but never makes peace.
+- Bug fixed under 2.15 only: `SuperUnit.copy()` dropped the unit's last direction (used for pushes).
+- New enum constants (`TECHNOLOGY.DIPLOMACY`, `UNIT.CLOAK`, `UNIT.DAGGER`, five `ACTION` values) are appended,
+  report `isActive() == false` under 2020 rules, and are filtered out of the Python vocabulary
+  (`RULES_ONLY_VOCAB`), so older ordinals, the catalog and every 2020 interface stay put.
+- `PythonEnv.java` gains four one-line calls into the new `core.game.DiplomacyJson` (action fields, star cost,
+  per-tribe relations, Cloak `hidden` flag); all no-ops under 2020 rules.
+
+### Contract
+- `polytopia_2_15` is now rules revision 2: environment versions end in `+rules_polytopia_2_15_r2`, so every
+  checkpoint trained under revision 1 (`+rules_polytopia_2_15`, including Farmshare job 1981253) is rejected.
+- Under 2.15 rules the observation has 6,695 dimensions (54 spatial channels × 121 + 161 scalars): Cloak and
+  Dagger channels after the resource channel, and 29 Diplomacy scalars after the city block. The 2020 layout
+  (6,424) is unchanged. `observation_layout()` takes the rules version; `spatial_resnet` reads its sizes from
+  it instead of the fixed 52/132.
+- Under 2.15 rules the catalog adds `CLOAK` to `TRAIN` and `DIPLOMACY` to `RESEARCH_TECH`; in combat mode also
+  `INFILTRATE` (tile × tile) and four tribe families (one slot per tribe id 0-3). The catalog fingerprint
+  changes accordingly. `LEGAL_ACTION_FEATURE_VERSION` and the 47-d features are unchanged: new types use the
+  existing "other type" flag, like `ATTACK`. The composed network (PR #15) derives action types from catalog
+  blocks and will need the five new families mapped before it runs under 2.15 rules.
+- `phase1_opening_version` unchanged: the opening audit under 2.15 rules passes on all 5,000 train and 250
+  validation maps.
+
+### Validation
+- `RulesParityTest.java`: 369 checks under both rule sets (Market, Lumber Hut terrain, ruin Explorer condition,
+  backwards research, starting stars, peace/embassies/war, offer lapse, infiltration and Daggers, hidden Cloak
+  visibility and reveal, Dagger and Cloak skills, no Diplomacy under 2020 rules).
+- `test_rules_version.py`: 15 tests, adding the 2.15 observation layout, vocabulary filter, catalog families
+  and a 2.15 combat wrapper. `test_parity_002` now allows the appended 2.15-only enum constants.
+- `hash_env_trajectory.py` (3,000 steps): Phase 1 seeds 7 and 11 and combat seed 7 are byte-identical with
+  `POLYVISION_RULES` unset.
+- Random legal play under 2.15 rules: 30,000 combat steps (144 episodes; infiltration, embassies and peace
+  offers occur) and 15,000 Phase 1 steps without errors; an 8,192-step `spatial_resnet` PPO run trains and
+  saves a 6,695-dim checkpoint.
+- No model trained or evaluated.
+
+## [Env-Rules_Version_Switch_Polytopia_2_15-052] - (2026-11-13)
+
+### Scope
+- New gap analysis `docs/rules-parity.md`: the Tribes engine follows Polytopia as of 2020 (before 2.0.31); it
+  lists every rule difference from the current game (2.15.0), the version it changed in, and whether it
+  affects Phase 1, Phase 2 or neither.
+- New rules switch `POLYVISION_RULES` (`core.RulesVersion` in Java; `resolve_rules_version` in
+  `environment_contract.py`). The JVM inherits it from the wrapper. Values:
+  - `tribes_2020` (default): the original rules, unchanged.
+  - `polytopia_2_15`: Phase 1 economy rules: Lumber Hut 3★ (was 2★), Clear Forest +1★ (was +2★), Literacy
+    33% off rounded up (Tribes charged 20% of the cost, a bug), ruin unit reward on land is a veteran
+    Swordsman (was a Giant), Park gives +1★ per turn, Forge allowed on forest, and forest actions (clear,
+    burn, grow) are refused on tiles that carry a building. Phase 2 basics: Knight 10 HP (was 15),
+    Swordsman cannot fortify, mountain defence from Climbing (was Meditation), roads 3★ (was 2★), Burn Forest
+    3★ with Construction (was 5★ with Chivalry), Destroy needs Chivalry (was Construction).
+  - Lighthouses (2.8.0): the four map corners start fogged even inside the capital's starting view; revealing
+    one gives the capital (or the oldest city) +1 population; finding all four makes Eye of God available,
+    with no Navigation needed (replacing "clear all fog").
+  - Meeting: a tribe meets another only when it sees that tribe's unit or territory on its own turn (its view
+    clearing during its turn, or a start-of-turn check); being seen is not meeting, and a tribe never meets
+    itself. The score table is unchanged. The tribe later in turn order (in 1v1, the second player) gets 2★
+    extra (**unverified**, reported from play).
+  - Explorers take 12 steps instead of 15 (**unverified**, fandom only) and steer by the game's version-115
+    rule: tiles scored by fog revealed (lighthouses first), a 3-step breadth-first search, lowest score
+    wins, ties at random, no straight backtracking. Random walk when no fog is within reach.
+  - Push directions for forced spawns (Giant level-up, ruin unit): each unit remembers the direction of its
+    last move, push or ranged shot. Friendly units are pushed that way, enemy units the opposite way, ranged
+    units that way; unmoved units go towards the map centre (south from the exact centre). If blocked, it
+    tries counterclockwise, then clockwise. A unit with nowhere to go is still destroyed (the "Houdini").
+- `PythonEnv.java`: burn-forest and road star costs come from the rules accessors (2 lines).
+- Wrapper: the `PARK` level-up's expected SPT delta feature is +1 under `polytopia_2_15`.
+
+### Contract
+- Under `tribes_2020` every version string is unchanged, so existing checkpoints stay valid.
+- Under `polytopia_2_15`, `phase1_environment_version` becomes `v5_human_information_parity+rules_polytopia_2_15`
+  and the combat version gets the same `+rules_polytopia_2_15` suffix, so checkpoints never cross rule sets.
+- The wrapper asks the JVM which rules it plays (`core.RulesVersion.activeId()`) and fails closed on a
+  mismatch; an unknown `POLYVISION_RULES` value fails in both Python and Java.
+- `phase1_opening_version` is unchanged: `tools/audit_phase1_opening.py` under `polytopia_2_15` passes on all
+  5,000 train and 250 validation maps (every map gets the expected two-unit opening).
+
+### Validation
+- `pol_env/Tribes/tests/java/core/RulesParityTest.java` (246 checks) tests every switched rule under both rule
+  sets; the Literacy costs reproduce the fandom cost table. A deliberate mutation (Park +0★) is caught.
+- `pol_env/Tribes/py/tests/test_rules_version.py` (in `run_core_ci_checks.py`): version strings, checkpoint
+  rejection across rule sets, JVM consistency check, a short `polytopia_2_15` episode, and the Java test.
+- Fixed-seed random-legal trajectories (`hash_env_trajectory.py` from PR #12, 3,000 steps, seeds 7 and 11) are
+  byte-identical before and after this change with `POLYVISION_RULES` unset or `tribes_2020`; with
+  `polytopia_2_15` the trajectory differs, as expected.
+- No model trained or evaluated: Phase 1 references (24.5 SPT, 20.52) are `tribes_2020` results and must be
+  re-run before any comparison under `polytopia_2_15`.
+
 ## [Perf-MPS_Learner_Device-051] - (2026-11-12)
 
 ### Scope

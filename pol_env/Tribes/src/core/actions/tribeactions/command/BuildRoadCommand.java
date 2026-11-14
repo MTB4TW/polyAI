@@ -20,7 +20,7 @@ public class BuildRoadCommand implements ActionCommand {
             int tribeId = action.getTribeId();
             Vector2d position = action.getPosition();
             Tribe tribe = gs.getTribe(tribeId);
-            tribe.subtractStars(TribesConfig.ROAD_COST);
+            tribe.subtractStars(TribesConfig.roadCost());
             gs.getBoard().addRoad(position.x, position.y);
             return true;
         }

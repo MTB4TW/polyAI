@@ -51,7 +51,10 @@ public class Capture extends UnitAction
             Vector2d unitPos = unit.getPosition();
             if(!targetPos.equals(unitPos)) return false;
 
-            return targetCity.getTribeId() != unit.getTribeId();
+            if (targetCity.getTribeId() == unit.getTribeId()) return false;
+            // 2.15 rules: a Cloak cannot capture cities, and no capture from a tribe at peace.
+            if (unit.getType() == Types.UNIT.CLOAK) return false;
+            return core.DiplomacyRules.canBeHostile(gs, unit.getTribeId(), targetCity.getTribeId());
 
         }else if(captureType == Types.TERRAIN.VILLAGE)
         {

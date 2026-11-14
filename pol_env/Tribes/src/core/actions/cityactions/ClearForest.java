@@ -25,6 +25,8 @@ public class ClearForest extends CityAction
 
         if(b.getTerrainAt(targetPos.x, targetPos.y) != Types.TERRAIN.FOREST) return false;
         if(b.getCityIdAt(targetPos.x, targetPos.y) != cityId) return false;
+        // 2.15 rules: a forest with a building on it (Forest Temple, Forge) cannot be cleared.
+        if(core.RulesVersion.modern() && b.getBuildingAt(targetPos.x, targetPos.y) != null) return false;
         City city = (City) gs.getActor(this.cityId);
         return gs.getTribe(city.getTribeId()).getTechTree().isResearched(Types.TECHNOLOGY.FORESTRY);
     }

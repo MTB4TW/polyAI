@@ -266,4 +266,113 @@ public class TribesConfig
     // MAP
     public static final int[] DEFAULT_MAP_SIZE = new int[]{-1, 11, 14, 16, 18, 20, 22, 24};
 
+    /* RULES-VERSION DEPENDENT VALUES
+     * The constants above are the TRIBES_2020 rules. Code that applies a rule which differs in
+     * POLYTOPIA_2_15 goes through these accessors (see RulesVersion and docs/rules-parity.md). */
+
+    public static final int LUMBER_HUT_COST_2_15 = 3;           // 2.8.0 Path of the Ocean
+    public static final int CLEAR_FOREST_STAR_2_15 = 1;         // 2.2
+    public static final int ROAD_COST_2_15 = 3;                 // 2.8.0
+    public static final int BURN_FOREST_COST_2_15 = 3;          // 2.14.0
+    public static final int KNIGHT_MAX_HP_2_15 = 10;            // 2.2
+    public static final int CITY_LEVEL_UP_PARK_PROD_2_15 = 1;   // 2.8.0: Park gives +1 star per turn
+    public static final int EXPLORER_STEPS_2_15 = 12;           // UNVERIFIED: fandom only (Feb 2026)
+    public static final int MEETING_SECOND_PLAYER_BONUS_2_15 = 2; // UNVERIFIED: reported from play, no source
+
+    /** Steps an explorer takes: 15 in 2020; 12 under 2.15 rules (unverified). */
+    public static int explorerSteps() {
+        return RulesVersion.modern() ? EXPLORER_STEPS_2_15 : NUM_STEPS;
+    }
+
+    public static int clearForestStars() {
+        return RulesVersion.modern() ? CLEAR_FOREST_STAR_2_15 : CLEAR_FOREST_STAR;
+    }
+
+    public static int roadCost() {
+        return RulesVersion.modern() ? ROAD_COST_2_15 : ROAD_COST;
+    }
+
+    public static int burnForestCost() {
+        return RulesVersion.modern() ? BURN_FOREST_COST_2_15 : BURN_FOREST_COST;
+    }
+
+    public static int knightMaxHp() {
+        return RulesVersion.modern() ? KNIGHT_MAX_HP_2_15 : KNIGHT_MAX_HP;
+    }
+
+    /** Technology needed to burn a forest: Chivalry in 2020, Construction since 2.8.5. */
+    public static Types.TECHNOLOGY burnForestTech() {
+        return RulesVersion.modern() ? Types.TECHNOLOGY.CONSTRUCTION : Types.TECHNOLOGY.CHIVALRY;
+    }
+
+    /** Technology needed to destroy a building: Construction in 2020, Chivalry since 2.8.5. */
+    public static Types.TECHNOLOGY destroyTech() {
+        return RulesVersion.modern() ? Types.TECHNOLOGY.CHIVALRY : Types.TECHNOLOGY.CONSTRUCTION;
+    }
+
+    /** Technology that gives the mountain defence bonus: Meditation in 2020, Climbing since 2.0.58. */
+    public static Types.TECHNOLOGY mountainDefenceTech() {
+        return RulesVersion.modern() ? Types.TECHNOLOGY.CLIMBING : Types.TECHNOLOGY.MEDITATION;
+    }
+
+    /**
+     * Applies the Literacy (Philosophy) research discount.
+     * TRIBES_2020 keeps Tribes' original arithmetic, which charges 20% of the cost (Tribes meant "20% off").
+     * POLYTOPIA_2_15 takes 33% off, rounded up: ceil(2 * cost / 3), which reproduces the cost table on the
+     * fandom Technology page (2.0.44 onwards).
+     */
+    public static int applyLiteracyDiscount(int cost) {
+        if (RulesVersion.modern()) {
+            return (2 * cost + 2) / 3;
+        }
+        return (int) (cost * TECH_DISCOUNT_VALUE);
+    }
+
+    // ---- Step 2 and the remaining 2.15 rules (docs/rules-parity.md) ----
+    public static final int MARKET_MAX_INCOME_2_15 = 8;          // 2.8.5: +1 star per level of adjacent Sawmill/Windmill/Forge, max 8
+    // 2.14.0 starting stars. Every tribe not listed starts with INITIAL_STARS (5).
+    public static final int XIN_XI_STARS_2_15 = 7;
+    public static final int OUMAJI_STARS_2_15 = 6;
+    public static final int HOODRICK_STARS_2_15 = 7;
+    public static final int QUETZALI_STARS_2_15 = 7;
+    public static final int YADAKK_STARS_2_15 = 7;
+    public static final int LUXIDOOR_STARS_2_15 = 2;             // plus a level-3 capital (already Tribes' Luxidoor rule)
+
+    // Diplomacy (2.1/2.2; Strategy, Diplomacy tech). Fandom Cloak/Dagger/Embassy/Strategy pages, read Nov 2026.
+    public static final int CLOAK_ATTACK = 2;
+    public static final double CLOAK_DEFENCE = 0.5;
+    public static final int CLOAK_DEFENCE_INT = 0;               // the integer DEF field; combat uses getDefenceStat()
+    public static final int CLOAK_MOVEMENT = 2;
+    public static final int CLOAK_MAX_HP = 5;
+    public static final int CLOAK_RANGE = 1;
+    public static final int CLOAK_COST = 8;
+    static final int CLOAK_POINTS = 40;                          // 5 points per cost star, as for other units
+    public static final int DAGGER_ATTACK = 2;
+    public static final int DAGGER_DEFENCE = 2;
+    public static final int DAGGER_MOVEMENT = 1;
+    public static final int DAGGER_MAX_HP = 10;
+    public static final int DAGGER_RANGE = 1;
+    public static final int DAGGER_COST = 2;                     // not trainable; the fandom's "theoretical" cost (disband value)
+    static final int DAGGER_POINTS = 10;
+    public static final int MAX_DAGGERS_PER_INFILTRATION = 5;    // daggers = min(city level, 5)
+    public static final int EMBASSY_BASE_COST = 4;               // 2.14.0: the first embassy costs 4 stars,
+    public static final int EMBASSY_COST_STEP = 2;               // and each later one 2 more (reported by Devin)
+    public static final int EMBASSY_INCOME = 2;                  // to both sender and host, per turn
+    public static final int EMBASSY_INCOME_AT_PEACE = 4;         // doubled while a peace treaty holds
+    public static final int CLOAK_VISION_RANGE = 2;              // Scout skill: 5x5
+
+    /** Stars a tribe starts the game with. */
+    public static int initialStars(Types.TRIBE tribe) {
+        if (!RulesVersion.modern() || tribe == null) return INITIAL_STARS;
+        switch (tribe) {
+            case XIN_XI: return XIN_XI_STARS_2_15;
+            case OUMAJI: return OUMAJI_STARS_2_15;
+            case HOODRICK: return HOODRICK_STARS_2_15;
+            case QUETZALI: return QUETZALI_STARS_2_15;
+            case YADAKK: return YADAKK_STARS_2_15;
+            case LUXIDOOR: return LUXIDOOR_STARS_2_15;
+            default: return INITIAL_STARS;
+        }
+    }
+
 }

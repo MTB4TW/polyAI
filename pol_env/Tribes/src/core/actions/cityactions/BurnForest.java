@@ -22,10 +22,12 @@ public class BurnForest extends CityAction
         Board b = gs.getBoard();
         if(b.getTerrainAt(targetPos.x, targetPos.y) != Types.TERRAIN.FOREST) return false;
         if(b.getCityIdAt(targetPos.x, targetPos.y) != this.cityId) return false;
+        // 2.15 rules: a forest with a building on it cannot be burnt.
+        if(core.RulesVersion.modern() && b.getBuildingAt(targetPos.x, targetPos.y) != null) return false;
 
         Tribe t = gs.getTribe(city.getTribeId());
-        if(t.getStars() < TribesConfig.BURN_FOREST_COST) return false;
-        return t.getTechTree().isResearched(Types.TECHNOLOGY.CHIVALRY);
+        if(t.getStars() < TribesConfig.burnForestCost()) return false;
+        return t.getTechTree().isResearched(TribesConfig.burnForestTech());
     }
 
     @Override

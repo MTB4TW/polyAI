@@ -183,6 +183,7 @@ public class PythonEnv {
     private void addStructuredActionFields(JSONObject jo, Action a) {
         if (a == null) return;
         jo.put("star_cost", computeActionStarCost(a));
+        DiplomacyJson.addActionFields(jo, a, gs);  // 2.15 rules Diplomacy actions only
 
         if (a instanceof Move) {
             Move m = (Move) a;
@@ -364,6 +365,8 @@ public class PythonEnv {
 
     private int computeActionStarCost(Action a) {
         if (a == null) return 0;
+        int diplomacyCost = DiplomacyJson.starCost(a, gs);  // 2.15 rules Diplomacy actions only
+        if (diplomacyCost >= 0) return diplomacyCost;
         if (a instanceof Spawn) {
             Spawn s = (Spawn) a;
             return s.getUnitType() != null ? s.getUnitType().getCost() : 0;
@@ -390,10 +393,10 @@ public class PythonEnv {
             return core.TribesConfig.GROW_FOREST_COST;
         }
         if (a instanceof core.actions.cityactions.BurnForest) {
-            return core.TribesConfig.BURN_FOREST_COST;
+            return core.TribesConfig.burnForestCost();
         }
         if (a instanceof core.actions.tribeactions.BuildRoad) {
-            return core.TribesConfig.ROAD_COST;
+            return core.TribesConfig.roadCost();
         }
         if (a instanceof core.actions.unitactions.Upgrade) {
             core.actions.unitactions.Upgrade u = (core.actions.unitactions.Upgrade) a;
@@ -572,6 +575,7 @@ public class PythonEnv {
             uInfo.put("tribeId", u.getTribeId());
             uInfo.put("currentHP", u.getCurrentHP());
             uInfo.put("status", u.getStatus() != null ? u.getStatus().toString() : "FRESH");
+            DiplomacyJson.addUnitFields(uInfo, u);  // 2.15 rules Cloak only
             unit.put(String.valueOf(u.getActorId()), uInfo);
         }
 
@@ -634,6 +638,7 @@ public class PythonEnv {
             techJson.put("researched", researchedArr);
             tribeInfo.put("technology", techJson);
             tribeInfo.put("techTree", techJson);
+            DiplomacyJson.addTribeFields(tribeInfo, t, state);  // 2.15 rules only
 
             tribesINFO.put(String.valueOf(t.getActorId()), tribeInfo);
         }
