@@ -220,7 +220,6 @@ class ShapingScaleTests(unittest.TestCase):
                                               "POLYVISION_COMBAT_REWARD_SHAPING_SCALE": "0.5"})
         zero = W._load_combat_reward_weights({"POLYVISION_COMBAT_REWARD_RIDER": "0.3",
                                               "POLYVISION_COMBAT_REWARD_SHAPING_SCALE": "0"})
-        self.assertEqual(base["shaping_scale"], 1.0)
         for name in W.COMBAT_OUTCOME_TERMS:
             self.assertEqual(half[name], base[name], name)
             self.assertEqual(zero[name], base[name], name)

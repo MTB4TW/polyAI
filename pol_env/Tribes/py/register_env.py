@@ -5423,7 +5423,6 @@ class TribesGymWrapper(gym.Env):
             for name in weights:
                 if name not in cls.COMBAT_OUTCOME_TERMS:
                     weights[name] *= scale
-        weights["shaping_scale"] = scale
         return weights
 
     @staticmethod
