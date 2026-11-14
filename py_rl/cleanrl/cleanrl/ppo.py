@@ -97,7 +97,7 @@ class Args:
     env_id: str = "Tribes-v0"
     """the id of the environment"""
     network_arch: str = "mlp"
-    """neural network architecture ('mlp', 'spatial_resnet', or experimental 'spatial_resnet_local')"""
+    """neural network architecture ('mlp', 'spatial_resnet', or experimental 'spatial_resnet_local' / 'spatial_resnet_composed')"""
     total_timesteps: int = 500000
     """total timesteps of the experiments"""
     learning_rate: float = 2.5e-4
@@ -1777,9 +1777,11 @@ if __name__ == "__main__":
                 f"ppo_policy_output_dim={agent_net.actor[-1].out_features} does not match env.action_space.n={envs.single_action_space.n}"
             )
     else:
-        if agent_net.action_embedding is None:
+        if getattr(agent_net, "composed_actions", False):
+            pass  # No per-ID table; the agent checked its type table against action_space.n.
+        elif agent_net.action_embedding is None:
             raise RuntimeError("legal action modes require action_embedding to be initialized.")
-        if int(agent_net.action_embedding.num_embeddings) != int(envs.single_action_space.n):
+        elif int(agent_net.action_embedding.num_embeddings) != int(envs.single_action_space.n):
             raise RuntimeError(
                 f"action_embedding.num_embeddings={agent_net.action_embedding.num_embeddings} "
                 f"does not match env.action_space.n={envs.single_action_space.n}"
