@@ -45,3 +45,20 @@ order, taking a capital, blocking) pass on all 50 training maps.
 - Search at play time, as an evaluation policy: `tools/evaluate_combat.py --model-path X --policy ppo_argmax
   --policy ppo_search` (ppo_search: the search where it beats stopping, otherwise the policy's best action).
   About 3× slower per game.
+
+## 4. Fog memory (CHANGELOG 066)
+
+`core/game/FogMemory.java` tracks enemy units we have seen after they go into the clouds, follows a move we watched
+start (a Rider that attacks and retreats into the fog is remembered where it stopped), and estimates never-seen
+units from the enemy cities we know. The policy gets it as extra observation channels; the tactical search places
+remembered units it is nearly sure about. Fog here means unexplored tiles only: units on explored tiles are always
+visible, so it matters most in the first 15 turns.
+
+- From scratch: `source cluster/combat_fog_memory_v2.env && EXP_NAME=combat_fog_memory_v2_2m TOTAL_TIMESTEPS=2000000
+  sbatch --cpus-per-task=32 --mem=48G --time=24:00:00 cluster/train_combat_cpu.sbatch`
+- Warm start from a v2b checkpoint: add `INIT_FROM=runs/<v2b run>/<name>.cleanrl_model` (the new inputs start at
+  zero weight, so the run begins as that policy).
+- `POLYVISION_FOG_MEMORY_SEE_MOVES=0` stops following watched moves into the fog (the unit's possible tiles are then
+  the region it could reach). Use it if the real game does not show where a unit moving into the clouds stops.
+- Compare with `tools/compare_combat_evals.py` against the v2b evaluation: same maps, so the difference is paired.
+

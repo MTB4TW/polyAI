@@ -212,6 +212,9 @@ def main():
     checkpoint_meta = read_checkpoint_metadata(str(model_path)) if model_path else None
     sidecar = Path(str(model_path) + ".action_interface.json") if model_path else None
     rules, max_turns, max_legal = environment_settings(checkpoint_meta, args.rules, args.max_turns)
+    from pol_env.Tribes.py.environment_contract import fog_memory_of_version
+    fog_memory = (fog_memory_of_version(checkpoint_meta.get("phase1_environment_version")) if checkpoint_meta
+                  else os.environ.get("POLYVISION_FOG_MEMORY", "0").strip() == "1")
     for key in [k for k in os.environ if k.startswith("POLYVISION_COMBAT_REWARD_")]:
         del os.environ[key]  # outcomes do not depend on reward weights; keep the run's config clean
     os.environ.update({
@@ -219,6 +222,8 @@ def main():
         "POLYVISION_LEVEL_POOL_GLOB": f"levels/phase2_pool_1v1/{args.pool}/*.csv",
         "POLYVISION_LEVEL_SELECTION_MODE": "round_robin", "POLYVISION_INFO_MODE": "fast",
         "POLYVISION_MAX_TURNS": str(max_turns), "POLYVISION_RULES": rules,
+        # Combat fog memory follows the checkpoint (it changes the observation); without one, the caller's setting.
+        "POLYVISION_FOG_MEMORY": "1" if fog_memory else "0",
         "POLYVISION_MAX_LEGAL_ACTIONS": str(max_legal),
     })
 
@@ -268,7 +273,7 @@ def main():
             "manifest_sha256": sha256_file(manifest_path), "evaluated_map_count": len(maps),
             "ordered_maps": [m.__dict__ for m in maps], "evaluation_seed": args.seed,
             "repeats_per_map": args.repeats_per_map, "policies": list(policies), "opponent": "SimpleAgent (seeded by the episode seed)",
-            "game_mode": "CAPITALS", "rules": rules, "max_turns": max_turns,
+            "game_mode": "CAPITALS", "rules": rules, "fog_memory": bool(fog_memory), "max_turns": max_turns,
             "schedule_rules": "episode seed depends on map and replicate only, so every policy and evaluation with the same seed meets the same games; policy seed is policy-specific",
             "policy_semantics": {"ppo_argmax": "highest-logit valid slot", "ppo_sampled": "sampled from the policy with a per-game generator",
                                  "random_legal": "uniform over valid slots",

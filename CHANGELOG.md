@@ -2,6 +2,47 @@
 
 All notable changes to this project are documented in this file.
 
+## [Phase2-Combat_Fog_Memory-066] - (2026-11-14)
+
+### Scope
+- Combat fog memory (opt-in, `POLYVISION_FOG_MEMORY=1`, combat only; `core/game/FogMemory.java`): each tribe
+  remembers the enemy units it has seen and infers where the ones it cannot see can be. Fog in this engine (as in
+  Polytopia) is unexplored tiles, so this is about enemy units inside the clouds and hidden Cloaks. Only what the
+  tribe could know is used:
+  - an enemy unit that leaves view can be on the tiles it could reach from where it was last seen; the set grows
+    by a turn of movement at the start of each of its tribe's turns, and tiles the tribe sees are ruled out.
+    Reach is estimated from the tribe's knowledge: unknown tiles are passable, known water blocks land units, our
+    units block their tile and stop movement next to them (zone of control), so blocking shrinks the set;
+  - an enemy unit that attacks one of our units is revealed where it stands;
+  - a move we watched start (the unit was visible or had just attacked) is followed to its destination even in
+    the fog, so a Rider that hits and retreats into the clouds is remembered where it stopped
+    (`POLYVISION_FOG_MEMORY_SEE_MOVES=0` turns this off, leaving the reachable region instead);
+  - never-seen units are estimated from the unit capacity (level + 1) of the enemy cities we know, an unfound
+    capital counting as level 1, spread over the fog by distance to those cities.
+- Observation (only with the flag): 4 spatial channels after the existing ones (`fog_presence`, `fog_attack`,
+  `fog_last_seen`, `fog_unseen`) and 3 scalars at the end (`FOG_MEMORY_CHANNELS` / `FOG_MEMORY_SCALARS` in
+  `environment_contract.py`): 7,182 dimensions under 2.15 rules, 6,911 under 2020 rules. The environment version gains
+  `+fog_memory_v1` (before any rules suffix), so checkpoints with and without it are never mixed;
+  `--init-from` maps a checkpoint without it into a run with it (new inputs start at zero weight).
+- Tactical search: remembered units it is nearly sure about (at most 3 possible tiles) are placed in the search
+  copy, so the danger term and blocking account for them (`CombatTactics.addRememberedUnits`).
+- `PythonEnv`: `setFogMemory`, `fogMemoryJson`, `tacticalDanger` (diagnostic); `observationJson` carries a
+  `fogMemory` block only when on. `tools/evaluate_combat.py` turns it on for checkpoints that have it and records
+  `fog_memory` in `config.json`. `cluster/combat_fog_memory_v2.env`.
+
+### Validation
+- `tests/java/players/FogMemoryTest.java` (via `tools/tests/test_combat_fog_memory.py`): a watched retreat into
+  the fog is pinned to one tile; without following, a reachable region that excludes seen tiles and grows next
+  turn; an attacker in the fog is revealed; a seen death is forgotten; surrounding a remembered unit leaves it one
+  tile; an unfound capital gives an estimate of 2 spread only over fog; the search sees danger from a remembered
+  Rider and none without memory. Passes on 49 of the first 50 training maps under both rule sets; on the 50th
+  the test fixture finds no city-free area to set up the puzzles.
+- Live 2.15 combat game with the flag: observation 7,182, no belief on any tile we can see, remembered units
+  present. Random play on 8 validation maps (diagnostic): about half the enemy units are hidden from us in turns
+  4-16, and up to a third of those were seen earlier.
+- Fixed-seed trajectory hashes (Phase 1, combat 2020 and combat 2.15; seed 7, 3,000 steps) identical to
+  6e693b8: default runs are unchanged. Not trained or run on Farmshare.
+
 ## [Phase2-Combat_Tactical_Search_Teacher-065] - (2026-11-14)
 
 ### Scope

@@ -267,4 +267,41 @@ public class CombatTactics {
             return null;
         }
     }
+
+    /** Remembered enemy units are placed in the search copy only when they can be on at most this many tiles. */
+    public static final int MAX_REMEMBERED_TILES = 3;
+
+    /**
+     * Fog memory (opt-in): put each remembered enemy unit we cannot see but are nearly sure about (at most
+     * MAX_REMEMBERED_TILES possible tiles) into the search copy, on its possible tile closest to our units, so the
+     * danger term and blocking account for it. An unknown tile it stands on is assumed to be plain.
+     */
+    public static void addRememberedUnits(GameState root, core.game.FogMemory memory) {
+        if (memory == null) return;
+        Board b = root.getBoard();
+        int me = memory.getObserver();
+        List<Vector2d> ours = new ArrayList<>();
+        for (Actor a : b.getActors()) if (a instanceof Unit && a.getTribeId() == me) ours.add(a.getPosition());
+        for (int[] tr : memory.hiddenTracks()) {
+            boolean[][] possible = memory.possibleTiles(tr[0]);
+            if (possible == null || root.getActor(tr[0]) != null) continue;
+            int n = 0, bx = -1, by = -1, best = Integer.MAX_VALUE;
+            for (int x = 0; x < possible.length; x++)
+                for (int y = 0; y < possible.length; y++) {
+                    if (!possible[x][y]) continue;
+                    n++;
+                    if (b.getUnitAt(x, y) != null) continue;
+                    int d = Integer.MAX_VALUE;
+                    for (Vector2d p : ours) d = Math.min(d, Math.max(Math.abs(p.x - x), Math.abs(p.y - y)));
+                    if (d < best) { best = d; bx = x; by = y; }
+                }
+            if (n > MAX_REMEMBERED_TILES || bx < 0) continue;
+            if (b.getTerrainAt(bx, by) == Types.TERRAIN.FOG) b.setTerrainAt(bx, by, Types.TERRAIN.PLAIN);
+            Types.UNIT type = Types.UNIT.getTypeByKey(tr[2]);
+            if (type == null || tr[1] < 0 || tr[1] >= root.getTribes().length) continue;
+            Unit u = Types.UNIT.createUnit(new Vector2d(bx, by), 0, false, -1, tr[1], type);
+            u.setCurrentHP(Math.max(1, Math.min(tr[3], u.getMaxHP())));
+            b.addUnit(null, u);
+        }
+    }
 }

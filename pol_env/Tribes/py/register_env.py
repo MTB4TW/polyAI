@@ -43,6 +43,10 @@ from .environment_contract import (
     DIPLOMACY_TRIBE_ACTION_TYPES,
     DIPLOMACY_UNIT_TYPES,
     rules_have_diplomacy,
+    FOG_MEMORY_SCALAR_DIM,
+    fog_memory_sees_moves,
+    resolve_fog_memory,
+    versioned_for_fog_memory,
 )
 
 
@@ -391,6 +395,9 @@ class TribesGymWrapper(gym.Env):
         # Game rules (POLYVISION_RULES). The default leaves the version strings untouched; this applies to the
         # combat version string set above as well as the Phase 1 one.
         self.RULES_VERSION = resolve_rules_version()
+        # Combat fog memory (POLYVISION_FOG_MEMORY=1, combat only): extra observation channels and a version suffix.
+        self.FOG_MEMORY = resolve_fog_memory()
+        self.PHASE1_ENVIRONMENT_VERSION = versioned_for_fog_memory(self.PHASE1_ENVIRONMENT_VERSION, self.FOG_MEMORY)
         self.PHASE1_ENVIRONMENT_VERSION = versioned_for_rules(self.PHASE1_ENVIRONMENT_VERSION, self.RULES_VERSION)
         self._has_diplomacy = rules_have_diplomacy(self.RULES_VERSION)
         if self._is_combat_mode and self._has_diplomacy:
@@ -398,6 +405,8 @@ class TribesGymWrapper(gym.Env):
         self.tribes_env = make_default_env()
         if self._is_combat_mode:
             self.tribes_env._env.setSoloNoOpponentMode(False)
+        if self.FOG_MEMORY:
+            self.tribes_env._env.setFogMemory(True, bool(fog_memory_sees_moves()))
         self._init_search_teacher()
         self.level_file = level_file or self.PHASE1_LEVEL_FILE
         self._configured_map_type = str(map_type).strip().upper() if map_type is not None else None
@@ -6164,7 +6173,7 @@ class TribesGymWrapper(gym.Env):
             width, height = int(dims[0]), int(dims[1])
         else:
             width, height = 0, 0
-        layout = observation_layout(width, height, getattr(self, "RULES_VERSION", None))
+        layout = observation_layout(width, height, getattr(self, "RULES_VERSION", None), getattr(self, "FOG_MEMORY", None))
 
         # 1. Terrain Channel (1 channel: width x height)
         terrain_raw = np.asarray(board.get("terrain", []), dtype=np.int16)
@@ -6315,6 +6324,10 @@ class TribesGymWrapper(gym.Env):
         if layout.diplomacy_units_end > layout.diplomacy_units_start:
             features.extend(self._diplomacy_unit_channels(unit_map, fog_mask, width, height, controlled_tribe))
 
+        # 6c. Combat fog memory only: remembered and inferred enemy units we cannot see.
+        if layout.fog_memory_end > layout.fog_memory_start:
+            features.extend(self._fog_memory_channels(obs_dict.get("fogMemory"), width, height))
+
         # 7. Legacy Scalars (6 values)
         tribes_info = obs_dict.get("tribes", {})
         tribe0 = tribes_info.get(str(controlled_tribe), {}) if isinstance(tribes_info, dict) else {}
@@ -6384,6 +6397,10 @@ class TribesGymWrapper(gym.Env):
         if layout.diplomacy_scalar_end > layout.diplomacy_scalar_start:
             features.extend(self._diplomacy_scalars(obs_dict, controlled_tribe, effective_techs))
 
+        # 12. Combat fog memory only: hidden tracked units, estimated never-seen units, known enemy unit capacity.
+        if layout.fog_scalar_end > layout.fog_scalar_start:
+            features.extend(self._fog_memory_scalars(obs_dict.get("fogMemory")))
+
         if len(features) != layout.expected_obs_dim:
             raise ObservationContractError(
                 f"Constructed observation vector length {len(features)} != expected {layout.expected_obs_dim}"
@@ -6391,6 +6408,31 @@ class TribesGymWrapper(gym.Env):
 
         return np.array(features, dtype=np.float32)
     
+    # Java FogMemory grid keys, in FOG_MEMORY_CHANNELS order.
+    FOG_MEMORY_GRID_KEYS = ("presence", "attack", "lastSeen", "unseen")
+
+    def _fog_memory_channels(self, block, width, height):
+        """FOG_MEMORY_CHANNELS from the observation's fogMemory block (zeros if absent), each clipped to [0, 1]."""
+        out = []
+        for key in self.FOG_MEMORY_GRID_KEYS:
+            grid = np.zeros((width, height), dtype=np.float32)
+            raw = block.get(key) if isinstance(block, dict) else None
+            if raw is not None:
+                arr = np.asarray(raw, dtype=np.float32)
+                if arr.shape == (width, height):
+                    grid = np.clip(arr, 0.0, 1.0)
+            out.extend(grid.flatten())
+        return out
+
+    def _fog_memory_scalars(self, block):
+        if not isinstance(block, dict):
+            return [0.0] * FOG_MEMORY_SCALAR_DIM
+        return [
+            min(float(block.get("trackedHidden", 0)) / 10.0, 1.0),
+            min(float(block.get("unseenEstimate", 0.0)) / 10.0, 1.0),
+            min(float(block.get("knownEnemyCapacity", 0)) / 20.0, 1.0),
+        ]
+
     # Java unit-type keys of the 2.15 Diplomacy units (core.Types.UNIT).
     DIPLOMACY_UNIT_TYPE_KEYS = {"CLOAK": 12, "DAGGER": 13}
 

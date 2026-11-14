@@ -59,7 +59,8 @@ _COMBAT_ONLY_FAMILIES = ("ATTACK", "RECOVER")
 # scorer shapes, and replaces only its per-id action embedding.
 ALLOWED_ARCH_CHANGES = {("spatial_resnet_local", "spatial_resnet_composed")}
 _LAYOUT_BLOCKS = ("terrain", "unit_types", "city_territory", "unit_home_city", "road", "buildings", "resource",
-                  "diplomacy_units", "legacy_scalar", "economy_scalar", "tech_vector", "city_block", "diplomacy_scalar")
+                  "diplomacy_units", "fog_memory", "legacy_scalar", "economy_scalar", "tech_vector", "city_block",
+                  "diplomacy_scalar", "fog_scalar")
 _RULES_SUFFIX_RE = re.compile(r"\+rules_([a-z0-9_]+?)(?:_r\d+)?$")
 
 
@@ -75,7 +76,10 @@ def observation_layout_for(meta: dict):
 
     width = _int_or_none(meta.get("map_width")) or 11
     height = _int_or_none(meta.get("map_height")) or 11
-    layout = observation_layout(width, height, rules_of_version(meta.get("phase1_environment_version")))
+    from pol_env.Tribes.py.environment_contract import fog_memory_of_version
+
+    version = meta.get("phase1_environment_version")
+    layout = observation_layout(width, height, rules_of_version(version), fog_memory_of_version(version))
     dim = _int_or_none(meta.get("observation_dim"))
     if dim is not None and dim != layout.expected_obs_dim:
         raise InitFromError(f"--init-from: observation_dim={dim} does not match the "

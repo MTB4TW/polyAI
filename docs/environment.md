@@ -42,6 +42,13 @@ Under `polytopia_2_15` the observation grows to 6,695 dimensions (Diplomacy chan
 action catalog gains the Cloak, the Diplomacy tech and, in combat mode, the Diplomacy actions; see
 [Rules parity](rules-parity.md#diplomacy-2122-under-polytopia_2_15).
 
+## Combat fog memory
+
+`POLYVISION_FOG_MEMORY=1` (combat only, off by default) adds what the controlled tribe remembers and infers about
+enemy units it cannot see (`core/game/FogMemory.java`): 4 spatial channels (expected remembered units per tile,
+the same weighted by attack, where hidden units were last seen, expected never-seen units per tile) and 3 scalars.
+The environment version gains `+fog_memory_v1`. See CHANGELOG 066 for exactly what is and is not inferred.
+
 ## Map selection and seeds
 
 Set `POLYVISION_LEVEL_POOL_GLOB` relative to `pol_env/Tribes/` or as an absolute glob. The default training pool is:

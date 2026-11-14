@@ -44,6 +44,10 @@ public class PythonEnv {
     private String loadedLevelFile = null;
     private Agent opponentAgent = null;
     private String opponentType = "simple";
+    // Combat only, opt-in (POLYVISION_FOG_MEMORY=1): one FogMemory per tribe; null when off.
+    private boolean fogMemoryEnabled = false;
+    private boolean fogMemorySeeMoves = true;
+    private FogMemory[] fogMemories = null;
 
     /**
      * Initialize from a CSV level file path (relative to CWD or absolute), seed, and game mode.
@@ -62,6 +66,42 @@ public class PythonEnv {
         if (gs.getTribes() != null && gs.getTribes().length > 1) {
             setOpponentAgent(opponentType, seed);
         }
+        resetFogMemory();
+    }
+
+    /**
+     * Combat only: turn the fog memory (core.game.FogMemory) on or off. When on, every tribe remembers the enemy
+     * units it has seen and infers where unseen ones can be; observationJson() then carries a "fogMemory" block for
+     * the active tribe and the tactical search places remembered units it is sure about. Off by default; when off
+     * nothing is tracked and every output is unchanged. Takes effect from the next initFromLevel.
+     * @param seeMoves follow a watched move (the unit was visible, or had just attacked us) into the fog
+     */
+    public void setFogMemory(boolean enabled, boolean seeMoves) {
+        this.fogMemoryEnabled = enabled;
+        this.fogMemorySeeMoves = seeMoves;
+        if (gs != null) resetFogMemory();
+    }
+
+    public boolean getFogMemory() { return fogMemoryEnabled; }
+
+    private void resetFogMemory() {
+        fogMemories = null;
+        if (!fogMemoryEnabled || gs == null || gs.getTribes() == null || gs.getTribes().length < 2) return;
+        fogMemories = new FogMemory[gs.getTribes().length];
+        for (int i = 0; i < fogMemories.length; i++) {
+            fogMemories[i] = new FogMemory(i, fogMemorySeeMoves);
+            fogMemories[i].reset(gs);
+        }
+    }
+
+    /** Fog memory of a tribe (tests and diagnostics), or null when it is off. */
+    public FogMemory getFogMemoryOf(int tribeId) {
+        return fogMemories == null ? null : fogMemories[tribeId];
+    }
+
+    /** The fog-memory block for a tribe as JSON (what observationJson adds), or "{}" when it is off. */
+    public String fogMemoryJson(int tribeId) {
+        return fogMemories == null ? "{}" : fogMemories[tribeId].toJson(gs).toString();
     }
 
     /**
@@ -535,8 +575,20 @@ public class PythonEnv {
         if (allowed == null || allowed.length == 0) return -1;
         players.heuristics.CombatTactics t = new players.heuristics.CombatTactics(gs.getActiveTribeID(), weights, radius);
         GameState root = searchCopy(false);
+        if (fogMemories != null) players.heuristics.CombatTactics.addRememberedUnits(root, fogMemories[gs.getActiveTribeID()]);
         root.getRandomGenerator().setSeed(seed);
         return t.chooseIndex(root, gs.getAllAvailableActions(), allowed, depth, beam, seed);
+    }
+
+    /**
+     * Diagnostic: the tactical search's next-turn danger term (quick value minus full value) for the active tribe
+     * on its fogged view, with or without the remembered units the fog memory would add.
+     */
+    public double tacticalDanger(boolean withMemory) {
+        players.heuristics.CombatTactics t = new players.heuristics.CombatTactics(gs.getActiveTribeID(), null, 3);
+        GameState root = searchCopy(false);
+        if (withMemory && fogMemories != null) players.heuristics.CombatTactics.addRememberedUnits(root, fogMemories[gs.getActiveTribeID()]);
+        return t.quickValue(root) - t.value(root);
     }
 
     /**
@@ -608,7 +660,9 @@ public class PythonEnv {
                 && gs.getActiveTribeID() == gs.getTribes().length - 1) {
             gs.incTick();
         }
+        if (fogMemories != null) for (FogMemory fm : fogMemories) fm.beforeAction(gs, action);
         gs.advance(action, true);
+        if (fogMemories != null) for (FogMemory fm : fogMemories) fm.afterAction(gs);
     }
 
     private String observationJsonFromState(GameState state) {
@@ -773,7 +827,10 @@ public class PythonEnv {
     public String observationJson() {
         int povPlayer = gs.getActiveTribeID();
         GameState pov = gs.copy(povPlayer);
-        return observationJsonFromState(pov);
+        if (fogMemories == null) return observationJsonFromState(pov);
+        JSONObject obs = new JSONObject(observationJsonFromState(pov));
+        obs.put("fogMemory", fogMemories[povPlayer].toJson(gs));
+        return obs.toString();
     }
 
     /**

@@ -51,6 +51,7 @@ export POLYVISION_MAX_TURNS="${POLYVISION_MAX_TURNS:-20}"
 export POLYVISION_INFO_MODE="fast"
 export POLYVISION_RULES="${POLYVISION_RULES:-tribes_2020}"
 echo "Game rules: $POLYVISION_RULES"
+echo "Fog memory: ${POLYVISION_FOG_MEMORY:-0}"
 env | grep '^POLYVISION_COMBAT_REWARD_' || echo "Combat reward: defaults"
 # Env worker processes stay single-threaded; the learner gets TORCH_THREADS via --torch-threads.
 export OMP_NUM_THREADS="1"
