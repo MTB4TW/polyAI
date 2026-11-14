@@ -2,6 +2,24 @@
 
 All notable changes to this project are documented in this file.
 
+## [Phase2-Combat_Outcome_Finetune-063] - (2026-11-14)
+
+### Scope
+- `POLYVISION_COMBAT_REWARD_SHAPING_SCALE` (default 1, so no run changes) scales every combat reward term except
+  the outcome terms (`TribesGymWrapper.COMBAT_OUTCOME_TERMS`: win, loss, timeout, early win, terminal potential,
+  turn penalty).
+- Outcome-only fine-tuning: `cluster/combat_outcome_finetune.env` (v2 weights, shaping × `SHAPING_SCALE`,
+  `--init-from` with a critic reset unless `RESET_CRITIC=0`, learning rate 2e-4), `cluster/combat_finetune_stage.sbatch`
+  (resolves the checkpoint when the job starts, from `INIT_FROM` or the latest run named `INIT_FROM_EXP`) and
+  `cluster/run_combat_finetune.sh CHECKPOINT NAME [SEED]` (two dependent jobs: shaping × 0.5 for 500k steps, then
+  outcome only for 1.5M).
+
+### Validation
+- `test_combat_shaping_terms.py`: the scale halves or zeroes every shaping weight and leaves the outcome weights.
+- Local end-to-end with tiny step counts: a source run, stage 1 (×0.5, critic reset) and stage 2 (×0, from stage 1's
+  checkpoint) all trained and saved.
+- Not run on Farmshare: it fine-tunes the v2b runs once they finish.
+
 ## [Eval-Canonical_Combat_Evaluation-062] - (2026-11-14)
 
 ### Scope

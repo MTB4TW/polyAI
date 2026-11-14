@@ -5392,6 +5392,11 @@ class TribesGymWrapper(gym.Env):
         "turn_penalty": 0.0,            # event: penalty per turn ended (a cost of time, pushing for an early win)
     }
 
+    # Outcome terms: what the game result and its timing pay. Everything else is shaping ("who is ahead" potential
+    # terms and per-step events) and is multiplied by POLYVISION_COMBAT_REWARD_SHAPING_SCALE (default 1), so a run
+    # can fade the shaping out or train on the outcome alone (0).
+    COMBAT_OUTCOME_TERMS = ("win", "loss", "timeout", "early_win", "terminal_potential", "turn_penalty")
+
     @classmethod
     def _load_combat_reward_weights(cls, environ=None):
         environ = os.environ if environ is None else environ
@@ -5410,6 +5415,15 @@ class TribesGymWrapper(gym.Env):
             raise ValueError("Combat reward needs loss < timeout < win")
         if not 0.0 <= weights["terminal_potential"] <= 1.0:
             raise ValueError("POLYVISION_COMBAT_REWARD_TERMINAL_POTENTIAL must be between 0 and 1")
+        raw_scale = environ.get("POLYVISION_COMBAT_REWARD_SHAPING_SCALE")
+        scale = 1.0 if raw_scale is None or str(raw_scale).strip() == "" else float(raw_scale)
+        if not (np.isfinite(scale) and scale >= 0.0):
+            raise ValueError(f"POLYVISION_COMBAT_REWARD_SHAPING_SCALE must be >= 0, got {raw_scale!r}")
+        if scale != 1.0:
+            for name in weights:
+                if name not in cls.COMBAT_OUTCOME_TERMS:
+                    weights[name] *= scale
+        weights["shaping_scale"] = scale
         return weights
 
     @staticmethod
