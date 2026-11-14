@@ -43,7 +43,7 @@ def totals(state, me):
     city_owner = {int(c["id"]): int(c["tribe"]) for c in state.get("cities", [])}
     for tid, t in (state.get("tribes") or {}).items():
         out[str(tid)] = {"numCities": int(t["cities"]), "score": int(t["score"]), "nKills": int(t["kills"]),
-                         "units": 0, "unitValue": 0, "giants": 0, "tiles": 0, "roads": 0}
+                         "units": 0, "unitValue": 0, "giants": 0, "riders": 0, "tiles": 0, "roads": 0}
     for u in state.get("units", []):
         t = out.get(str(int(u["tribe"])))
         if t is None:
@@ -51,6 +51,7 @@ def totals(state, me):
         t["units"] += 1
         t["unitValue"] += int(u.get("cost", 0))
         t["giants"] += int(u.get("type") == "SUPERUNIT")
+        t["riders"] += int(u.get("type") == "RIDER")
     tile_city, road = state.get("tileCity") or [], state.get("road") or []
     for x, column in enumerate(tile_city):
         for y, cid in enumerate(column):

@@ -192,4 +192,16 @@ class UnitPreferenceAndTempoTests(unittest.TestCase):
         weights = TribesGymWrapper._load_combat_reward_weights(env)
         self.assertEqual(weights["timeout"], -5.0)
         self.assertEqual(weights["embassy"], 5.0)
-        self.assertGreater(weights["train_rider"], 0.0)
+        self.assertGreater(weights["rider"], 0.0)
+        self.assertEqual(weights["train_rider"], 0.0)
+
+    def test_rider_potential_counts_our_riders(self):
+        from pol_env.Tribes.py.register_env import TribesGymWrapper
+
+        w = self.wrapper(rider=0.3)
+        w._turn_count = 0
+        s = state([unit(1, 0, "RIDER", 2, 2, cost=3), unit(2, 0, "RIDER", 3, 3, cost=3),
+                   unit(3, 0, "WARRIOR", 4, 4), unit(4, 1, "RIDER", 9, 9, cost=3)])
+        terms = TribesGymWrapper._combat_phi_terms(w, s)
+        self.assertAlmostEqual(terms["rider"], 0.6)
+        self.assertNotIn("rider", TribesGymWrapper._combat_phi_terms(self.wrapper(), s))

@@ -5382,6 +5382,8 @@ class TribesGymWrapper(gym.Env):
         "avoid_whaling": 0.0,           # event: penalty for researching WHALING
         "capital_hold": 0.0,            # event: per unit of ours on an enemy capital at the start of our turn
         "capital_region_kill": 0.0,     # event: per enemy unit killed inside an enemy capital's territory
+        "rider": 0.0,                   # phi: per Rider of ours alive (prefer Riders; a potential, so a Rider
+                                        # that dies takes its reward back and churn cannot be farmed)
         "train_rider": 0.0,             # event: per Rider trained (faster than Warriors/Swordsmen, Escape skill)
         "train_infantry": 0.0,          # event: penalty per Warrior or Swordsman trained
         "rider_attack": 0.0,            # event: per attack made by one of our Riders
@@ -5477,6 +5479,8 @@ class TribesGymWrapper(gym.Env):
             terms["capital_proximity_late"] = w["capital_proximity_late"] * late * prox
         if w["zone_of_control"]:
             terms["zone_of_control"] = w["zone_of_control"] * combat_shaping.zone_of_control(state, me)
+        if w["rider"]:
+            terms["rider"] = w["rider"] * float(mine.get("riders", 0))
         return terms
 
     COMBAT_EVENT_TERMS = ("regional_attack", "role_positioning", "damage_trade", "hanging_population", "tech_order",

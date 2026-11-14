@@ -15,11 +15,11 @@ All notable changes to this project are documented in this file.
   same function; `spatial_resnet_local` → `spatial_resnet_composed` is allowed, and each composed action type
   starts as the mean of the source's per-id embeddings of that type; composed → composed transfers match types
   by name instead of position.
-- New opt-in combat reward terms (default 0, so no existing run changes): `train_rider`, `train_infantry`,
-  `rider_attack`, `embassy`, `turn_penalty` (docs/rewards.md).
+- New opt-in combat reward terms (default 0, so no existing run changes): `rider` (potential per Rider alive),
+  `train_rider`, `train_infantry`, `rider_attack`, `embassy`, `turn_penalty` (docs/rewards.md).
 - `cluster/combat_cap_all_v2.env`: Kevin's cap_all weights plus 2.15 rules, `spatial_resnet_composed`, 16 envs,
-  seeded-random maps, optional `INIT_FROM`, and starting values for the new terms: Riders +1 / Warriors and
-  Swordsmen −0.5 when trained, +0.25 per Rider attack; embassy −5; to cut timeouts (48.9% in cap_all): timeout
+  seeded-random maps, optional `INIT_FROM`, and starting values for the new terms: +0.3 potential per Rider
+  alive, +0.1 per Rider attack; embassy −5; to cut timeouts (48.9% in cap_all): timeout
   −5 (was 0), half of the final potential paid at game end (was all), −0.25 per turn, early-win bonus 30 (was 20).
 
 ### Validation
@@ -28,6 +28,11 @@ All notable changes to this project are documented in this file.
   of its per-id rows. `test_combat_shaping_terms.py`: the new terms (off by default) and the v2 env file.
 - End-to-end: a 2,048-step 2020 `spatial_resnet_local` combat checkpoint warm-started a 4,096-step 2.15 composed
   run sourced from `combat_cap_all_v2.env` (75 of 94 action types seeded, critic reset).
+- The first v2 runs (Farmshare 1982593, 1982602-1982604) used one-off training rewards instead (Riders +1,
+  Warriors and Swordsmen −0.5, +0.25 per Rider attack). Against cap_all's per-game reward breakdown (W&B
+  `vis7ipn7`: outcome 14.7, all potential terms ~22, other events ~5 per game) these could swing ~24 per game
+  between an all-Warrior and an all-Rider army, close to a win, and a Rider that died kept its reward, so they
+  were replaced by the potential.
 - No model trained or evaluated. Kevin's cap_all checkpoints were not uploaded to W&B; upload one before using
   `INIT_FROM`.
 

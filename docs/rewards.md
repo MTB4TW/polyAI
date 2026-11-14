@@ -119,7 +119,7 @@ Opt-in terms (default 0; definitions in `pol_env/Tribes/py/combat_shaping.py` an
 `CAPITAL_PROXIMITY`, `CAPITAL_PROXIMITY_LATE`, `ZONE_OF_CONTROL` (potential terms), `REGIONAL_ATTACK`, `ROLE_POSITIONING`,
 `DAMAGE_TRADE`, `HANGING_POPULATION`, `TECH_ORDER`, `POP_TECH`, `UNUSED_TECH`, `TECH_COST`, `AVOID_FISHING`,
 `AVOID_PHILOSOPHY_MEDITATION` (event terms) and `EARLY_WIN` (extra win reward tapering to 0 at the turn limit).
-Also opt-in (CHANGELOG entry 061): `TRAIN_RIDER` (+ per Rider trained), `TRAIN_INFANTRY` (− per Warrior or
+Also opt-in (CHANGELOG entry 061): `RIDER` (potential: + per Rider of ours alive), `TRAIN_RIDER` (+ per Rider trained), `TRAIN_INFANTRY` (− per Warrior or
 Swordsman trained), `RIDER_ATTACK` (+ per attack by a Rider), `EMBASSY` (− per embassy built, 2.15 rules) and
 `TURN_PENALTY` (− per turn ended). `cluster/combat_cap_all_v2.env` sets them for the 2.15-rules cap_all run.
 | `POLYVISION_COMBAT_REWARD_TIMEOUT` | 0 | outcome reward on a turn-limit timeout (loss < timeout < win) |
