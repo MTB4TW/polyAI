@@ -2034,7 +2034,10 @@ if __name__ == "__main__":
                 # Only the training target is scaled; `reward` stays raw for anything that logs it.
                 step_discount = None
                 if args.gamma_per_turn:
-                    step_discount = per_turn_discounts(action_np.reshape(-1).astype(np.int64), args.gamma)
+                    # Read the stored actions: the --overlap-rollout path fills actions[step] per half and
+                    # has no action_np.
+                    step_discount = per_turn_discounts(
+                        actions[step].reshape(-1).long().cpu().numpy().astype(np.int64), args.gamma)
                 train_reward = return_normalizer(reward, next_done, step_discount)
             rewards[step] = torch.tensor(train_reward, dtype=torch.float32).to(device).view(-1)
             next_obs, next_done = torch.Tensor(next_obs).to(device), torch.Tensor(next_done).to(device)
