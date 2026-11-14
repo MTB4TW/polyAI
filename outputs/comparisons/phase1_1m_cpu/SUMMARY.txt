@@ -1,0 +1,244 @@
+Phase 1 matched-budget comparison: 1M steps, CPU, spatial_resnet_local baseline (diagnostic budget)
+Commit: fe641b7 Merge feat/composed-action-arch into the matched-budget experiment branch
+Generated: Fri Nov 13 00:09:31 PST 2026
+
+== composed seed 1 vs baseline seed 1 (ppo_argmax)
+Policy ppo_argmax on 250 validation maps (paired)
+  baseline  20261113_baseline-local-1m-cpu-seed1_validation_canonical: 16.39 SPT
+  candidate 20261113_composed-1m-cpu-seed1_validation_canonical: 19.07 SPT
+  difference (candidate - baseline): +2.68  95% CI [+2.23, +3.13]
+  W/T/L: 191/19/40
+  written: outputs/comparisons/phase1_1m_cpu/composed_seed1_ppo_argmax.json
+
+== composed seed 1 vs baseline seed 1 (ppo_sampled)
+Policy ppo_sampled on 250 validation maps (paired)
+  baseline  20261113_baseline-local-1m-cpu-seed1_validation_canonical: 16.67 SPT
+  candidate 20261113_composed-1m-cpu-seed1_validation_canonical: 17.84 SPT
+  difference (candidate - baseline): +1.17  95% CI [+0.91, +1.44]
+  W/T/L: 172/9/69
+  written: outputs/comparisons/phase1_1m_cpu/composed_seed1_ppo_sampled.json
+
+== composed seed 2 vs baseline seed 2 (ppo_argmax)
+Policy ppo_argmax on 250 validation maps (paired)
+  baseline  20261113_baseline-local-1m-cpu-seed2_validation_canonical: 16.36 SPT
+  candidate 20261113_composed-1m-cpu-seed2_validation_canonical: 17.53 SPT
+  difference (candidate - baseline): +1.16  95% CI [+0.61, +1.72]
+  W/T/L: 138/23/89
+  written: outputs/comparisons/phase1_1m_cpu/composed_seed2_ppo_argmax.json
+
+== composed seed 2 vs baseline seed 2 (ppo_sampled)
+Policy ppo_sampled on 250 validation maps (paired)
+  baseline  20261113_baseline-local-1m-cpu-seed2_validation_canonical: 15.64 SPT
+  candidate 20261113_composed-1m-cpu-seed2_validation_canonical: 16.54 SPT
+  difference (candidate - baseline): +0.91  95% CI [+0.53, +1.28]
+  W/T/L: 152/3/95
+  written: outputs/comparisons/phase1_1m_cpu/composed_seed2_ppo_sampled.json
+
+== composed seed 3 vs baseline seed 3 (ppo_argmax)
+Policy ppo_argmax on 250 validation maps (paired)
+  baseline  20261113_baseline-local-1m-cpu-seed3_validation_canonical: 17.30 SPT
+  candidate 20261113_composed-1m-cpu-seed3_validation_canonical: 17.84 SPT
+  difference (candidate - baseline): +0.54  95% CI [+0.03, +1.02]
+  W/T/L: 130/22/98
+  written: outputs/comparisons/phase1_1m_cpu/composed_seed3_ppo_argmax.json
+
+== composed seed 3 vs baseline seed 3 (ppo_sampled)
+Policy ppo_sampled on 250 validation maps (paired)
+  baseline  20261113_baseline-local-1m-cpu-seed3_validation_canonical: 15.87 SPT
+  candidate 20261113_composed-1m-cpu-seed3_validation_canonical: 16.95 SPT
+  difference (candidate - baseline): +1.08  95% CI [+0.77, +1.38]
+  W/T/L: 179/5/66
+  written: outputs/comparisons/phase1_1m_cpu/composed_seed3_ppo_sampled.json
+
+== gammaturn-local seed 1 vs baseline seed 1 (ppo_argmax)
+Policy ppo_argmax on 250 validation maps (paired)
+  baseline  20261113_baseline-local-1m-cpu-seed1_validation_canonical: 16.39 SPT
+  candidate 20261113_gammaturn-local-1m-cpu-seed1_validation_canonical: 18.19 SPT
+  difference (candidate - baseline): +1.80  95% CI [+1.24, +2.36]
+  W/T/L: 145/30/75
+  written: outputs/comparisons/phase1_1m_cpu/gammaturn-local_seed1_ppo_argmax.json
+
+== gammaturn-local seed 1 vs baseline seed 1 (ppo_sampled)
+Policy ppo_sampled on 250 validation maps (paired)
+  baseline  20261113_baseline-local-1m-cpu-seed1_validation_canonical: 16.67 SPT
+  candidate 20261113_gammaturn-local-1m-cpu-seed1_validation_canonical: 16.53 SPT
+  difference (candidate - baseline): -0.14  95% CI [-0.44, +0.16]
+  W/T/L: 115/8/127
+  written: outputs/comparisons/phase1_1m_cpu/gammaturn-local_seed1_ppo_sampled.json
+
+== gammaturn-local seed 2 vs baseline seed 2 (ppo_argmax)
+Policy ppo_argmax on 250 validation maps (paired)
+  baseline  20261113_baseline-local-1m-cpu-seed2_validation_canonical: 16.36 SPT
+  candidate 20261113_gammaturn-local-1m-cpu-seed2_validation_canonical: 20.53 SPT
+  difference (candidate - baseline): +4.17  95% CI [+3.60, +4.73]
+  W/T/L: 199/11/40
+  written: outputs/comparisons/phase1_1m_cpu/gammaturn-local_seed2_ppo_argmax.json
+
+== gammaturn-local seed 2 vs baseline seed 2 (ppo_sampled)
+Policy ppo_sampled on 250 validation maps (paired)
+  baseline  20261113_baseline-local-1m-cpu-seed2_validation_canonical: 15.64 SPT
+  candidate 20261113_gammaturn-local-1m-cpu-seed2_validation_canonical: 18.46 SPT
+  difference (candidate - baseline): +2.82  95% CI [+2.51, +3.13]
+  W/T/L: 213/3/34
+  written: outputs/comparisons/phase1_1m_cpu/gammaturn-local_seed2_ppo_sampled.json
+
+== gammaturn-local seed 3 vs baseline seed 3 (ppo_argmax)
+Policy ppo_argmax on 250 validation maps (paired)
+  baseline  20261113_baseline-local-1m-cpu-seed3_validation_canonical: 17.30 SPT
+  candidate 20261113_gammaturn-local-1m-cpu-seed3_validation_canonical: 19.86 SPT
+  difference (candidate - baseline): +2.56  95% CI [+2.02, +3.08]
+  W/T/L: 167/28/55
+  written: outputs/comparisons/phase1_1m_cpu/gammaturn-local_seed3_ppo_argmax.json
+
+== gammaturn-local seed 3 vs baseline seed 3 (ppo_sampled)
+Policy ppo_sampled on 250 validation maps (paired)
+  baseline  20261113_baseline-local-1m-cpu-seed3_validation_canonical: 15.87 SPT
+  candidate 20261113_gammaturn-local-1m-cpu-seed3_validation_canonical: 18.88 SPT
+  difference (candidate - baseline): +3.02  95% CI [+2.71, +3.32]
+  W/T/L: 221/3/26
+  written: outputs/comparisons/phase1_1m_cpu/gammaturn-local_seed3_ppo_sampled.json
+
+== noclipv-normret-local seed 1 vs baseline seed 1 (ppo_argmax)
+Policy ppo_argmax on 250 validation maps (paired)
+  baseline  20261113_baseline-local-1m-cpu-seed1_validation_canonical: 16.39 SPT
+  candidate 20261113_noclipv-normret-local-1m-cpu-seed1_validation_canonical: 23.95 SPT
+  difference (candidate - baseline): +7.56  95% CI [+6.96, +8.18]
+  W/T/L: 230/5/15
+  written: outputs/comparisons/phase1_1m_cpu/noclipv-normret-local_seed1_ppo_argmax.json
+
+== noclipv-normret-local seed 1 vs baseline seed 1 (ppo_sampled)
+Policy ppo_sampled on 250 validation maps (paired)
+  baseline  20261113_baseline-local-1m-cpu-seed1_validation_canonical: 16.67 SPT
+  candidate 20261113_noclipv-normret-local-1m-cpu-seed1_validation_canonical: 21.79 SPT
+  difference (candidate - baseline): +5.12  95% CI [+4.82, +5.42]
+  W/T/L: 241/2/7
+  written: outputs/comparisons/phase1_1m_cpu/noclipv-normret-local_seed1_ppo_sampled.json
+
+== noclipv-normret-local seed 2 vs baseline seed 2 (ppo_argmax)
+Policy ppo_argmax on 250 validation maps (paired)
+  baseline  20261113_baseline-local-1m-cpu-seed2_validation_canonical: 16.36 SPT
+  candidate 20261113_noclipv-normret-local-1m-cpu-seed2_validation_canonical: 22.21 SPT
+  difference (candidate - baseline): +5.85  95% CI [+5.30, +6.39]
+  W/T/L: 224/6/20
+  written: outputs/comparisons/phase1_1m_cpu/noclipv-normret-local_seed2_ppo_argmax.json
+
+== noclipv-normret-local seed 2 vs baseline seed 2 (ppo_sampled)
+Policy ppo_sampled on 250 validation maps (paired)
+  baseline  20261113_baseline-local-1m-cpu-seed2_validation_canonical: 15.64 SPT
+  candidate 20261113_noclipv-normret-local-1m-cpu-seed2_validation_canonical: 20.57 SPT
+  difference (candidate - baseline): +4.94  95% CI [+4.64, +5.25]
+  W/T/L: 245/2/3
+  written: outputs/comparisons/phase1_1m_cpu/noclipv-normret-local_seed2_ppo_sampled.json
+
+== noclipv-normret-local seed 3 vs baseline seed 3 (ppo_argmax)
+Policy ppo_argmax on 250 validation maps (paired)
+  baseline  20261113_baseline-local-1m-cpu-seed3_validation_canonical: 17.30 SPT
+  candidate 20261113_noclipv-normret-local-1m-cpu-seed3_validation_canonical: 17.16 SPT
+  difference (candidate - baseline): -0.14  95% CI [-0.70, +0.42]
+  W/T/L: 103/34/113
+  written: outputs/comparisons/phase1_1m_cpu/noclipv-normret-local_seed3_ppo_argmax.json
+
+== noclipv-normret-local seed 3 vs baseline seed 3 (ppo_sampled)
+Policy ppo_sampled on 250 validation maps (paired)
+  baseline  20261113_baseline-local-1m-cpu-seed3_validation_canonical: 15.87 SPT
+  candidate 20261113_noclipv-normret-local-1m-cpu-seed3_validation_canonical: 16.25 SPT
+  difference (candidate - baseline): +0.38  95% CI [+0.02, +0.77]
+  W/T/L: 119/12/119
+  written: outputs/comparisons/phase1_1m_cpu/noclipv-normret-local_seed3_ppo_sampled.json
+
+== normobs-local seed 1 vs baseline seed 1 (ppo_argmax)
+Policy ppo_argmax on 250 validation maps (paired)
+  baseline  20261113_baseline-local-1m-cpu-seed1_validation_canonical: 16.39 SPT
+  candidate 20261113_normobs-local-1m-cpu-seed1_validation_canonical: 21.74 SPT
+  difference (candidate - baseline): +5.35  95% CI [+4.82, +5.88]
+  W/T/L: 222/12/16
+  written: outputs/comparisons/phase1_1m_cpu/normobs-local_seed1_ppo_argmax.json
+
+== normobs-local seed 1 vs baseline seed 1 (ppo_sampled)
+Policy ppo_sampled on 250 validation maps (paired)
+  baseline  20261113_baseline-local-1m-cpu-seed1_validation_canonical: 16.67 SPT
+  candidate 20261113_normobs-local-1m-cpu-seed1_validation_canonical: 20.88 SPT
+  difference (candidate - baseline): +4.21  95% CI [+3.93, +4.47]
+  W/T/L: 242/1/7
+  written: outputs/comparisons/phase1_1m_cpu/normobs-local_seed1_ppo_sampled.json
+
+== normobs-local seed 2 vs baseline seed 2 (ppo_argmax)
+Policy ppo_argmax on 250 validation maps (paired)
+  baseline  20261113_baseline-local-1m-cpu-seed2_validation_canonical: 16.36 SPT
+  candidate 20261113_normobs-local-1m-cpu-seed2_validation_canonical: 21.60 SPT
+  difference (candidate - baseline): +5.24  95% CI [+4.66, +5.78]
+  W/T/L: 205/17/28
+  written: outputs/comparisons/phase1_1m_cpu/normobs-local_seed2_ppo_argmax.json
+
+== normobs-local seed 2 vs baseline seed 2 (ppo_sampled)
+Policy ppo_sampled on 250 validation maps (paired)
+  baseline  20261113_baseline-local-1m-cpu-seed2_validation_canonical: 15.64 SPT
+  candidate 20261113_normobs-local-1m-cpu-seed2_validation_canonical: 21.22 SPT
+  difference (candidate - baseline): +5.58  95% CI [+5.28, +5.88]
+  W/T/L: 246/2/2
+  written: outputs/comparisons/phase1_1m_cpu/normobs-local_seed2_ppo_sampled.json
+
+== normobs-local seed 3 vs baseline seed 3 (ppo_argmax)
+Policy ppo_argmax on 250 validation maps (paired)
+  baseline  20261113_baseline-local-1m-cpu-seed3_validation_canonical: 17.30 SPT
+  candidate 20261113_normobs-local-1m-cpu-seed3_validation_canonical: 21.93 SPT
+  difference (candidate - baseline): +4.63  95% CI [+4.07, +5.17]
+  W/T/L: 207/15/28
+  written: outputs/comparisons/phase1_1m_cpu/normobs-local_seed3_ppo_argmax.json
+
+== normobs-local seed 3 vs baseline seed 3 (ppo_sampled)
+Policy ppo_sampled on 250 validation maps (paired)
+  baseline  20261113_baseline-local-1m-cpu-seed3_validation_canonical: 15.87 SPT
+  candidate 20261113_normobs-local-1m-cpu-seed3_validation_canonical: 21.24 SPT
+  difference (candidate - baseline): +5.37  95% CI [+5.01, +5.73]
+  W/T/L: 241/1/8
+  written: outputs/comparisons/phase1_1m_cpu/normobs-local_seed3_ppo_sampled.json
+
+== bigupdate-local seed 1 vs baseline seed 1 (ppo_argmax)
+Policy ppo_argmax on 250 validation maps (paired)
+  baseline  20261113_baseline-local-1m-cpu-seed1_validation_canonical: 16.39 SPT
+  candidate 20261113_bigupdate-local-1m-cpu-seed1_validation_canonical: 11.98 SPT
+  difference (candidate - baseline): -4.42  95% CI [-4.92, -3.89]
+  W/T/L: 27/15/208
+  written: outputs/comparisons/phase1_1m_cpu/bigupdate-local_seed1_ppo_argmax.json
+
+== bigupdate-local seed 1 vs baseline seed 1 (ppo_sampled)
+Policy ppo_sampled on 250 validation maps (paired)
+  baseline  20261113_baseline-local-1m-cpu-seed1_validation_canonical: 16.67 SPT
+  candidate 20261113_bigupdate-local-1m-cpu-seed1_validation_canonical: 13.10 SPT
+  difference (candidate - baseline): -3.57  95% CI [-3.89, -3.23]
+  W/T/L: 20/1/229
+  written: outputs/comparisons/phase1_1m_cpu/bigupdate-local_seed1_ppo_sampled.json
+
+== bigupdate-local seed 2 vs baseline seed 2 (ppo_argmax)
+Policy ppo_argmax on 250 validation maps (paired)
+  baseline  20261113_baseline-local-1m-cpu-seed2_validation_canonical: 16.36 SPT
+  candidate 20261113_bigupdate-local-1m-cpu-seed2_validation_canonical: 15.49 SPT
+  difference (candidate - baseline): -0.87  95% CI [-1.40, -0.36]
+  W/T/L: 92/26/132
+  written: outputs/comparisons/phase1_1m_cpu/bigupdate-local_seed2_ppo_argmax.json
+
+== bigupdate-local seed 2 vs baseline seed 2 (ppo_sampled)
+Policy ppo_sampled on 250 validation maps (paired)
+  baseline  20261113_baseline-local-1m-cpu-seed2_validation_canonical: 15.64 SPT
+  candidate 20261113_bigupdate-local-1m-cpu-seed2_validation_canonical: 14.85 SPT
+  difference (candidate - baseline): -0.79  95% CI [-1.16, -0.42]
+  W/T/L: 96/7/147
+  written: outputs/comparisons/phase1_1m_cpu/bigupdate-local_seed2_ppo_sampled.json
+
+== bigupdate-local seed 3 vs baseline seed 3 (ppo_argmax)
+Policy ppo_argmax on 250 validation maps (paired)
+  baseline  20261113_baseline-local-1m-cpu-seed3_validation_canonical: 17.30 SPT
+  candidate 20261113_bigupdate-local-1m-cpu-seed3_validation_canonical: 15.33 SPT
+  difference (candidate - baseline): -1.97  95% CI [-2.52, -1.44]
+  W/T/L: 71/29/150
+  written: outputs/comparisons/phase1_1m_cpu/bigupdate-local_seed3_ppo_argmax.json
+
+== bigupdate-local seed 3 vs baseline seed 3 (ppo_sampled)
+Policy ppo_sampled on 250 validation maps (paired)
+  baseline  20261113_baseline-local-1m-cpu-seed3_validation_canonical: 15.87 SPT
+  candidate 20261113_bigupdate-local-1m-cpu-seed3_validation_canonical: 14.36 SPT
+  difference (candidate - baseline): -1.51  95% CI [-1.85, -1.17]
+  W/T/L: 69/8/173
+  written: outputs/comparisons/phase1_1m_cpu/bigupdate-local_seed3_ppo_sampled.json
+

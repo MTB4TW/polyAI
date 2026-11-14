@@ -1,0 +1,18 @@
+{
+  "name": "noclipv-normret-local-1m-cpu-seed2",
+  "network_arch": "spatial_resnet_local",
+  "total_timesteps": 1000000,
+  "seed": 2,
+  "extra_ppo_args": "--torch-threads 6 --no-clip-vloss --norm-returns",
+  "submitted_utc": "2026-11-13T01:28:26Z",
+  "submitted_by": "devinlai",
+  "git_commit": "fe641b73c33eb6bcb0aa407377f8c963585410c4",
+  "git_dirty": true,
+  "model_path": "runs/experiments/noclipv-normret-local-1m-cpu-seed2/noclipv-normret-local-1m-cpu-seed2.cleanrl_model",
+  "evaluation_id": "20261113_noclipv-normret-local-1m-cpu-seed2_validation_canonical",
+  "train_job": "1978319",
+  "eval_job": "1978320",
+  "wandb_track": 1,
+  "wandb_upload": 1,
+  "wandb_log_eval": 1
+}

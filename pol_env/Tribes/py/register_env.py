@@ -10,6 +10,7 @@ import time
 from gymnasium.envs.registration import register
 from .gym_env import TribesGymEnv, make_default_env
 from . import combat_shaping
+from . import search_teacher
 from .environment_contract import (
     MapGeometryError,
     ObservationContractError,
@@ -397,6 +398,7 @@ class TribesGymWrapper(gym.Env):
         self.tribes_env = make_default_env()
         if self._is_combat_mode:
             self.tribes_env._env.setSoloNoOpponentMode(False)
+        self._init_search_teacher()
         self.level_file = level_file or self.PHASE1_LEVEL_FILE
         self._configured_map_type = str(map_type).strip().upper() if map_type is not None else None
         self._level_selection_mode = str(
@@ -754,6 +756,11 @@ class TribesGymWrapper(gym.Env):
         if self._profile_sps_enabled:
             t_reset_obs_flatten += time.perf_counter() - t_obs0
             info["profile_env_reset_obs_flatten_s"] = float(t_reset_obs_flatten)
+        if self._teacher_enabled:
+            self._attach_teacher_info(
+                info, legal_global_ids_padded, legal_action_valid_mask, legal_action_features_padded,
+                legal_id_to_raw_index, decision_state=True,
+            )
         t_sanitize0 = time.perf_counter() if self._profile_sps_enabled else None
         safe_info = self._sanitize_info_for_multiprocessing(info)
         if self._profile_sps_enabled:
@@ -1844,6 +1851,12 @@ class TribesGymWrapper(gym.Env):
             t_step_obs_flatten += time.perf_counter() - t_obs0
             info["profile_env_step_obs_flatten_s"] = float(t_step_obs_flatten)
             info["profile_env_step_total_s"] = float(time.perf_counter() - t_step_start)
+        if self._teacher_enabled:
+            # No decision follows a terminal/truncated step (the vector env resets, and reset attaches its own).
+            self._attach_teacher_info(
+                info, post_legal_global_ids_padded, post_legal_action_valid_mask, post_legal_action_features_padded,
+                post_legal_id_to_raw_index, decision_state=not (bool(terminated) or bool(truncated)),
+            )
         t_sanitize0 = time.perf_counter() if self._profile_sps_enabled else None
         safe_info = self._sanitize_info_for_multiprocessing(info)
         if self._profile_sps_enabled:
@@ -3123,6 +3136,68 @@ class TribesGymWrapper(gym.Env):
             if max(abs(tx - cx), abs(ty - cy)) <= bound:
                 return True
         return False
+
+    def _init_search_teacher(self):
+        """POLYVISION_TEACHER (training only, Phase 1 only): report a search teacher's choice in info.
+
+        Unset (the default) adds nothing to info and never calls the Java search, so environment outputs are
+        unchanged. With `lookahead_visible`, every decision state's info carries `teacher_slot`: the legal slot the
+        fog-respecting one-step lookahead (tuned weights) would choose, exactly as tools/evaluate_search_policy.py
+        --weights tuned_visible --search-seeding per_decision plays it. The search runs on state copies; observations, legal sets, rewards and transitions are untouched.
+        """
+        self._teacher_mode = search_teacher.parse_teacher_mode(os.environ.get(search_teacher.TEACHER_ENV_VAR))
+        if self._teacher_mode is not None and self._is_combat_mode:
+            raise ValueError(f"{search_teacher.TEACHER_ENV_VAR} is Phase 1 only; unset it for combat runs")
+        self._teacher_enabled = self._teacher_mode is not None
+        self._teacher_java_weights = None
+        self._teacher_full_information = False
+        self._teacher_seed_episode, self._teacher_decision_index = None, 0
+        if self._teacher_enabled:
+            weights, full_information = search_teacher.TEACHER_MODES[self._teacher_mode]
+            self._teacher_java_weights = search_teacher.java_weight_array(self.tribes_env._gateway, weights)
+            self._teacher_full_information = bool(full_information)
+        self._teacher_is_end_turn_col = int(self.LEGAL_ACTION_FEATURE_NAMES.index("is_end_turn"))
+
+    def set_teacher_enabled(self, enabled):
+        """Switch the configured teacher off (e.g. once its loss weight has decayed to 0) or back on."""
+        enabled = bool(enabled)
+        if enabled and self._teacher_mode is None:
+            raise RuntimeError(f"No teacher configured; set {search_teacher.TEACHER_ENV_VAR} before creating the env")
+        self._teacher_enabled = enabled
+        return self._teacher_enabled
+
+    def teacher_choose_slot(self, legal_global_ids_padded, legal_action_valid_mask, legal_action_features_padded,
+                            legal_id_to_raw_index):
+        """The teacher's legal slot for the current (live) state.
+
+        Same logic as tools/evaluate_search_policy.py LookaheadSearchPolicy with --search-seeding per_decision:
+        call once per decision state, in order (the decision index seeds the search)."""
+        turns_remaining = max(0, int(self.MAX_TURNS) - int(self._turn_count))
+        if self._teacher_seed_episode != self._episode_index:
+            self._teacher_seed_episode, self._teacher_decision_index = self._episode_index, 0
+        seed = search_teacher.decision_seed(self._last_reset_seed, self._teacher_decision_index)
+        self._teacher_decision_index += 1
+        scores = search_teacher.lookahead_scores_seeded(
+            self.tribes_env._env, self._teacher_java_weights, turns_remaining, self._teacher_full_information, seed)
+        feats = np.asarray(legal_action_features_padded)
+        return search_teacher.select_lookahead_slot(
+            scores,
+            np.asarray(legal_global_ids_padded).reshape(-1),
+            np.asarray(legal_action_valid_mask, dtype=bool).reshape(-1),
+            feats[:, self._teacher_is_end_turn_col] > 0.5,
+            legal_id_to_raw_index,
+        )
+
+    def _attach_teacher_info(self, info, legal_global_ids_padded, legal_action_valid_mask,
+                             legal_action_features_padded, legal_id_to_raw_index, decision_state):
+        t0 = time.perf_counter()
+        slot = -1
+        if decision_state and np.any(legal_action_valid_mask):
+            slot = self.teacher_choose_slot(
+                legal_global_ids_padded, legal_action_valid_mask, legal_action_features_padded, legal_id_to_raw_index)
+        info[search_teacher.TEACHER_SLOT_INFO_KEY] = int(slot)
+        if self._profile_sps_enabled:
+            info["profile_env_teacher_s"] = float(time.perf_counter() - t0)
 
     def _sanitize_info_value(self, value):
         # Keep common scalar types as-is.
