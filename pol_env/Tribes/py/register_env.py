@@ -5382,6 +5382,12 @@ class TribesGymWrapper(gym.Env):
         "avoid_whaling": 0.0,           # event: penalty for researching WHALING
         "capital_hold": 0.0,            # event: per unit of ours on an enemy capital at the start of our turn
         "capital_region_kill": 0.0,     # event: per enemy unit killed inside an enemy capital's territory
+        "train_rider": 0.0,             # event: per Rider trained (faster than Warriors/Swordsmen, Escape skill)
+        "train_infantry": 0.0,          # event: penalty per Warrior or Swordsman trained
+        "rider_attack": 0.0,            # event: per attack made by one of our Riders
+        "embassy": 0.0,                 # event: penalty per embassy built (2.15 rules: in a 1v1 it pays the enemy
+                                        # as much as us, and its stars buy no units)
+        "turn_penalty": 0.0,            # event: penalty per turn ended (a cost of time, pushing for an early win)
     }
 
     @classmethod
@@ -5475,7 +5481,8 @@ class TribesGymWrapper(gym.Env):
 
     COMBAT_EVENT_TERMS = ("regional_attack", "role_positioning", "damage_trade", "hanging_population", "tech_order",
                           "pop_tech", "unused_tech", "tech_cost", "avoid_fishing", "avoid_philosophy_meditation",
-                          "avoid_whaling", "capital_hold", "capital_region_kill")
+                          "avoid_whaling", "capital_hold", "capital_region_kill", "train_rider", "train_infantry",
+                          "rider_attack", "embassy", "turn_penalty")
 
     def _combat_reset_turn_trackers(self):
         self._combat_turn_research = []      # (tech, tier) researched this turn
@@ -5514,6 +5521,18 @@ class TribesGymWrapper(gym.Env):
             if w["tech_order"] and self._combat_turn_research:
                 out["tech_order"] = w["tech_order"] * float(sum(t for _, t in self._combat_turn_research))
             self._combat_turn_captures += 1
+        if action_type == "SPAWN":
+            unit_type = str(action.get("unit_type"))
+            if w["train_rider"] and unit_type == "RIDER":
+                out["train_rider"] = w["train_rider"]
+            if w["train_infantry"] and unit_type in ("WARRIOR", "SWORDMAN"):
+                out["train_infantry"] = -w["train_infantry"]
+        if w["rider_attack"] and action_type == "ATTACK" and combat_shaping.attacker_type(pre, action) == "RIDER":
+            out["rider_attack"] = w["rider_attack"]
+        if w["embassy"] and action_type == "BUILD_EMBASSY":
+            out["embassy"] = -w["embassy"]
+        if w["turn_penalty"] and action_type == "END_TURN":
+            out["turn_penalty"] = -w["turn_penalty"]
         if action_type != "END_TURN":
             self._combat_turn_signatures.add(combat_shaping.action_signature(action))
         elif w["unused_tech"]:

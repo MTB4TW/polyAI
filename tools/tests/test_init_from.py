@@ -236,3 +236,54 @@ class NormalizedTransferTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RulesChangeToComposedTest(unittest.TestCase):
+    """combat_cap_all-style warm start: 2020 spatial_resnet_local -> 2.15 spatial_resnet_composed."""
+
+    def test_2020_local_to_2_15_composed(self):
+        from unittest import mock
+        from pol_env.Tribes.py.environment_contract import observation_layout
+        from py_rl.cleanrl.cleanrl.action_types import build_global_action_catalog
+
+        torch.manual_seed(0)
+        with mock.patch.dict(os.environ, {"POLYVISION_RULES": "tribes_2020"}):
+            src = SpatialResNetAgent(envs=None, action_space_n=COMBAT_N, local_action_features=True)
+        tmp = tempfile.mkdtemp()
+        path = save(tmp, "capall", src, meta(COMBAT_N, COMBAT_VERSION, "spatial_resnet_local"))
+
+        new_version = COMBAT_VERSION + "+rules_polytopia_2_15_r2"
+        new_n = int(build_global_action_catalog(11, 11, True, "polytopia_2_15").total_size)
+        new_layout = observation_layout(11, 11, "polytopia_2_15")
+        target_meta = dict(meta(new_n, new_version, "spatial_resnet_composed"),
+                           observation_dim=str(new_layout.expected_obs_dim))
+        with mock.patch.dict(os.environ, {"POLYVISION_RULES": "polytopia_2_15"}):
+            torch.manual_seed(1)
+            tgt = SpatialResNetAgent(envs=None, action_space_n=new_n, composed_actions=True)
+            report = I.apply_init_from(tgt, path, target_meta=target_meta, network_arch="spatial_resnet_composed")
+
+        self.assertIn("spatial_backbone.stem.0.weight", report["remapped"])
+        self.assertIn("scalar_backbone.0.weight", report["remapped"])
+        self.assertGreater(report["type_rows_from_ids"], 50)
+        self.assertEqual(report["reset_prefixes"], ["critic."])
+
+        # The warm network computes the same state embedding when the new Diplomacy inputs are zero.
+        old_layout = observation_layout(11, 11, "tribes_2020")
+        index_map = I.observation_index_map(old_layout, new_layout)
+        x_old = torch.randn(3, old_layout.expected_obs_dim)
+        x_new = torch.zeros(3, new_layout.expected_obs_dim)
+        x_new[:, index_map] = x_old
+        with torch.no_grad():
+            h_old, _ = src.encode_state(x_old)
+            h_new, _ = tgt.encode_state(x_new)
+        self.assertTrue(torch.allclose(h_old, h_new, atol=1e-5))
+
+        # A type present in both catalogs starts at the mean of its per-id rows.
+        names = tgt.action_type_names
+        rider = names.index("TRAIN/RIDER")
+        from py_rl.cleanrl.cleanrl.action_types import action_type_table_for_action_space
+        old_table = action_type_table_for_action_space(COMBAT_N, 11, 11, "tribes_2020")
+        i = [n for n, _, _ in old_table].index("TRAIN/RIDER")
+        a, b = old_table[i][1], old_table[i + 1][1]
+        self.assertTrue(torch.allclose(tgt.action_type_embedding.weight[rider],
+                                       src.action_embedding.weight[a:b].mean(0), atol=1e-6))

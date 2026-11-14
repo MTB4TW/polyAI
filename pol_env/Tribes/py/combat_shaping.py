@@ -173,6 +173,13 @@ def action_roles(state, me, action):
     return 0.0
 
 
+def attacker_type(state, action):
+    """Unit type of the attacker of an ATTACK action, judged on the state before it (None if unknown)."""
+    units = {int(u["id"]): u for u in state.get("units", [])}
+    att = units.get(int(action.get("unit_id", -1)))
+    return None if att is None else str(att["type"])
+
+
 def hp_lost(prev, cur):
     """HP lost per tribe between two states: drops for surviving units plus all HP of units that vanished
     (killed, or converted to the other side). Healing and new units are not counted."""
@@ -237,7 +244,7 @@ TECH_TIER = {t: 1 for t in ("CLIMBING", "FISHING", "HUNTING", "ORGANIZATION", "R
 TECH_TIER.update({t: 2 for t in ("ARCHERY", "FARMING", "FORESTRY", "FREE_SPIRIT", "MEDITATION", "MINING", "ROADS",
                                  "SAILING", "SHIELDS", "WHALING")})
 TECH_TIER.update({t: 3 for t in ("AQUATISM", "CHIVALRY", "CONSTRUCTION", "MATHEMATICS", "NAVIGATION", "SMITHERY",
-                                 "SPIRITUALISM", "TRADE", "PHILOSOPHY")})
+                                 "SPIRITUALISM", "TRADE", "PHILOSOPHY", "DIPLOMACY")})
 
 # Engine TECHNOLOGY enum order (the observation's `technology.researched` list uses it).
 TECH_ORDER = ("CLIMBING", "FISHING", "HUNTING", "ORGANIZATION", "RIDING", "ARCHERY", "FARMING", "FORESTRY",
