@@ -114,6 +114,11 @@ changes, e.g. `POLYVISION_COMBAT_REWARD_CITY=2 POLYVISION_COMBAT_REWARD_KILL=0.5
 | `POLYVISION_COMBAT_REWARD_GIANT` | 0.5 | potential per giant of advantage (on top of unit value) |
 | `POLYVISION_COMBAT_REWARD_TILE` | 0.05 | potential per territory tile of advantage |
 | `POLYVISION_COMBAT_REWARD_ROAD` | 0.05 | potential per road tile (in own territory) of advantage |
+
+Opt-in terms (default 0; definitions in `pol_env/Tribes/py/combat_shaping.py` and CHANGELOG entry 058):
+`CAPITAL_PROXIMITY`, `CAPITAL_PROXIMITY_LATE`, `ZONE_OF_CONTROL` (potential terms), `REGIONAL_ATTACK`, `ROLE_POSITIONING`,
+`DAMAGE_TRADE`, `HANGING_POPULATION`, `TECH_ORDER`, `POP_TECH`, `UNUSED_TECH`, `TECH_COST`, `AVOID_FISHING`,
+`AVOID_PHILOSOPHY_MEDITATION` (event terms) and `EARLY_WIN` (extra win reward tapering to 0 at the turn limit).
 | `POLYVISION_COMBAT_REWARD_TIMEOUT` | 0 | outcome reward on a turn-limit timeout (loss < timeout < win) |
 | `POLYVISION_COMBAT_REWARD_TERMINAL_POTENTIAL` | 1 | share of the final Φ paid at game end; 0 makes the shaping net ~0 per game |
 

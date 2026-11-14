@@ -131,6 +131,8 @@ class CombatIntegrationTests(unittest.TestCase):
         self.assertEqual(info['combat_outcome_reward'], TribesGymWrapper.COMBAT_REWARD_DEFAULTS['loss'])
         self.assertAlmostEqual(reward, info['combat_outcome_reward'] + info['combat_shaping_reward'])
         self.assertEqual(info['combat_outcome'], 'loss')
+        # Lost games still log the techs we had: we are Bardur, so Hunting is always researched.
+        self.assertEqual(info['combat_end_raw_tech_HUNTING'], 1.0)
 
 
 @unittest.skipUnless(os.environ.get('POLYVISION_RUN_JAVA_TESTS') == '1', 'requires local Java gateway')
@@ -154,3 +156,51 @@ class CombatTimeoutRewardOptionTests(CombatIntegrationTests):
         # Terminal potential 0: the last step cancels the lead built up so far.
         self.assertAlmostEqual(info['combat_shaping_reward'], -potential_before)
         self.assertAlmostEqual(reward, -3.0 - potential_before)
+
+
+@unittest.skipUnless(os.environ.get('POLYVISION_RUN_JAVA_TESTS') == '1', 'requires local Java gateway')
+class CombatAllTermsEpisodeTests(unittest.TestCase):
+    """Every opt-in term switched on: a full random game runs, and the per-component sums add up to the reward."""
+
+    def test_components_sum_to_episode_reward(self):
+        import numpy as np
+        on = {f'POLYVISION_COMBAT_REWARD_{k}': v for k, v in (
+            ('CAPITAL_PROXIMITY', '0.3'), ('CAPITAL_PROXIMITY_LATE', '0.6'), ('ZONE_OF_CONTROL', '0.05'),
+            ('REGIONAL_ATTACK', '0.3'), ('ROLE_POSITIONING', '0.05'), ('DAMAGE_TRADE', '0.02'),
+            ('HANGING_POPULATION', '0.1'), ('EARLY_WIN', '20'), ('TECH_ORDER', '0.1'), ('POP_TECH', '0.2'),
+            ('UNUSED_TECH', '0.5'), ('TECH_COST', '0.05'), ('AVOID_FISHING', '5'), ('AVOID_PHILOSOPHY_MEDITATION', '2'),
+            ('AVOID_WHALING', '2'), ('CAPITAL_HOLD', '1'), ('CAPITAL_REGION_KILL', '0.5'))}
+        jdks = sorted((ROOT / '.runtime').glob('jdk-*/Contents/Home'))
+        settings = dict(POLYVISION_PHASE='2', POLYVISION_COMBAT_MODE='1', POLYVISION_SOLO_NO_OPPONENT_MODE='0',
+                        POLYVISION_MAX_TURNS='8', POLYVISION_INFO_MODE='fast',
+                        POLYVISION_LEVEL_POOL_GLOB='levels/phase2_pool_1v1/train/*.csv', **on)
+        if jdks:
+            settings['JAVA_HOME'] = str(jdks[-1])
+            settings['PATH'] = str(jdks[-1] / 'bin') + os.pathsep + os.environ['PATH']
+        with patch.dict(os.environ, settings):
+            env = TribesGymWrapper()
+            try:
+                rng = np.random.default_rng(0)
+                for seed in (11, 12):
+                    _, info = env.reset(seed=seed)
+                    total = 0.0
+                    while True:
+                        ids = np.asarray(info['legal_global_ids_padded'])[np.asarray(info['legal_action_valid_mask'], bool)]
+                        _, reward, term, trunc, info = env.step(int(rng.choice(ids)))
+                        total += reward
+                        if term or trunc:
+                            break
+                    comps = {k: v for k, v in info.items() if k.startswith('combat_end_component_')}
+                    self.assertIn('combat_end_component_phi_capital_proximity', comps)
+                    self.assertIn('combat_end_component_role_positioning', comps)
+                    self.assertIn('combat_end_component_avoid_philosophy_meditation', comps)  # present even if it never fired
+                    self.assertAlmostEqual(sum(comps.values()), total, places=6)
+                    self.assertIn('combat_end_raw_giants_ours', info)
+                    self.assertIn('combat_end_raw_units_WARRIOR_ours', info)
+                    self.assertIn('combat_end_component_capital_hold', comps)
+                    self.assertEqual(sum(1 for k in info if k.startswith('combat_end_raw_tech_')), 24)
+                    self.assertEqual(info['combat_end_raw_tech_FISHING'], 0.0)  # masked on Drylands maps
+                    researched_turns = [v for k, v in info.items() if k.startswith('combat_end_techturn_') and v >= 0]
+                    self.assertEqual(len(researched_turns), info['combat_end_raw_techs_researched_this_game'])
+            finally:
+                env.close()
