@@ -6,8 +6,7 @@
 #SBATCH --time=24:00:00
 #SBATCH --output=logs/%x-%j.out
 #SBATCH --error=logs/%x-%j.err
-# One stage of cluster/run_combat_finetune.sh. Resolves the checkpoint when the job starts (the previous stage's
-# run folder is only known then), then runs cluster/train_combat_cpu.sbatch with the fine-tune settings.
+# The job behind cluster/run_combat_finetune.sh. Resolves the checkpoint when the job starts, then runs cluster/train_combat_cpu.sbatch with the fine-tune settings.
 #   INIT_FROM=path   or   INIT_FROM_EXP=<EXP_NAME of an earlier run in runs/>   (latest matching run)
 #   SHAPING_SCALE, EXP_NAME, TOTAL_TIMESTEPS, SEED as for the training job.
 set -euo pipefail

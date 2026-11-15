@@ -7,14 +7,15 @@ with `tools/compare_combat_evals.py`.
 
 ## 1. Outcome-only fine-tuning (CHANGELOG 063)
 
-Continue a trained checkpoint with the shaping faded out, so the policy optimises the game result itself:
+Continue a trained checkpoint with the shaping switched off, so the policy optimises the game result itself:
 
 ```bash
-cluster/run_combat_finetune.sh runs/<v2b run>/combat_cap_all_v2b_2m_seed1.cleanrl_model combat_v2b_ft
+cluster/run_combat_finetune.sh runs/<v2b run>/combat_cap_all_v2b_2m_seed1.cleanrl_model combat_v2b_s1_outcome_2m
 ```
 
-Two dependent jobs: shaping × 0.5 for 500k steps (fresh critic, learning rate 2e-4), then outcome only (win 60,
-loss −15, timeout −10, early-win bonus, −0.25 per turn) for 1.5M steps, keeping that critic.
+One job: outcome only (win 60, loss −15, timeout −10, early-win bonus, −0.25 per turn) for 2M steps, with a fresh
+critic and learning rate 2e-4. There is no intermediate stage with partial shaping: the goal is winning games, not
+first maximising the economy terms and then winning.
 `POLYVISION_COMBAT_REWARD_SHAPING_SCALE` is the underlying setting.
 
 ## 2. Self-play league (CHANGELOG 064)

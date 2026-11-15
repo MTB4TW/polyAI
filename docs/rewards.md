@@ -125,8 +125,8 @@ Swordsman trained), `RIDER_ATTACK` (+ per attack by a Rider), `EMBASSY` (− per
 
 `POLYVISION_COMBAT_REWARD_SHAPING_SCALE` (default 1) multiplies every term except the outcome terms (`WIN`, `LOSS`,
 `TIMEOUT`, `EARLY_WIN`, `TERMINAL_POTENTIAL`, `TURN_PENALTY`); 0 trains on the game result alone. Outcome-only
-fine-tuning of a trained checkpoint: `cluster/run_combat_finetune.sh CHECKPOINT NAME` (shaping × 0.5 for 500k
-steps with a fresh critic, then × 0 for 1.5M keeping that critic; `cluster/combat_outcome_finetune.env`).
+fine-tuning of a trained checkpoint: `cluster/run_combat_finetune.sh CHECKPOINT NAME` (shaping × 0 for 2M steps
+with a fresh critic; `cluster/combat_outcome_finetune.env`).
 | `POLYVISION_COMBAT_REWARD_TIMEOUT` | 0 | outcome reward on a turn-limit timeout (loss < timeout < win) |
 | `POLYVISION_COMBAT_REWARD_TERMINAL_POTENTIAL` | 1 | share of the final Φ paid at game end; 0 makes the shaping net ~0 per game |
 
