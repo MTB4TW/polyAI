@@ -102,8 +102,8 @@ All notable changes to this project are documented in this file.
 - Outcome-only fine-tuning: `cluster/combat_outcome_finetune.env` (v2 weights, shaping × `SHAPING_SCALE`,
   `--init-from` with a critic reset unless `RESET_CRITIC=0`, learning rate 2e-4), `cluster/combat_finetune_stage.sbatch`
   (resolves the checkpoint when the job starts, from `INIT_FROM` or the latest run named `INIT_FROM_EXP`) and
-  `cluster/run_combat_finetune.sh CHECKPOINT NAME [SEED]` (one job: outcome only, shaping × 0, for 2M steps with a
-  fresh critic; an earlier two-stage fade through shaping × 0.5 was dropped so the policy is trained on winning only).
+  `cluster/run_combat_finetune.sh CHECKPOINT NAME [SEED]` (one job: outcome only, shaping × 0 and no end-of-game share of the lead
+  (terminal potential 0), for 2M steps with a fresh critic; an earlier two-stage fade through shaping × 0.5 was dropped so the policy is trained on winning only).
 
 ### Validation
 - `test_combat_shaping_terms.py`: the scale halves or zeroes every shaping weight and leaves the outcome weights.

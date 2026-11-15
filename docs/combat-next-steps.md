@@ -13,7 +13,8 @@ Continue a trained checkpoint with the shaping switched off, so the policy optim
 cluster/run_combat_finetune.sh runs/<v2b run>/combat_cap_all_v2b_2m_seed1.cleanrl_model combat_v2b_s1_outcome_2m
 ```
 
-One job: outcome only (win 60, loss −15, timeout −10, early-win bonus, −0.25 per turn) for 2M steps, with a fresh
+One job: outcome only (win 60, loss −15, timeout −10, early-win bonus, −0.25 per turn; no end-of-game share
+of the lead, so a timeout scores the same however far ahead) for 2M steps, with a fresh
 critic and learning rate 2e-4. There is no intermediate stage with partial shaping: the goal is winning games, not
 first maximising the economy terms and then winning.
 `POLYVISION_COMBAT_REWARD_SHAPING_SCALE` is the underlying setting.
