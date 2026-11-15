@@ -81,6 +81,9 @@ class Args:
     """with --init-from: key prefixes to keep freshly initialised ("auto" = critic when the environment version differs, "none", or e.g. "critic.,actor.")"""
     init_from_fold_scalars: bool = True
     """with --init-from: fold the combat legacy-scalar scaling into the copied weights when it differs between checkpoint and run"""
+    critic_warmup_steps: int = 0
+    """train only the critic head for the first N environment steps (policy, shared trunk and teacher loss frozen);
+    for warm starts with a fresh critic, so the policy is not pushed around by an untrained value estimate"""
     track: bool = False
     """if toggled, this experiment will be tracked with Weights and Biases"""
     wandb_project_name: str = "cleanRL"
@@ -1736,6 +1739,13 @@ if __name__ == "__main__":
     ).to(device)
     return_normalizer = ReturnNormalizer(args.num_envs, args.gamma) if args.norm_returns else None
     optimizer = optim.Adam(agent.parameters(), lr=args.learning_rate, eps=1e-5)
+    # --critic-warmup-steps: everything except the critic head stays frozen during the warm-up.
+    non_critic_params = [p for n, p in agent.named_parameters() if not ("." + n).count(".critic.")]
+    if int(args.critic_warmup_steps) > 0:
+        n_critic = sum(p.numel() for n, p in agent.named_parameters() if ("." + n).count(".critic."))
+        if n_critic == 0:
+            raise ValueError("--critic-warmup-steps: the agent has no parameters under 'critic.'")
+        print(f"[CRITIC_WARMUP] critic only for the first {int(args.critic_warmup_steps)} steps ({n_critic} parameters)")
 
     # ALGO Logic: Storage setup
     obs = torch.zeros((args.num_steps, args.num_envs) + envs.single_observation_space.shape).to(device)
@@ -2722,7 +2732,9 @@ if __name__ == "__main__":
         b_action_masks = None
         b_selected_slots = selected_slots.reshape(-1)
         b_teacher_slots = teacher_slots_buf.reshape(-1) if teacher_slots_buf is not None else None
-        use_teacher_loss = b_teacher_slots is not None and teacher_coef_now > 0.0 and bool((b_teacher_slots >= 0).any())
+        critic_warmup_now = global_step <= int(args.critic_warmup_steps)
+        use_teacher_loss = (not critic_warmup_now and b_teacher_slots is not None and teacher_coef_now > 0.0
+                            and bool((b_teacher_slots >= 0).any()))
         teacher_ce_sum, teacher_ce_n, teacher_argmax_agree, teacher_argmax_n = 0.0, 0, 0, 0
         b_legal_global_ids = legal_global_ids_buf.reshape((-1, int(args.max_legal_actions)))
         b_legal_action_valid_mask = legal_action_valid_mask_buf.reshape((-1, int(args.max_legal_actions)))
@@ -2836,13 +2848,21 @@ if __name__ == "__main__":
                     v_loss = 0.5 * ((newvalue - b_returns[mb_inds]) ** 2).mean()
 
                 entropy_loss = entropy.mean()
-                loss = pg_loss - args.ent_coef * entropy_loss + v_loss * args.vf_coef
-                if teacher_ce is not None:
-                    # Kickstarting: cross-entropy to the teacher's legal slot, weighted by the decaying coefficient.
-                    loss = loss + teacher_coef_now * teacher_ce
+                if critic_warmup_now:
+                    # Critic warm-up: value loss only, and only the critic head moves (gradients elsewhere dropped,
+                    # so Adam leaves those parameters exactly as they are).
+                    loss = v_loss * args.vf_coef
+                else:
+                    loss = pg_loss - args.ent_coef * entropy_loss + v_loss * args.vf_coef
+                    if teacher_ce is not None:
+                        # Kickstarting: cross-entropy to the teacher's legal slot, weighted by the decaying coefficient.
+                        loss = loss + teacher_coef_now * teacher_ce
 
                 optimizer.zero_grad()
                 loss.backward()
+                if critic_warmup_now:
+                    for p in non_critic_params:
+                        p.grad = None
                 nn.utils.clip_grad_norm_(agent.parameters(), args.max_grad_norm)
                 optimizer.step()
 
@@ -2863,6 +2883,8 @@ if __name__ == "__main__":
 
         # TRY NOT TO MODIFY: record rewards for plotting purposes
         log_scalar("charts/learning_rate", optimizer.param_groups[0]["lr"], global_step)
+        if int(args.critic_warmup_steps) > 0:
+            log_scalar("charts/critic_warmup", float(critic_warmup_now), global_step)
         log_scalar("losses/value_loss", v_loss.item(), global_step)
         log_scalar("losses/policy_loss", pg_loss.item(), global_step)
         log_scalar("losses/entropy", entropy_loss.item(), global_step)

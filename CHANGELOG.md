@@ -2,6 +2,23 @@
 
 All notable changes to this project are documented in this file.
 
+## [Train-Critic_Warmup_Warm_Start-067] - (2026-11-15)
+
+### Scope
+- `ppo.py --critic-warmup-steps N` (default 0, off): for the first N environment steps only the critic head is
+  trained (value loss only; gradients of the policy, the shared trunk and the teacher loss are dropped, so Adam
+  leaves them bit for bit). For warm starts with a fresh critic: the untrained value estimate otherwise drives the
+  policy updates. Logged as `charts/critic_warmup`.
+- Why: warm starts from combat_cap_all_v2b seed 1 with a fresh critic (outcome-only fine-tune, fog memory) fell from
+  about 60% to 17-38% training win rate in the first 150k steps (value loss 160-230 at the start, `approx_kl` about
+  twice `--target-kl`), while the run that kept its critic did not.
+- Warm-start settings used for the follow-up runs: `--learning-rate 1e-4 --target-kl 0.015 --ent-coef 0.005`;
+  fog memory keeps the remapped source critic (`--init-from-reset none`).
+
+### Validation
+- Local warm start with the warm-up covering the whole run: every non-critic tensor identical to the source
+  checkpoint (33/33); with a shorter warm-up the policy trains afterwards. Default runs unchanged (option off).
+
 ## [Phase2-Combat_Fog_Memory-066] - (2026-11-14)
 
 ### Scope
