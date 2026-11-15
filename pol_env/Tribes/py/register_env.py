@@ -47,6 +47,8 @@ from .environment_contract import (
     fog_memory_sees_moves,
     resolve_fog_memory,
     versioned_for_fog_memory,
+    PRIVILEGED_OBS_INFO_KEY,
+    resolve_privileged_obs,
 )
 
 
@@ -407,6 +409,8 @@ class TribesGymWrapper(gym.Env):
             self.tribes_env._env.setSoloNoOpponentMode(False)
         if self.FOG_MEMORY:
             self.tribes_env._env.setFogMemory(True, bool(fog_memory_sees_moves()))
+        # Privileged critic (POLYVISION_PRIVILEGED_OBS=1, combat only): info["privileged_obs"] is the unfogged state.
+        self._privileged_obs = resolve_privileged_obs()
         self._init_search_teacher()
         self.level_file = level_file or self.PHASE1_LEVEL_FILE
         self._configured_map_type = str(map_type).strip().upper() if map_type is not None else None
@@ -770,6 +774,8 @@ class TribesGymWrapper(gym.Env):
                 info, legal_global_ids_padded, legal_action_valid_mask, legal_action_features_padded,
                 legal_id_to_raw_index, decision_state=True,
             )
+        if self._privileged_obs:
+            info[PRIVILEGED_OBS_INFO_KEY] = self._privileged_obs_array()
         t_sanitize0 = time.perf_counter() if self._profile_sps_enabled else None
         safe_info = self._sanitize_info_for_multiprocessing(info)
         if self._profile_sps_enabled:
@@ -1866,6 +1872,8 @@ class TribesGymWrapper(gym.Env):
                 info, post_legal_global_ids_padded, post_legal_action_valid_mask, post_legal_action_features_padded,
                 post_legal_id_to_raw_index, decision_state=not (bool(terminated) or bool(truncated)),
             )
+        if self._privileged_obs:
+            info[PRIVILEGED_OBS_INFO_KEY] = self._privileged_obs_array()
         t_sanitize0 = time.perf_counter() if self._profile_sps_enabled else None
         safe_info = self._sanitize_info_for_multiprocessing(info)
         if self._profile_sps_enabled:
@@ -6165,6 +6173,18 @@ class TribesGymWrapper(gym.Env):
                 f"Detected out-of-bounds unit(s) ({context}) on board {width}x{height}: {detail}"
             )
     
+    def _privileged_obs_array(self):
+        """The policy observation layout built from the true, unfogged game state (privileged critic only).
+
+        Same encoder as the policy observation, so the critic needs no new layout; with nothing fogged, every
+        enemy unit, city and territory tile is filled in. The fog-memory block (if on) is all zeros here, since
+        nothing is hidden."""
+        full = self.tribes_env.get_observation(full_visibility=True)
+        arr = self._dict_to_array(full)
+        if tuple(arr.shape) != tuple(self.observation_space.shape):
+            raise RuntimeError(f"privileged_obs shape {arr.shape} != observation shape {self.observation_space.shape}")
+        return arr
+
     def _dict_to_array(self, obs_dict):
         features = []
         board = obs_dict.get("board", {})

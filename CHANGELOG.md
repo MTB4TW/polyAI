@@ -2,6 +2,38 @@
 
 All notable changes to this project are documented in this file.
 
+## [Train-Combat_Privileged_Critic-068] - (2026-11-14)
+
+### Scope
+- `ppo.py --privileged-critic` (default off, combat only): advantages come from a separate critic that sees the
+  true, unfogged game state; the policy still sees only the fogged observation. This is the asymmetric
+  actor-critic AlphaStar used (its value function saw the opponent's observations). The critic is only used to
+  compute advantages during training, so the policy never gets information it would not have when playing.
+  - Env: `POLYVISION_PRIVILEGED_OBS=1` (set by the flag; combat-only, an error in Phase 1) adds
+    `info["privileged_obs"]`, the same observation layout built from `PythonEnv.observationJsonFull()` with the
+    same encoder. Fog in this engine is unexplored tiles, so it mainly reveals unexplored terrain and the enemy
+    units, cities and territory inside it (and hidden Cloaks under the 2.15 rules); the fog-memory block, if on,
+    is zero there since nothing is hidden.
+  - Network (`py_rl/cleanrl/cleanrl/privileged_critic.py`): its own spatial ResNet (3 blocks, 64 channels) +
+    scalar MLP + value MLP, with its own running observation normaliser under `--norm-obs`. The policy's own
+    critic head gets no loss. With `--critic-warmup-steps`, only the privileged critic trains during the warm-up.
+  - Rollout values are recomputed in one batch after each rollout, so both the plain and `--overlap-rollout`
+    paths are covered.
+- Checkpoints: the policy `.cleanrl_model` keeps exactly the same keys, so the evaluator, `--init-from` and every
+  loader are unaffected. The critic goes to a training-only third file, `X.cleanrl_model.privileged_critic.pt`
+  (not needed to evaluate), and the sidecar records `"privileged_critic": "privileged_critic_v1"`. No contract
+  version changes: what the policy sees and does is unchanged.
+
+### Validation
+- `tools/tests/test_privileged_critic.py`: combat-only switch, critic shapes and normaliser, info batching; a live
+  2.15 combat game (300 random steps): no fog in the privileged observation, identical terrain on every seen tile,
+  184 enemy-unit sightings on tiles the policy cannot see, no version change; a tiny training run with and without
+  the flag: identical policy checkpoint keys, critic file and sidecar field only with the flag.
+- Speed (local, Mac, 4 envs, composed, 6k steps; diagnostic): 212 steps/s without, 140 with, 171 with
+  `--overlap-rollout`. The unfogged observation costs about 0.6 ms per env step; the rest is the critic's ResNet.
+- `tools/run_core_ci_checks.py` and all `tools/tests` pass. Default runs unchanged (flag off: no env var, no extra
+  info, no extra parameters).
+
 ## [Train-Critic_Warmup_Warm_Start-067] - (2026-11-15)
 
 ### Scope

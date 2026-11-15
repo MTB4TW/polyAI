@@ -39,6 +39,7 @@ from pol_env.Tribes.py.register_env import TribesGymWrapper  # adjust if folder 
 from py_rl.cleanrl.cleanrl.gae import compute_gae, per_turn_discounts
 from py_rl.cleanrl.cleanrl.init_from import apply_init_from, format_report, load_checkpoint
 from py_rl.cleanrl.cleanrl.obs_normalization import OBS_NORMALIZATION_VERSION, ObsNormalizedAgent
+from py_rl.cleanrl.cleanrl.privileged_critic import privileged_critic_path
 from py_rl.cleanrl.cleanrl.return_normalization import ReturnNormalizer
 from py_rl.cleanrl.cleanrl.teacher_kickstart import (
     TEACHER_ENV_VAR, TEACHER_SLOT_INFO_KEY, extract_teacher_slots, kickstart_cross_entropy, teacher_coef_at,
@@ -81,6 +82,10 @@ class Args:
     """with --init-from: key prefixes to keep freshly initialised ("auto" = critic when the environment version differs, "none", or e.g. "critic.,actor.")"""
     init_from_fold_scalars: bool = True
     """with --init-from: fold the combat legacy-scalar scaling into the copied weights when it differs between checkpoint and run"""
+    privileged_critic: bool = False
+    """combat only: compute advantages with a separate critic that sees the true, unfogged state
+    (env info["privileged_obs"]); the policy and its checkpoint are unchanged. Critic weights go to
+    X.cleanrl_model.privileged_critic.pt (training-only)"""
     critic_warmup_steps: int = 0
     """train only the critic head for the first N environment steps (policy, shared trunk and teacher loss frozen);
     for warm starts with a fresh critic, so the policy is not pushed around by an untrained value estimate"""
@@ -1714,6 +1719,16 @@ if __name__ == "__main__":
     if teacher_mode is not None:
         os.environ[TEACHER_ENV_VAR] = teacher_mode
         print(f"[TEACHER] mode={teacher_mode} coef={args.teacher_coef} decay_frac={args.teacher_decay_frac}")
+    from pol_env.Tribes.py.environment_contract import PRIVILEGED_OBS_ENV_VAR
+    if args.privileged_critic:
+        if not _combat_run:
+            raise SystemExit("--privileged-critic is combat-only (set POLYVISION_COMBAT_MODE=1 / POLYVISION_PHASE=2)")
+        if args.actor_mode == "dense_debug":
+            raise SystemExit("--privileged-critic does not support --actor-mode dense_debug")
+        os.environ[PRIVILEGED_OBS_ENV_VAR] = "1"
+        print("[PRIVILEGED_CRITIC] advantages from a full-information critic (training only)")
+    elif os.environ.pop(PRIVILEGED_OBS_ENV_VAR, None) not in (None, "", "0"):
+        print(f"[PRIVILEGED_CRITIC] ignoring {PRIVILEGED_OBS_ENV_VAR} from the environment; use --privileged-critic")
     envs = make_training_vector_env(
         [
             make_env(
@@ -1738,9 +1753,19 @@ if __name__ == "__main__":
         observation_normalization=OBS_NORMALIZATION_VERSION if args.norm_obs else None,
     ).to(device)
     return_normalizer = ReturnNormalizer(args.num_envs, args.gamma) if args.norm_returns else None
-    optimizer = optim.Adam(agent.parameters(), lr=args.learning_rate, eps=1e-5)
+    privileged_critic = None
+    if args.privileged_critic:
+        from py_rl.cleanrl.cleanrl.privileged_critic import PRIVILEGED_CRITIC_VERSION, PrivilegedCritic
+        obs_dim_flat = int(np.prod(envs.single_observation_space.shape))
+        privileged_critic = PrivilegedCritic(obs_dim_flat, norm_obs=bool(args.norm_obs)).to(device)
+        print(f"[PRIVILEGED_CRITIC] {sum(p.numel() for p in privileged_critic.parameters())} critic parameters")
+    trainable_params = list(agent.parameters()) + (list(privileged_critic.parameters()) if privileged_critic is not None else [])
+    optimizer = optim.Adam(trainable_params, lr=args.learning_rate, eps=1e-5)
     # --critic-warmup-steps: everything except the critic head stays frozen during the warm-up.
     non_critic_params = [p for n, p in agent.named_parameters() if not ("." + n).count(".critic.")]
+    if privileged_critic is not None:
+        # The policy's own critic head gets no loss with a privileged critic; warm-up then trains only the latter.
+        non_critic_params = list(agent.parameters())
     if int(args.critic_warmup_steps) > 0:
         n_critic = sum(p.numel() for n, p in agent.named_parameters() if ("." + n).count(".critic."))
         if n_critic == 0:
@@ -1754,6 +1779,9 @@ if __name__ == "__main__":
     rewards = torch.zeros((args.num_steps, args.num_envs)).to(device)
     dones = torch.zeros((args.num_steps, args.num_envs)).to(device)
     values = torch.zeros((args.num_steps, args.num_envs)).to(device)
+    priv_obs = None
+    if privileged_critic is not None:
+        priv_obs = torch.zeros((args.num_steps, args.num_envs) + envs.single_observation_space.shape).to(device)
     selected_slots = torch.zeros((args.num_steps, args.num_envs), dtype=torch.long, device=device)
     teacher_slots_buf = None
     if teacher_mode is not None:
@@ -1853,6 +1881,10 @@ if __name__ == "__main__":
                 device,
             )
             profiler.add("trainer/reset_feature_extract", time.perf_counter() - t0_extract_features)
+    next_priv_obs = None
+    if privileged_critic is not None:
+        from py_rl.cleanrl.cleanrl.privileged_critic import extract_privileged_obs
+        next_priv_obs = extract_privileged_obs(reset_infos, args.num_envs, priv_obs.shape[-1], device)
     next_teacher_slots = None
     teacher_workers_enabled = teacher_mode is not None
     if teacher_mode is not None:
@@ -1971,6 +2003,9 @@ if __name__ == "__main__":
         # Recorded with every checkpoint so a warm-started model's lineage is visible.
         action_interface_meta["init_from"] = {k: v for k, v in init_report.items() if k != "kept_fresh"}
         action_interface_meta["init_from"]["kept_fresh_count"] = len(init_report["kept_fresh"])
+    if privileged_critic is not None:
+        # Training-only: the policy checkpoint is unaffected; recorded so the run's lineage is visible.
+        action_interface_meta["privileged_critic"] = PRIVILEGED_CRITIC_VERSION
     writer.add_text("meta/action_interface", json.dumps(action_interface_meta, sort_keys=True, default=str))
 
     overlap_stepper = None
@@ -2025,6 +2060,8 @@ if __name__ == "__main__":
             global_step += args.num_envs
             obs[step] = next_obs
             dones[step] = next_done
+            if priv_obs is not None:
+                priv_obs[step] = next_priv_obs
             if args.actor_mode == "dense_debug":
                 action_masks[step] = next_action_mask > 0
             else:
@@ -2088,6 +2125,8 @@ if __name__ == "__main__":
                 infos = _normalize_final_infos(infos, args.num_envs)
                 profiler.add("trainer/envs_step_wall", time.perf_counter() - t0_env_step)
             profiler.ingest_env_profile_infos(infos, args.num_envs)
+            if privileged_critic is not None:
+                next_priv_obs = extract_privileged_obs(infos, args.num_envs, priv_obs.shape[-1], device)
             # Same-step vector autoreset stores completed episode info separately.
             combat_outcomes = _extract_vector_field(infos, "combat_outcome", args.num_envs)
             final_infos = infos.get("final_info", [])
@@ -2700,6 +2739,8 @@ if __name__ == "__main__":
                             checkpoint_path = os.path.join(run_dir, f"model_checkpoint_{checkpoint_step}.cleanrl_model")
                             t0_ckpt = time.perf_counter()
                             torch.save(agent.state_dict(), checkpoint_path)
+                            if privileged_critic is not None:
+                                torch.save(privileged_critic.state_dict(), privileged_critic_path(checkpoint_path))
                             meta_path = checkpoint_path + ".action_interface.json"
                             try:
                                 with open(meta_path, "w", encoding="utf-8") as f:
@@ -2714,7 +2755,13 @@ if __name__ == "__main__":
         # bootstrap value if not done
         t0_update_iter = time.perf_counter()
         with torch.no_grad():
-            next_value = agent.get_value(next_obs).reshape(1, -1)
+            if privileged_critic is not None:
+                # The rollout's value estimates (from the policy's own head) are replaced by the privileged critic's.
+                # copy_ keeps the buffer object the overlap stepper writes into.
+                values.copy_(privileged_critic.values(priv_obs.reshape(-1, priv_obs.shape[-1])).view(args.num_steps, args.num_envs))
+                next_value = privileged_critic.values(next_priv_obs).reshape(1, -1)
+            else:
+                next_value = agent.get_value(next_obs).reshape(1, -1)
             step_discounts = None
             if args.gamma_per_turn:
                 step_discounts = per_turn_discounts(actions.long(), args.gamma).to(rewards.dtype)
@@ -2729,6 +2776,7 @@ if __name__ == "__main__":
         b_advantages = advantages.reshape(-1)
         b_returns = returns.reshape(-1)
         b_values = values.reshape(-1)
+        b_priv_obs = priv_obs.reshape(-1, priv_obs.shape[-1]) if priv_obs is not None else None
         b_action_masks = None
         b_selected_slots = selected_slots.reshape(-1)
         b_teacher_slots = teacher_slots_buf.reshape(-1) if teacher_slots_buf is not None else None
@@ -2833,6 +2881,8 @@ if __name__ == "__main__":
                 pg_loss = torch.max(pg_loss1, pg_loss2).mean()
 
                 # Value loss
+                if privileged_critic is not None:
+                    newvalue = privileged_critic(b_priv_obs[mb_inds])
                 newvalue = newvalue.view(-1)
                 if args.clip_vloss:
                     v_loss_unclipped = (newvalue - b_returns[mb_inds]) ** 2
@@ -2864,6 +2914,8 @@ if __name__ == "__main__":
                     for p in non_critic_params:
                         p.grad = None
                 nn.utils.clip_grad_norm_(agent.parameters(), args.max_grad_norm)
+                if privileged_critic is not None:
+                    nn.utils.clip_grad_norm_(privileged_critic.parameters(), args.max_grad_norm)
                 optimizer.step()
 
             if args.target_kl is not None and approx_kl > args.target_kl:
@@ -2874,6 +2926,8 @@ if __name__ == "__main__":
         # update (including the old-logprob recompute check) see one fixed normalisation.
         if args.norm_obs:
             agent.obs_normalizer.update(b_obs)
+            if privileged_critic is not None:
+                privileged_critic.update_normalizer(b_priv_obs)
         if return_normalizer is not None:
             log_scalar("charts/return_norm_scale", return_normalizer.scale, global_step)
 
@@ -2995,6 +3049,8 @@ if __name__ == "__main__":
         t0_final_save = time.perf_counter()
         model_path = args.model_path or os.path.join(run_dir, f"{args.exp_name}.cleanrl_model")
         torch.save(agent.state_dict(), model_path)
+        if privileged_critic is not None:
+            torch.save(privileged_critic.state_dict(), privileged_critic_path(model_path))
         meta_path = model_path + ".action_interface.json"
         try:
             with open(meta_path, "w", encoding="utf-8") as f:

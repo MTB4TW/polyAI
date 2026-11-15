@@ -229,6 +229,28 @@ def fog_memory_of_version(environment_version) -> bool:
     return FOG_MEMORY_VERSION_SUFFIX in str(environment_version or "")
 
 
+# Privileged critic observation (opt-in, POLYVISION_PRIVILEGED_OBS=1, combat only): the env also returns the same
+# observation layout built from the true, unfogged game state in info["privileged_obs"]. Training-time only (the
+# PPO critic reads it; the policy never does), so it changes neither the observation nor any version string.
+PRIVILEGED_OBS_ENV_VAR = "POLYVISION_PRIVILEGED_OBS"
+PRIVILEGED_OBS_INFO_KEY = "privileged_obs"
+
+
+def resolve_privileged_obs(environ: Mapping[str, str] | None = None) -> bool:
+    """Whether the env attaches info["privileged_obs"]. Combat-only: asking for it outside combat is an error."""
+    environ = os.environ if environ is None else environ
+    raw = str(environ.get(PRIVILEGED_OBS_ENV_VAR, "") or "").strip()
+    if raw in ("", "0"):
+        return False
+    if raw != "1":
+        raise ValueError(f"{PRIVILEGED_OBS_ENV_VAR}={raw!r}: expected 0 or 1")
+    combat = str(environ.get("POLYVISION_COMBAT_MODE", "")).strip() == "1" or \
+        str(environ.get("POLYVISION_PHASE", "")).strip() == "2"
+    if not combat:
+        raise ValueError(f"{PRIVILEGED_OBS_ENV_VAR}=1 is combat-only (set POLYVISION_COMBAT_MODE=1 / POLYVISION_PHASE=2)")
+    return True
+
+
 NUM_CITY_TERRITORY_CHANNELS = MAX_OWNED_CITIES  # 9
 NUM_UNIT_HOME_CITY_CHANNELS = MAX_OWNED_CITIES  # 9
 LEGACY_SCALAR_DIM = 6
