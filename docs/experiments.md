@@ -66,6 +66,14 @@ Baselines on the same 250 validation maps: visible greedy 7.93, random legal 6.6
 
 ## Combat (Phase 2)
 
+### Canonical combat results (eval_validation, 120 maps × 5 replicates, seed 42, vs SimpleAgent)
+
+| Date | Name | Steps | Seeds | Ran by | Evaluation | argmax win (per seed) | Loss | Timeout | sampled win (per seed) | Notes |
+|---|---|---:|---|---|---|---|---:|---:|---|---|
+| 2026-11-14 | combat_cap_all_v2b_2m | 2M | 1, 2, 3 | Devin | `outputs/evaluations/20261114_combat_cap_all_v2b_2m_seed{1,2,3}_combat_eval_validation_canonical` | **76.1%** (84.5 [79.5, 89.3], 73.5 [67.7, 79.2], 70.2 [64.3, 75.7]) | 5.3% | 18.7% | 48.7% (65.3, 40.0, 40.8) | 2.15 rules, `spatial_resnet_composed`, `cluster/combat_cap_all_v2.env` (win 60, loss −15, timeout −10, early win 60, rider potential). First canonical combat result; no earlier checkpoint exists to pair against (Kevin's cap_all checkpoints are not shared; the 2.15 cap_all runs saved none). Paired vs `random_legal` (0.3%): +84.2, +73.2, +69.8 points, no map worse. Training-game diagnostic (last 500 games, final 250k steps): 60.2 / 37.0 / 37.2% win. W&B `eeocxup2`, `97zognmo`, `5m7758zh`. |
+
+### Training-game diagnostics (before the canonical evaluation)
+
 Combat is judged by win rate against SimpleAgent (11×11, 1v1, CAPITALS mode, 20 turns). The canonical combat
 evaluation (`tools/evaluate_combat.py`, docs/evaluation.md, CHANGELOG 062) was added on 2026-11-14; the rows below
 predate it and are **diagnostics from training games** (rate over the last 500 games, averaged over each run's final

@@ -1,0 +1,17 @@
+{
+  "name": "combat_cap_all_v2b_2m_seed1",
+  "network_arch": "spatial_resnet_composed",
+  "total_timesteps": 2000000,
+  "seed": 1,
+  "env_file": "cluster/combat_cap_all_v2.env",
+  "rules": "polytopia_2_15",
+  "submitted_by": "devinlai",
+  "git_commit": "aa223d8 (exp/combat-capall-v2)",
+  "model_path": "runs/Tribes-v0__combat_cap_all_v2b_2m_seed1__1__1794649838/combat_cap_all_v2b_2m_seed1.cleanrl_model (Farmshare ~/polyAI-wt/capall2)",
+  "evaluation_id": "20261114_combat_cap_all_v2b_2m_seed1_combat_eval_validation_canonical",
+  "evaluated_on": "Devin's Mac (evaluator commit 95acf27; Farmshare eval jobs cancelled)",
+  "train_job": "1982622",
+  "wandb_run": "eeocxup2",
+  "wandb_track": 1,
+  "wandb_upload": 0
+}
