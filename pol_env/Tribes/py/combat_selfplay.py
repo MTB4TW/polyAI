@@ -137,6 +137,7 @@ class SnapshotOpponent:
         self.agent.eval()
         self._torch = torch
         self.generator = torch.Generator().manual_seed(0)
+        self.deterministic = False  # True: highest-logit slot (head-to-head evaluation only; the league samples)
 
     def reseed(self, seed: int):
         self.generator.manual_seed(int(seed) % (2**31 - 1))
@@ -150,7 +151,10 @@ class SnapshotOpponent:
                 legal_action_valid_mask=torch.as_tensor(valid, dtype=torch.bool).reshape(1, -1),
                 legal_action_features=torch.as_tensor(feats, dtype=torch.float32).unsqueeze(0),
             )
-            slot = int(torch.multinomial(dist.probs[0], 1, generator=self.generator).item())
+            if self.deterministic:
+                slot = int(torch.argmax(dist.logits[0]).item())
+            else:
+                slot = int(torch.multinomial(dist.probs[0], 1, generator=self.generator).item())
         if not valid[slot]:
             raise RuntimeError("Snapshot opponent picked an invalid slot")
         return int(ids[slot])

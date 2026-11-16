@@ -2,6 +2,29 @@
 
 All notable changes to this project are documented in this file.
 
+## [Eval-Combat_Head_To_Head-070] - (2026-11-16)
+
+### Scope
+- New `tools/evaluate_combat_h2h.py` (+ `cluster/eval_combat_h2h_farmshare.sbatch`): checkpoint A against
+  checkpoint B, for when SimpleAgent no longer separates models (the privileged-critic runs win 95%+ against it).
+  Every `eval_validation` map is played `--repeats-per-map` times in both seat orders (A as tribe 0 with B as
+  tribe 1, and the reverse) with the canonical evaluator's episode seeds. Reported from A's point of view: win /
+  loss / timeout per seat and overall, the margin (A's win rate minus B's) and the seat gap, with bootstrap CIs
+  over maps. Writes `outputs/evaluations/<id>/` (config, episodes, per-map rates, summary). A full run (120 maps,
+  5 replicates, 2 seats, seed 42, `--mode sampled`) is labelled `h2h-canonical`; `eval_test` needs
+  `--confirm-test`.
+- The tribe-1 player is driven like a self-play league snapshot (CHANGELOG 064: external opponent hook,
+  relabelled own-POV observation). `SnapshotOpponent` gains a `deterministic` attribute (default False, so the
+  league is unchanged) for `--mode argmax`.
+- Caveat: every eval map has Bardur as tribe 0, so in the swapped seat A plays the opponent's tribe and moves
+  second, which no model was trained for. Both models face this equally; the per-seat rates show its size.
+- Evaluation tooling only: no environment, reward, observation, action or training change.
+
+### Validation
+- `tools/tests/test_combat_h2h.py`: schedule (both seats, canonical episode seeds), outcome flipping, summary and
+  margin, canonical label, test-pool refusal, and a live run of a tiny checkpoint against itself (league
+  environment variables are ignored). `tools/run_core_ci_checks.py` passes.
+
 ## [Train-Privileged_Critic_Warm_Start-069] - (2026-11-15)
 
 ### Scope
