@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Combat Replay</title>
+<style>
+  :root {
+    --bg: #f6f5f1; --card: #ffffff; --text: #1d1f24; --muted: #6b6f78; --border: #dedcd4;
+    --ours: #2563eb; --ours-soft: #dbe6fd; --theirs: #dc2626; --theirs-soft: #fde0e0;
+    --win: #15803d; --loss: #b91c1c; --timeout: #a16207; --focus: #111827;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #15171c; --card: #1e2128; --text: #e7e8ec; --muted: #9aa0ab; --border: #30343d;
+      --ours: #60a5fa; --ours-soft: #1e3352; --theirs: #f87171; --theirs-soft: #4a2020;
+      --win: #4ade80; --loss: #f87171; --timeout: #facc15; --focus: #f3f4f6;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  header { max-width: 1180px; margin: 0 auto; padding: 18px 16px 8px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color: var(--muted); font-size: 13px; }
+  .badge { display: inline-block; padding: 2px 10px; border-radius: 999px; font-weight: 600; font-size: 13px;
+           margin-left: 8px; vertical-align: 2px; color: #fff; }
+  .badge.win { background: var(--win); } .badge.loss { background: var(--loss); } .badge.timeout { background: var(--timeout); }
+  main { max-width: 1180px; margin: 0 auto; padding: 8px 16px 32px; display: grid;
+         grid-template-columns: minmax(0, 600px) minmax(0, 1fr); gap: 16px; }
+  @media (max-width: 900px) { main { grid-template-columns: minmax(0, 1fr); } }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
+  canvas { width: 100%; height: auto; display: block; border-radius: 6px; touch-action: manipulation; }
+  .controls { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 10px; }
+  button { background: transparent; color: var(--text); border: 1px solid var(--border); border-radius: 6px;
+           padding: 6px 10px; font: inherit; cursor: pointer; }
+  button:hover { border-color: var(--muted); }
+  button.on { background: var(--text); color: var(--card); border-color: var(--text); }
+  input[type=range] { width: 100%; margin-top: 10px; accent-color: var(--ours); }
+  .now { margin-top: 8px; font-weight: 600; min-height: 1.4em; }
+  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; margin-left: auto; }
+  .seg button { border: 0; border-radius: 0; }
+  .stats { display: grid; grid-template-columns: auto 1fr 1fr; gap: 2px 12px; font-variant-numeric: tabular-nums; }
+  .stats .h { color: var(--muted); font-size: 12px; }
+  .ours { color: var(--ours); } .theirs { color: var(--theirs); }
+  .legend { display: flex; flex-wrap: wrap; gap: 4px 14px; color: var(--muted); font-size: 12px; margin-top: 10px; }
+  .events { margin: 8px 0 0; padding: 0; list-style: none; }
+  .events li { padding: 3px 0 3px 10px; border-left: 3px solid var(--border); margin-bottom: 3px; }
+  .events li.s0 { border-color: var(--ours); } .events li.s1 { border-color: var(--theirs); }
+  .events li.big { font-weight: 600; }
+  #log { max-height: 560px; overflow-y: auto; margin-top: 8px; border-top: 1px solid var(--border); }
+  .turn-h { position: sticky; top: 0; background: var(--card); font-weight: 600; padding: 8px 0 4px; font-size: 13px; }
+  .row { padding: 3px 6px; border-radius: 4px; cursor: pointer; display: flex; gap: 8px; }
+  .row:hover { background: var(--bg); }
+  .row.cur { outline: 2px solid var(--focus); }
+  .row .who { width: 46px; flex: none; font-size: 12px; font-weight: 600; }
+  .row .k { color: var(--muted); }
+  h2 { font-size: 14px; margin: 0; }
+  .twocol { display: grid; gap: 16px; }
+  kbd { border: 1px solid var(--border); border-radius: 3px; padding: 0 4px; font-size: 11px; }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title"></h1>
+  <div class="sub" id="meta"></div>
+</header>
+<main>
+  <section class="card">
+    <canvas id="board" width="1100" height="1100" aria-label="Game board"></canvas>
+    <input type="range" id="slider" min="0" max="0" value="0" aria-label="Step">
+    <div class="controls">
+      <button id="pturn" title="Previous turn (↑)">⏮ Turn</button>
+      <button id="prev" title="Previous step (←)">◀</button>
+      <button id="play">▶ Play</button>
+      <button id="next" title="Next step (→)">▶</button>
+      <button id="nturn" title="Next turn (↓)">Turn ⏭</button>
+      <div class="seg" role="group" aria-label="View">
+        <button id="v-true" class="on">True board</button>
+        <button id="v-bot">Bot's view</button>
+      </div>
+    </div>
+    <div class="now" id="now"></div>
+    <div class="legend">
+      <span><b class="ours">●</b> ours (Bardur)</span><span><b class="theirs">●</b> opponent</span>
+      <span>■ city, ♛ capital, number = level</span><span>W warrior · R rider · D defender · S swordsman · A archer · C catapult · K knight</span>
+      <span>bar = HP, ★ veteran</span><span>arrows = this step's moves, ✕ = killed</span>
+      <span><kbd>←</kbd><kbd>→</kbd> step · <kbd>↑</kbd><kbd>↓</kbd> turn · <kbd>F</kbd> fog view</span>
+    </div>
+  </section>
+  <div class="twocol">
+    <section class="card">
+      <div class="stats" id="stats"></div>
+      <ul class="events" id="events"></ul>
+    </section>
+    <section class="card">
+      <h2>Game log</h2>
+      <div id="log"></div>
+    </section>
+  </div>
+</main>
+<script>
+const D = /*REPLAY_DATA*/null;
+const F = D.frames;
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const $ = id => document.getElementById(id);
+const canvas = $("board"), ctx = canvas.getContext("2d");
+let cur = 0, botView = false, timer = null;
+const N = F[0].full.terrain.length;
+const PAD = 40, CELL = (canvas.width - PAD) / N;
+const TERRAIN = { 0: "#b7d98b", 1: "#8fd0ea", 2: "#3f86c6", 3: "#9b9488", 4: "#d9bf7f", 5: "#c9b48a", 6: "#5e9a4f", 7: "#333" };
+const TNAME = D.terrain_names;
+const outcomeWord = { win: "Win", loss: "Loss", timeout: "Timeout" }[D.outcome] || D.outcome;
+
+$("title").innerHTML = `${D.tribes[0]} (bot) vs ${D.tribes[1]} (SimpleAgent) <span class="badge ${D.outcome}">${outcomeWord} · turn ${D.end_turn}</span>`;
+$("meta").textContent = `${D.title} · ${D.map} · episode seed ${D.episode_seed} · ${D.policy} · ${D.model} · ${D.settings.rules}, ${D.settings.max_turns}-turn limit, capitals mode`;
+document.title = `Combat Replay ${D.map}`;
+
+function px(x, y) { return [PAD + y * CELL, PAD + x * CELL]; }  // board arrays are [x][y]: x = row, y = column
+
+function drawUnit(u, faded) {
+  const [cx, cy] = px(u.x, u.y);
+  const r = CELL * 0.3, mx = cx + CELL / 2, my = cy + CELL / 2;
+  ctx.globalAlpha = faded ? 0.35 : 1;
+  ctx.beginPath(); ctx.arc(mx, my, r, 0, Math.PI * 2);
+  ctx.fillStyle = u.o === 0 ? css("--ours") : css("--theirs"); ctx.fill();
+  ctx.lineWidth = 3; ctx.strokeStyle = "#fff"; ctx.stroke();
+  ctx.fillStyle = "#fff"; ctx.font = `bold ${CELL * 0.28}px sans-serif`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  ctx.fillText(D.unit_letters[u.t] || "?", mx, my + 1);
+  const maxhp = Math.max(u.hp, 10 + (u.vet ? 5 : 0), u.t === 2 ? 15 : 10);
+  const bw = CELL * 0.7, bx = cx + CELL * 0.15, by = cy + CELL * 0.86;
+  ctx.fillStyle = "rgba(0,0,0,.45)"; ctx.fillRect(bx, by, bw, 6);
+  ctx.fillStyle = u.hp / maxhp > 0.5 ? "#22c55e" : u.hp / maxhp > 0.25 ? "#eab308" : "#ef4444";
+  ctx.fillRect(bx, by, bw * Math.min(1, u.hp / maxhp), 6);
+  if (u.vet) { ctx.fillStyle = "#facc15"; ctx.font = `${CELL * 0.22}px sans-serif`; ctx.fillText("★", cx + CELL * 0.82, cy + CELL * 0.18); }
+  ctx.globalAlpha = 1;
+}
+
+function arrow(from, to, color) {
+  const [x0, y0] = px(from[0], from[1]), [x1, y1] = px(to[0], to[1]);
+  const a = [x0 + CELL / 2, y0 + CELL / 2], b = [x1 + CELL / 2, y1 + CELL / 2];
+  const ang = Math.atan2(b[1] - a[1], b[0] - a[0]);
+  const end = [b[0] - Math.cos(ang) * CELL * 0.32, b[1] - Math.sin(ang) * CELL * 0.32];
+  ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = 5; ctx.globalAlpha = 0.85;
+  ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(end[0], end[1]); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(end[0], end[1]);
+  ctx.lineTo(end[0] - 16 * Math.cos(ang - 0.45), end[1] - 16 * Math.sin(ang - 0.45));
+  ctx.lineTo(end[0] - 16 * Math.cos(ang + 0.45), end[1] - 16 * Math.sin(ang + 0.45)); ctx.closePath(); ctx.fill();
+  ctx.globalAlpha = 1;
+}
+
+function draw() {
+  const f = F[cur], full = f.full, seen = f.seen;
+  const vis = seen.visible, seenUnits = new Set(seen.units), seenCities = new Set(seen.cities);
+  ctx.fillStyle = css("--card"); ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = css("--muted"); ctx.font = "20px sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  for (let i = 0; i < N; i++) { ctx.fillText(i, PAD + i * CELL + CELL / 2, PAD / 2); ctx.fillText(i, PAD / 2, PAD + i * CELL + CELL / 2); }
+  for (let x = 0; x < N; x++) for (let y = 0; y < N; y++) {
+    const [cx, cy] = px(x, y);
+    ctx.fillStyle = TERRAIN[full.terrain[x][y]] || "#999"; ctx.fillRect(cx, cy, CELL, CELL);
+    const t = full.terrain[x][y];
+    if (t === 3) { ctx.fillStyle = "rgba(255,255,255,.55)"; ctx.beginPath(); ctx.moveTo(cx + CELL * .2, cy + CELL * .8);
+      ctx.lineTo(cx + CELL * .5, cy + CELL * .25); ctx.lineTo(cx + CELL * .8, cy + CELL * .8); ctx.closePath(); ctx.fill(); }
+    if (t === 6) { ctx.fillStyle = "rgba(0,60,0,.35)"; for (const [a, b] of [[.3, .35], [.65, .3], [.5, .65]]) {
+      ctx.beginPath(); ctx.arc(cx + CELL * a, cy + CELL * b, CELL * .12, 0, 7); ctx.fill(); } }
+    if (t === 4) { ctx.strokeStyle = "rgba(90,60,20,.8)"; ctx.lineWidth = 3; ctx.strokeRect(cx + CELL * .3, cy + CELL * .3, CELL * .4, CELL * .4); }
+    ctx.strokeStyle = "rgba(0,0,0,.15)"; ctx.lineWidth = 1; ctx.strokeRect(cx, cy, CELL, CELL);
+  }
+  for (const [id, c] of Object.entries(full.cities)) {
+    if (botView && !seenCities.has(id) && c.o !== 0) continue;
+    const [cx, cy] = px(c.x, c.y);
+    ctx.fillStyle = c.o === 0 ? css("--ours-soft") : css("--theirs-soft");
+    ctx.strokeStyle = c.o === 0 ? css("--ours") : css("--theirs"); ctx.lineWidth = c.cap ? 7 : 4;
+    ctx.fillRect(cx + 5, cy + 5, CELL - 10, CELL - 10); ctx.strokeRect(cx + 5, cy + 5, CELL - 10, CELL - 10);
+    ctx.fillStyle = ctx.strokeStyle; ctx.font = `bold ${CELL * 0.22}px sans-serif`; ctx.textAlign = "left"; ctx.textBaseline = "top";
+    ctx.fillText((c.cap ? "♛" : "") + c.lvl, cx + 9, cy + 8);
+  }
+  for (let x = 0; x < N; x++) for (let y = 0; y < N; y++) if (!vis[x][y]) {
+    const [cx, cy] = px(x, y);
+    ctx.fillStyle = botView ? "rgba(30,32,38,.93)" : "rgba(30,32,38,.28)"; ctx.fillRect(cx, cy, CELL, CELL);
+  }
+  for (const [id, u] of Object.entries(full.units)) {
+    const hidden = u.o !== 0 && !seenUnits.has(id);
+    if (botView && hidden) continue;
+    drawUnit(u, false);
+    if (!botView && hidden) {  // true board: mark enemy units the bot cannot see
+      const [cx, cy] = px(u.x, u.y); ctx.setLineDash([6, 5]); ctx.strokeStyle = "#fff"; ctx.lineWidth = 2;
+      ctx.strokeRect(cx + 3, cy + 3, CELL - 6, CELL - 6); ctx.setLineDash([]);
+    }
+  }
+  for (const e of f.events) {
+    const color = e.side === 0 ? css("--ours") : css("--theirs");
+    if (e.kind === "move") arrow(e.from, e.to, color);
+    if (e.kind === "killed") { const [cx, cy] = px(e.at[0], e.at[1]); ctx.strokeStyle = color; ctx.lineWidth = 7;
+      ctx.beginPath(); ctx.moveTo(cx + CELL * .2, cy + CELL * .2); ctx.lineTo(cx + CELL * .8, cy + CELL * .8);
+      ctx.moveTo(cx + CELL * .8, cy + CELL * .2); ctx.lineTo(cx + CELL * .2, cy + CELL * .8); ctx.stroke(); }
+    if (e.kind === "damaged" || e.kind === "capture") { const [cx, cy] = px(e.at[0], e.at[1]);
+      ctx.strokeStyle = e.kind === "capture" ? "#facc15" : "#f97316"; ctx.lineWidth = 5; ctx.strokeRect(cx + 2, cy + 2, CELL - 4, CELL - 4); }
+  }
+}
+
+function count(full, side) {
+  const us = Object.values(full.units).filter(u => u.o === side), cs = Object.values(full.cities).filter(c => c.o === side);
+  return { units: us.length, hp: us.reduce((a, u) => a + u.hp, 0), cities: cs.length, cap: cs.some(c => c.cap),
+           stars: (full.tribes[side] || {}).stars, kills: (full.tribes[side] || {}).kills };
+}
+
+const SIDE = s => s === 0 ? '<span class="ours">Ours</span>' : '<span class="theirs">Enemy</span>';
+function render() {
+  const f = F[cur];
+  $("slider").value = cur;
+  const a = count(f.full, 0), b = count(f.full, 1);
+  $("stats").innerHTML = `<span class="h">Turn ${f.turn} · step ${cur}/${F.length - 1}</span><span class="h ours">Bot (${D.tribes[0]})</span><span class="h theirs">Opponent (${D.tribes[1]})</span>
+    <span>Units (total HP)</span><span>${a.units} (${a.hp})</span><span>${b.units} (${b.hp})</span>
+    <span>Cities</span><span>${a.cities}${a.cap ? "" : " · capital lost"}</span><span>${b.cities}${b.cap ? "" : " · capital lost"}</span>
+    <span>Kills</span><span>${a.kills}</span><span>${b.kills}</span>
+    <span>Stars</span><span>${a.stars}</span><span>${b.stars}</span>`;
+  let head = f.opponent ? "Opponent's turn" : f.label;
+  if (cur === F.length - 1) head += ` — game over: ${outcomeWord} on turn ${D.end_turn}`;
+  $("now").textContent = head;
+  $("events").innerHTML = f.events.map(e => `<li class="s${e.side} ${["killed", "capture"].includes(e.kind) ? "big" : ""}">${SIDE(e.side)} ${e.text}</li>`).join("")
+    || '<li class="k">No board changes</li>';
+  document.querySelectorAll(".row.cur").forEach(r => r.classList.remove("cur"));
+  const row = document.getElementById("r" + cur);
+  if (row) { row.classList.add("cur"); row.scrollIntoView({ block: "nearest" }); }
+  draw();
+}
+
+function buildLog() {
+  let html = "", lastTurn = null;
+  F.forEach((f, i) => {
+    if (i === 0) return;
+    if (f.turn !== lastTurn && !f.opponent) { html += `<div class="turn-h">Turn ${f.turn}</div>`; lastTurn = f.turn; }
+    if (f.opponent) {
+      const notable = f.events.filter(e => e.kind !== "heal" && e.kind !== "grow");
+      const txt = notable.map(e => e.kind === "capture" ? `${e.text} by ${e.side === 0 ? "us" : "the enemy"}`
+                                                       : `${e.side === 0 ? "our " : ""}${e.text}`).join("; ") || "no visible changes";
+      html += `<div class="row" id="r${i}" data-i="${i}"><span class="who theirs">Enemy</span><span>${txt}</span></div>`;
+    } else if (f.label !== "End turn") {
+      html += `<div class="row" id="r${i}" data-i="${i}"><span class="who ours">Bot</span><span>${f.label}</span></div>`;
+    }
+  });
+  html += `<div class="turn-h">Result: ${outcomeWord} on turn ${D.end_turn}</div>`;
+  $("log").innerHTML = html;
+  $("log").addEventListener("click", e => { const r = e.target.closest(".row"); if (r) go(+r.dataset.i); });
+}
+
+function go(i) { cur = Math.max(0, Math.min(F.length - 1, i)); render(); }
+function turnStart(dir) {
+  const t = F[cur].turn;
+  if (dir > 0) { let i = cur; while (i < F.length - 1 && (F[i].turn === t)) i++; go(i); }
+  else { let i = cur; while (i > 0 && F[i - 1].turn === t) i--; if (i === cur && i > 0) { const pt = F[i - 1].turn; i--; while (i > 0 && F[i - 1].turn === pt) i--; } go(i); }
+}
+function setView(bot) { botView = bot; $("v-bot").classList.toggle("on", bot); $("v-true").classList.toggle("on", !bot); draw(); }
+$("slider").max = F.length - 1;
+$("slider").oninput = e => go(+e.target.value);
+$("prev").onclick = () => go(cur - 1); $("next").onclick = () => go(cur + 1);
+$("pturn").onclick = () => turnStart(-1); $("nturn").onclick = () => turnStart(1);
+$("v-true").onclick = () => setView(false); $("v-bot").onclick = () => setView(true);
+$("play").onclick = () => {
+  if (timer) { clearInterval(timer); timer = null; $("play").textContent = "▶ Play"; return; }
+  $("play").textContent = "⏸ Pause";
+  timer = setInterval(() => { if (cur >= F.length - 1) { $("play").click(); return; } go(cur + 1); }, 450);
+};
+document.addEventListener("keydown", e => {
+  if (e.key === "ArrowRight") { go(cur + 1); e.preventDefault(); }
+  if (e.key === "ArrowLeft") { go(cur - 1); e.preventDefault(); }
+  if (e.key === "ArrowDown") { turnStart(1); e.preventDefault(); }
+  if (e.key === "ArrowUp") { turnStart(-1); e.preventDefault(); }
+  if (e.key === "f" || e.key === "F") setView(!botView);
+});
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", render);
+buildLog(); render();
+</script>
+</body>
+</html>
