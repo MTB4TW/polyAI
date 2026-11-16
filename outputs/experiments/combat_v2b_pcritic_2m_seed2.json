@@ -1,0 +1,18 @@
+{
+  "name": "combat_v2b_pcritic_2m_seed2",
+  "network_arch": "spatial_resnet_composed",
+  "total_timesteps": 2000000,
+  "seed": 2,
+  "env_file": "cluster/combat_cap_all_v2.env",
+  "rules": "polytopia_2_15",
+  "extra_ppo_args": "--privileged-critic",
+  "submitted_by": "devinlai",
+  "git_commit": "11bcd1c (feat/combat-privileged-critic)",
+  "model_path": "runs/Tribes-v0__combat_v2b_pcritic_2m_seed2__2__1794731201/combat_v2b_pcritic_2m_seed2.cleanrl_model (Farmshare ~/polyAI-wt/pcritic)",
+  "evaluation_id": "20261115_combat_v2b_pcritic_2m_seed2_combat_eval_validation_canonical",
+  "evaluated_on": "Farmshare (cluster/eval_combat_farmshare.sbatch)",
+  "train_job": "1986032",
+  "wandb_run": "pth1oqsc",
+  "wandb_track": 1,
+  "wandb_upload": 0
+}

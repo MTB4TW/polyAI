@@ -86,3 +86,10 @@ finding the enemy capital) and with hidden Cloaks.
   env part.
 - Combines with the other items: with fog memory or the teacher, add the flag to their `EXTRA_PPO_ARGS`.
 - Compare with `tools/compare_combat_evals.py` against the v2b evaluation.
+
+**Result (2026-11-15, canonical, docs/experiments.md):** from scratch, 3 seeds, 95.1% wins against v2b's 76.1%
+(seeds pooled +19.0 [+15.4, +22.8] points, 89 of 120 maps better), mostly by turning timeouts into wins; sampled
+play now wins as often as argmax (94.3% against 48.7%). Final `losses/explained_variance` was about the same as
+v2b's (0.93–0.94), so that check did not predict the gain. Warm starts from v2b seed 1 with the flag stayed near
+their source (−4.5 and +4.0 points, both within noise). On Farmshare the runs took about 16 h against v2b's
+10.8 h (about 36 steps/s with 16 envs).
