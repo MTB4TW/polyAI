@@ -122,6 +122,8 @@ Opt-in terms (default 0; definitions in `pol_env/Tribes/py/combat_shaping.py` an
 Also opt-in (CHANGELOG entry 061): `RIDER` (potential: + per Rider of ours alive), `TRAIN_RIDER` (+ per Rider trained), `TRAIN_INFANTRY` (− per Warrior or
 Swordsman trained), `RIDER_ATTACK` (+ per attack by a Rider), `EMBASSY` (− per embassy built, 2.15 rules) and
 `TURN_PENALTY` (− per turn ended). `cluster/combat_cap_all_v2.env` sets them for the 2.15-rules cap_all run.
+Also opt-in (CHANGELOG entry 071): `STAR_HOARD` (− per star above `STAR_HOARD_THRESHOLD`, default 10, still held at
+END_TURN). `STAR_HOARD_THRESHOLD` is a parameter, not a weight, and `SHAPING_SCALE` leaves it alone.
 
 `POLYVISION_COMBAT_REWARD_SHAPING_SCALE` (default 1) multiplies every term except the outcome terms (`WIN`, `LOSS`,
 `TIMEOUT`, `EARLY_WIN`, `TERMINAL_POTENTIAL`, `TURN_PENALTY`); 0 trains on the game result alone. Outcome-only

@@ -177,6 +177,49 @@ class UnitPreferenceAndTempoTests(unittest.TestCase):
         self.assertEqual(w._combat_event_rewards(s, s, {"type": "BUILD_EMBASSY"}, "BUILD_EMBASSY"), {"embassy": -5.0})
         self.assertEqual(w._combat_event_rewards(s, s, {"type": "END_TURN"}, "END_TURN"), {"turn_penalty": -0.25})
 
+    def test_star_hoard_penalty(self):
+        s = state([unit(1, 0, "RIDER", 2, 2)])
+
+        def obs(stars):
+            return {"tribes": {"0": {"star": stars}, "1": {"star": 99}}}
+
+        off = self.wrapper()
+        self.assertEqual(off._combat_event_rewards(s, s, {"type": "END_TURN"}, "END_TURN", start_obs=obs(40)), {})
+        w = self.wrapper(star_hoard=0.02)  # default threshold 10
+        end = {"type": "END_TURN"}
+        self.assertAlmostEqual(w._combat_event_rewards(s, s, end, "END_TURN", start_obs=obs(35))["star_hoard"], -0.5)
+        self.assertEqual(w._combat_event_rewards(s, s, end, "END_TURN", start_obs=obs(10))["star_hoard"], 0.0)
+        self.assertEqual(w._combat_event_rewards(s, s, end, "END_TURN", start_obs=obs(3))["star_hoard"], 0.0)
+        # Only END_TURN is charged, and only our own stars count.
+        self.assertNotIn("star_hoard", w._combat_event_rewards(s, s, {"type": "SPAWN", "unit_type": "RIDER"},
+                                                                "SPAWN", start_obs=obs(35)))
+        w = self.wrapper(star_hoard=0.1, star_hoard_threshold=0)
+        self.assertAlmostEqual(w._combat_event_rewards(s, s, end, "END_TURN", start_obs=obs(7))["star_hoard"], -0.7)
+        self.assertEqual(w._combat_event_rewards(s, s, end, "END_TURN", start_obs=None)["star_hoard"], 0.0)
+        for bad in ({"POLYVISION_COMBAT_REWARD_STAR_HOARD": "-1"},
+                    {"POLYVISION_COMBAT_REWARD_STAR_HOARD_THRESHOLD": "-1"}):
+            with self.assertRaises(ValueError):
+                type(w)._load_combat_reward_weights(bad)
+
+    def test_star_hoard_env_file(self):
+        import shutil
+        import subprocess
+        from pol_env.Tribes.py.register_env import TribesGymWrapper
+
+        bash = shutil.which("bash")
+        if bash is None:
+            self.skipTest("bash not available")
+        repo = os.path.join(os.path.dirname(__file__), "..", "..")
+        clean = {k: v for k, v in os.environ.items() if not k.startswith("POLYVISION_")}
+        out = subprocess.run([bash, "-c", "source cluster/combat_star_hoard_v2.env && env"], cwd=repo, env=clean,
+                             capture_output=True, text=True, check=True).stdout
+        env = dict(line.split("=", 1) for line in out.splitlines() if line.startswith("POLYVISION_COMBAT_REWARD_"))
+        weights = TribesGymWrapper._load_combat_reward_weights(env)
+        self.assertEqual(weights["star_hoard"], 0.02)
+        self.assertEqual(weights["star_hoard_threshold"], 10.0)
+        self.assertEqual(weights["win"], 60.0)  # the v2 weights underneath are unchanged
+        self.assertEqual(weights["unused_tech"], 0.5)
+
     def test_v2_env_file_weights_are_valid(self):
         import re
         from pol_env.Tribes.py.register_env import TribesGymWrapper
@@ -225,7 +268,10 @@ class ShapingScaleTests(unittest.TestCase):
             self.assertEqual(zero[name], base[name], name)
         self.assertAlmostEqual(half["rider"], 0.15)
         self.assertAlmostEqual(half["city"], base["city"] / 2)
-        shaping = [n for n in W.COMBAT_REWARD_DEFAULTS if n not in W.COMBAT_OUTCOME_TERMS]
+        shaping = [n for n in W.COMBAT_REWARD_DEFAULTS
+                   if n not in W.COMBAT_OUTCOME_TERMS and n not in W.COMBAT_REWARD_PARAMETERS]
+        for name in W.COMBAT_REWARD_PARAMETERS:  # parameters, not weights: never scaled
+            self.assertEqual(zero[name], base[name], name)
         self.assertTrue(all(zero[n] == 0.0 for n in shaping))
         with self.assertRaises(ValueError):
             W._load_combat_reward_weights({"POLYVISION_COMBAT_REWARD_SHAPING_SCALE": "-1"})

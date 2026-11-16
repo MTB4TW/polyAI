@@ -2,6 +2,43 @@
 
 All notable changes to this project are documented in this file.
 
+## [Phase2-Combat_Star_Hoard_Penalty-071] - (2026-11-15)
+
+### Scope
+- New opt-in combat event term `POLYVISION_COMBAT_REWARD_STAR_HOARD` (default 0 = off; combat only, Phase 1 never
+  reads combat reward weights): at each END_TURN, minus this weight per star above
+  `POLYVISION_COMBAT_REWARD_STAR_HOARD_THRESHOLD` (default 10) that we still hold. Stars come from the observation
+  before END_TURN (our own stars are never fogged). Logged as the episode component `star_hoard`.
+  `STAR_HOARD_THRESHOLD` is a parameter, not a weight: `SHAPING_SCALE` leaves it alone
+  (`TribesGymWrapper.COMBAT_REWARD_PARAMETERS`).
+- `cluster/combat_star_hoard_v2.env`: the v2 weights plus `STAR_HOARD=0.02`, threshold 10.
+- Why: the privileged-critic reference (`combat_v2b_pcritic_2m`, seed 2) researches about one tech per game and
+  ends turns 13-17 holding 35-45 stars. A local diagnostic (seed-2 checkpoint, argmax, 4 validation games) found
+  no action-space cause: every RESEARCH_TECH except FISHING (masked on Drylands by design) is legal and affordable
+  every turn from turn 3, and SPAWN is legal whenever a city has a free slot and an empty city tile. Training is
+  blocked by the engine rules (a city holds level + 1 units, and nothing can be trained while a unit stands on the
+  city tile; the bot often parks units there). The reward explains the rest: v2 charges research
+  (`TECH_COST` 0.05 per star, `UNUSED_TECH` 0.5 per tech not used the same turn) and nothing charges unspent
+  stars, since stars are not part of the potential.
+- Form: a per-turn holding cost, not a potential on stars. A potential -k * excess telescopes: over a game it pays
+  only the final excess (times `TERMINAL_POTENTIAL`), so holding 30 stars for ten turns would cost the same as
+  holding them for one. The threshold leaves room to save for a Swordsman, Knight or a tier-1 tech.
+- Size (0.02): with `--gamma-per-turn` (0.99 per turn) a charge on every later turn counts almost in full.
+  Holding 30 stars costs 0.4 per turn; a heavy hoarding game (~250 star-turns above 10) costs ~5, against win 60,
+  loss -15, timeout -10 and a typical potential lead of ~20, so it cannot outweigh the outcome. Researching an
+  8-star tech costs 0.4 (`TECH_COST`), plus 0.5 if it is not used that turn, and saves 0.16 per later turn the
+  stars would otherwise have sat above 10: a used tech pays back in ~3 turns, an unused one in ~6, so junk
+  research is only preferred to doing nothing for most of the rest of the game. A 3-star Rider saves 0.06 per turn
+  on top of its existing +0.55 potential. The `AVOID_*` penalties on junk techs still apply.
+- No contract version change: reward only; what a checkpoint sees and does is unchanged.
+
+### Validation
+- `tools/tests/test_combat_shaping_terms.py`: off by default, threshold, END_TURN only, own stars only, validation
+  of negative values, `SHAPING_SCALE` leaves the threshold alone, and the env file sources to the expected weights.
+- Live local game (seed-2 checkpoint, map_2p_030048, replicate 0, `STAR_HOARD=0.02`; diagnostic): the term fires on
+  every END_TURN with more than 10 stars, e.g. 12 stars -> -0.04, 22 -> -0.24, 29 -> -0.38; nothing at 8 or fewer;
+  -1.96 over that game (a loss on turn 16).
+
 ## [Train-Combat_Privileged_Critic-068] - (2026-11-14)
 
 ### Scope
