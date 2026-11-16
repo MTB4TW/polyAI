@@ -34,6 +34,33 @@ def privileged_critic_path(model_path: str) -> str:
     return f"{model_path}{PRIVILEGED_CRITIC_SUFFIX}"
 
 
+def load_privileged_critic_for_init(critic: nn.Module, init_from: str, map_location="cpu") -> bool:
+    """With --init-from X: load the critic saved next to X (X.privileged_critic.pt) into `critic`.
+
+    Returns True if it was loaded, False if X has no critic file (the critic then stays freshly initialised).
+    Loading is strict: missing or unexpected keys (e.g. --norm-obs differing from the source run) and mismatched
+    shapes raise instead of being skipped. Prints one line either way.
+    """
+    import os
+
+    path = privileged_critic_path(init_from)
+    if not os.path.exists(path):
+        print(f"[PRIVILEGED_CRITIC] init: no saved critic at {path}; starting a fresh critic")
+        return False
+    state = torch.load(path, map_location=map_location)
+    if not isinstance(state, dict):
+        raise RuntimeError(f"[PRIVILEGED_CRITIC] {path} is not a state dict")
+    own = critic.state_dict()
+    bad = [f"{k}: saved {tuple(v.shape)} vs run {tuple(own[k].shape)}" for k, v in state.items()
+           if k in own and hasattr(v, "shape") and tuple(v.shape) != tuple(own[k].shape)]
+    if bad:
+        raise RuntimeError(f"[PRIVILEGED_CRITIC] {path}: shape mismatch: " + "; ".join(bad))
+    critic.load_state_dict(state, strict=True)  # raises on missing / unexpected keys
+    n = sum(int(v.numel()) for v in state.values() if hasattr(v, "numel"))
+    print(f"[PRIVILEGED_CRITIC] init: loaded saved critic from {path} ({len(state)} tensors, {n} values)")
+    return True
+
+
 class PrivilegedCritic(nn.Module):
     """V(s) from the unfogged observation: spatial ResNet + scalar MLP + value MLP (the spatial agent's critic
     shape, with its own encoder so the policy's encoder is trained by the policy loss alone)."""

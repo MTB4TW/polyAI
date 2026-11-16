@@ -78,6 +78,34 @@ class CriticTests(unittest.TestCase):
 
         self.assertEqual(privileged_critic_path("runs/x/m.cleanrl_model"), "runs/x/m.cleanrl_model.privileged_critic.pt")
 
+    def test_init_from_loads_saved_critic(self):
+        from py_rl.cleanrl.cleanrl.privileged_critic import (
+            PrivilegedCritic, load_privileged_critic_for_init, privileged_critic_path)
+
+        torch.manual_seed(1)
+        src = PrivilegedCritic(self.obs_dim, norm_obs=True)
+        src.update_normalizer(torch.randn(5, self.obs_dim))
+        with tempfile.TemporaryDirectory() as d:
+            model = os.path.join(d, "m.cleanrl_model")
+            # No critic file: stays fresh.
+            torch.manual_seed(2)
+            dst = PrivilegedCritic(self.obs_dim, norm_obs=True)
+            fresh = {k: v.clone() for k, v in dst.state_dict().items()}
+            self.assertFalse(load_privileged_critic_for_init(dst, model))
+            for k, v in dst.state_dict().items():
+                self.assertTrue(torch.equal(v, fresh[k]), k)
+            # Saved critic: loaded exactly, normaliser statistics included.
+            torch.save(src.state_dict(), privileged_critic_path(model))
+            self.assertTrue(load_privileged_critic_for_init(dst, model))
+            for k, v in src.state_dict().items():
+                self.assertTrue(torch.equal(dst.state_dict()[k], v), k)
+            # Missing keys (no normaliser in the run) raise.
+            with self.assertRaises(RuntimeError):
+                load_privileged_critic_for_init(PrivilegedCritic(self.obs_dim, norm_obs=False), model)
+            # Mismatched shapes raise.
+            with self.assertRaisesRegex(RuntimeError, "shape mismatch"):
+                load_privileged_critic_for_init(PrivilegedCritic(self.obs_dim, norm_obs=True, hidden_channels=32), model)
+
 
 LIVE_GAME = r"""
 import json, os, sys
@@ -145,8 +173,8 @@ class LiveGame(unittest.TestCase):
 
 @unittest.skipUnless(HAVE_ENGINE, "compiled engine missing")
 class TinyTraining(unittest.TestCase):
-    def train(self, out_dir: str, privileged: bool) -> Path:
-        model = Path(out_dir) / ("p.cleanrl_model" if privileged else "b.cleanrl_model")
+    def train(self, out_dir: str, privileged: bool, init_from=None, name=None):
+        model = Path(out_dir) / (name or ("p.cleanrl_model" if privileged else "b.cleanrl_model"))
         cmd = [sys.executable, "py_rl/cleanrl/cleanrl/ppo.py", "--env-id", "Tribes-v0", "--network-arch",
                "spatial_resnet_composed", "--num-envs", "2", "--num-steps", "16", "--num-minibatches", "2",
                "--update-epochs", "1", "--total-timesteps", "64", "--max-legal-actions", "512", "--norm-obs",
@@ -154,9 +182,13 @@ class TinyTraining(unittest.TestCase):
                "--exp-name", "pcritic_smoke", "--seed", "1"]
         if privileged:
             cmd.append("--privileged-critic")
+        if init_from is not None:
+            cmd += ["--init-from", str(init_from)]
         r = subprocess.run(cmd, cwd=REPO, env=_combat_env(WANDB_MODE="disabled"), capture_output=True, text=True,
                            timeout=1500)
         self.assertEqual(r.returncode, 0, (r.stdout[-2000:], r.stderr[-4000:]))
+        if init_from is not None:
+            return model, r.stdout
         return model
 
     def test_checkpoint_keys_unchanged(self):
@@ -172,6 +204,15 @@ class TinyTraining(unittest.TestCase):
             meta = json.loads(Path(str(p) + ".action_interface.json").read_text())
             self.assertEqual(meta.get("privileged_critic"), "privileged_critic_v1")
             self.assertNotIn("privileged_critic", json.loads(Path(str(b) + ".action_interface.json").read_text()))
+            # Warm start with the flag: the source's critic file is loaded; without one the critic starts fresh.
+            w, out = self.train(d, True, init_from=p, name="w.cleanrl_model")
+            self.assertIn("init: loaded saved critic", out)
+            meta = json.loads(Path(str(w) + ".action_interface.json").read_text())
+            self.assertEqual(meta.get("privileged_critic_init"), "loaded")
+            f, out = self.train(d, True, init_from=b, name="f.cleanrl_model")
+            self.assertIn("starting a fresh critic", out)
+            meta = json.loads(Path(str(f) + ".action_interface.json").read_text())
+            self.assertEqual(meta.get("privileged_critic_init"), "fresh")
 
 
 if __name__ == "__main__":

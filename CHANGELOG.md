@@ -2,6 +2,24 @@
 
 All notable changes to this project are documented in this file.
 
+## [Train-Privileged_Critic_Warm_Start-069] - (2026-11-15)
+
+### Scope
+- `ppo.py --privileged-critic --init-from X` now loads the privileged critic saved next to the source checkpoint
+  (`X.privileged_critic.pt`, `load_privileged_critic_for_init` in `privileged_critic.py`) instead of always
+  starting a fresh one. It prints `[PRIVILEGED_CRITIC] init: loaded saved critic from ...`; if the file is
+  missing, the critic starts fresh as before and a line says so. Loading is strict: missing or unexpected keys
+  (e.g. `--norm-obs` differing from the source run) and mismatched shapes raise an error.
+- The sidecar records `"privileged_critic_init": "loaded" | "fresh"` on warm starts with the flag.
+- Why: earlier warm starts needed `--critic-warmup-steps 150000` only because the critic was new; a warm start
+  from a privileged-critic run can now use `--critic-warmup-steps 0`.
+- No contract version change: the policy checkpoint keys and what the policy sees and does are unchanged.
+
+### Validation
+- `tools/tests/test_privileged_critic.py`: loader unit test (missing file stays fresh; saved critic loaded exactly,
+  normaliser included; missing keys and mismatched shapes raise) and a tiny warm-start training run from a
+  privileged-critic checkpoint (loaded) and from a plain one (fresh).
+
 ## [Train-Combat_Privileged_Critic-068] - (2026-11-14)
 
 ### Scope

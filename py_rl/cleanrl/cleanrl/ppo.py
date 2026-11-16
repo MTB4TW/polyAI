@@ -1754,11 +1754,16 @@ if __name__ == "__main__":
     ).to(device)
     return_normalizer = ReturnNormalizer(args.num_envs, args.gamma) if args.norm_returns else None
     privileged_critic = None
+    privileged_critic_loaded = False
     if args.privileged_critic:
         from py_rl.cleanrl.cleanrl.privileged_critic import PRIVILEGED_CRITIC_VERSION, PrivilegedCritic
         obs_dim_flat = int(np.prod(envs.single_observation_space.shape))
         privileged_critic = PrivilegedCritic(obs_dim_flat, norm_obs=bool(args.norm_obs)).to(device)
         print(f"[PRIVILEGED_CRITIC] {sum(p.numel() for p in privileged_critic.parameters())} critic parameters")
+        if args.init_from:
+            from py_rl.cleanrl.cleanrl.privileged_critic import load_privileged_critic_for_init
+            # Load the source run's critic when it saved one (then no --critic-warmup-steps is needed).
+            privileged_critic_loaded = load_privileged_critic_for_init(privileged_critic, args.init_from, map_location=device)
     trainable_params = list(agent.parameters()) + (list(privileged_critic.parameters()) if privileged_critic is not None else [])
     optimizer = optim.Adam(trainable_params, lr=args.learning_rate, eps=1e-5)
     # --critic-warmup-steps: everything except the critic head stays frozen during the warm-up.
@@ -2006,6 +2011,8 @@ if __name__ == "__main__":
     if privileged_critic is not None:
         # Training-only: the policy checkpoint is unaffected; recorded so the run's lineage is visible.
         action_interface_meta["privileged_critic"] = PRIVILEGED_CRITIC_VERSION
+        if args.init_from:
+            action_interface_meta["privileged_critic_init"] = "loaded" if privileged_critic_loaded else "fresh"
     writer.add_text("meta/action_interface", json.dumps(action_interface_meta, sort_keys=True, default=str))
 
     overlap_stepper = None
