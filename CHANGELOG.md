@@ -2,6 +2,44 @@
 
 All notable changes to this project are documented in this file.
 
+## [Perf-Overlapped_Rollout-057] - (2026-11-13)
+
+### Scope
+- New opt-in trainer flag `--overlap-rollout` (default off): the N envs are split into two halves
+  (A = first ceil(N/2), B = the rest), each its own SAME_STEP `AsyncVectorEnv`
+  (`py_rl/cleanrl/cleanrl/overlapped_vector_env.py`). Per rollout step the policy forward for B runs while A
+  steps, and A's next action is sampled and sent while B steps, so policy time and slow workers (episode-end
+  resets, end turns) overlap with the other half's env work. A is not sent ahead on the last step of a
+  rollout (the update changes the policy).
+- Rollout buffers keep the same (step, env) layout and contents; the merged step result (observations,
+  rewards, flags, Gymnasium infos including `final_info`, masks and dtypes) equals what one vector env over
+  all N envs returns for the same actions, and reset seeds are unchanged (env i gets seed + i). The PPO
+  update is unchanged. A prefetched half's policy inputs are checked against the trainer's tensors.
+- Flag on is deterministic for a fixed seed but does not reproduce a flag-off run: actions are sampled in
+  two batches per step, so the policy RNG is consumed in a different order. Needs N >= 2; odd N works.
+- Profiling with the flag: `trainer/envs_step_wall` is the time blocked waiting for a half,
+  `trainer/overlap_step_wall` the whole pipelined step, `trainer/policy_forward_action_selection` per half.
+- New diagnostic `tools/profile_vector_step.py`: per vector step, each worker's busy time (step plus
+  autoreset), the slowest worker, IPC overhead (vector wall - slowest worker) and what the slowest worker was
+  doing (ordinary step, end turn, episode end).
+- No environment, observation, action or checkpoint change; no contract version change.
+
+### Validation
+- Flag off: a 1,024-step run (spatial_resnet, 8 envs x 64 steps, seed 1, `--validation-states 100
+  --force-revalidate-action-interface`) gives parameters identical to the base branch (torch.save files are
+  byte-identical when saved under the same file name; the zip record name follows the file name).
+- Flag on: two identical runs give identical parameters, for spatial_resnet `legal_features` (8 envs and
+  3 envs), `legal_only` (3 envs) and mlp `dense_debug` (3 envs); `POLYVISION_PROFILE_SPS=1` works.
+- New `tools/tests/test_overlapped_vector_env.py`: info merge equals one vector env for N = 2, 3, 5, 6 on a
+  fake env with keys in only some envs, nested dicts, arrays, objects and SAME_STEP final_info; with a fixed
+  action table the default loop and the stepper write identical buffers; prefetch check; real spawn
+  `AsyncVectorEnv`s; opt-in live test (`POLYVISION_RUN_JAVA_TESTS=1`) compares 3 real envs over 200 steps
+  with episode ends (observations, rewards, flags, non-timing infos, legal id/mask/feature tensors).
+- Mac (shared M-series, noisy), 8 envs, spatial_resnet CPU, 8,192 steps, two runs each: rollout collection
+  ~760 -> ~885 steps/s (+16%); whole run including startup, validation and the CPU PPO update 152-156 ->
+  160-161 steps/s (+4%), because the update is ~80% of wall time on this machine. Policy forward per step
+  3.9 ms (one batch of 8) vs 2 x 2.3 ms (two batches of 4); time blocked on envs 6.2 -> 3.1 ms per step.
+
 ## [Phase1-PPO_Experiment_Options-053] - (2026-11-12)
 
 ### Scope
@@ -41,6 +79,50 @@ All notable changes to this project are documented in this file.
   on a Mac CPU: trains, saves a checkpoint whose state_dict holds `obs_normalizer.*` (count 2,048 after 8
   updates; raw feature means up to ~1,400) and whose sidecar records both fields; `tools/evaluate_phase1.py`
   loads it through the sidecar and completes a 2-map, 1-repeat validation diagnostic (not committed).
+
+## [Perf-Vectorized_Features_Compact_IPC-052] - (2026-11-12)
+
+### Scope
+- Legal-action feature building (`TribesGymWrapper._build_legal_action_features_padded`) is faster:
+  - `_build_feature_step_context` computes the fog window counts (3x3 / 5x5), city-bounds mask and
+    distance-to-village map with NumPy instead of per-tile Python loops.
+  - The observation-independent feature columns (action-type flags, tech/resource/building/level-up
+    vocabulary, star cost) are cached per global action id and reused only while every input field and its
+    type are unchanged; each step builds rows as Python floats and casts the block to float32 once.
+  - The previous implementation is kept as `_build_legal_action_features_padded_loops` /
+    `_build_feature_step_context_loops`; `POLYVISION_FEATURE_EQUIV_CHECK=1` now also checks the fast builder
+    against it byte for byte on every step.
+- Training sends only the valid legal rows through the `AsyncVectorEnv` pipe. A `CompactLegalInfoWrapper`
+  inside each worker replaces `legal_global_ids_padded`, `legal_action_valid_mask` and
+  `legal_action_features_padded` (256 x 47 float32, ~49 KB per env per step) with
+  `info["legal_compact"] = (ids[:n], features[:n], 256)` (~3.7 KB at the typical n = 18); the trainer
+  rebuilds identical padded tensors. Infos whose padding is not all zero are sent padded as before.
+  On by default; `POLYVISION_COMPACT_LEGAL_INFO=0` restores the padded transfer. The environment itself still
+  returns the padded keys, so evaluators and single-env tools are unchanged.
+- New `tools/hash_env_trajectory.py`: hashes a fixed-seed random-legal-play trajectory (observations,
+  rewards, done flags, legal ids/masks, feature bytes and all non-timing info fields).
+- No behaviour change: observations, rewards, legal actions, legal-action features and trainer tensors are
+  byte-identical, so no contract version changes.
+
+### Validation
+- `tools/hash_env_trajectory.py` digests are identical before and after: Phase 1 seeds 7 and 11 (3,000 steps
+  each) and combat mode seed 7 (1,500 steps).
+- New `tools/tests/test_vectorized_legal_features.py`: the vectorised context matches the per-tile loops on
+  300 random boards (1x1 to 14x14, malformed boards included) and feature tensors match the previous builder
+  byte for byte over 800 random action sets; opt-in live test runs 400 env steps with
+  `POLYVISION_FEATURE_EQUIV_CHECK=1`.
+- New `tools/tests/test_compact_legal_info.py`: compact rows round-trip bit for bit; layouts that cannot be
+  compacted stay padded; through a real `AsyncVectorEnv` (SAME_STEP autoreset included) the trainer's
+  legal id, mask, feature and action-mask tensors equal the padded path's; mixed padded/compact batches;
+  opt-in live test on 300 real env infos.
+- Tiny PPO runs (1,024 steps, 2 envs, seed 3, `--force-revalidate-action-interface`) with
+  `POLYVISION_COMPACT_LEGAL_INFO=0` and `=1` give identical checkpoints for `mlp` and `spatial_resnet_local`;
+  for `mlp` the rollout buffers (obs, actions, log-probs, returns, values, legal ids/masks/features) and
+  parameters were also hashed before each of the 4 updates and matched.
+- Timing on a shared 2019 Intel MacBook (noisy): feature builder on 1,020 recorded real inputs
+  (~17 valid rows) 1.06 -> 0.40 ms median per call, of which the step context 0.47 -> 0.09 ms; median
+  single-env step over the 3,000-step trajectories 5.0-5.6 ms -> 3.9-4.3 ms. Synthetic 2-env
+  `AsyncVectorEnv` step plus trainer extraction 0.97 -> 0.67-0.84 ms.
 
 ## [Perf-MPS_Learner_Device-051] - (2026-11-12)
 
