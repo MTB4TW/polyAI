@@ -1,6 +1,7 @@
 # Roadmap: one map size, one tribe, beat every bot, then humans
 
-Written 2026-11-17 from a review of main, all open PRs (#8–#27) and the unmerged combat branches.
+Written 2026-11-17 from a review of main after merging PRs #8–#27, and of the one unmerged combat branch
+(`claude/combat-critic-init-96179a`).
 "Target" throughout means **Bardur on 11×11 (Polytopia's Tiny map), 1v1**.
 
 ## Where we are
@@ -44,7 +45,13 @@ Ordered by dependency. Each step has an exit test that decides whether we move o
 
 ### Stage 0: land and stabilise what exists (days)
 
-- Merge the open stack (in progress) and the seat-swap league fix from the unmerged branch.
+- The PR stack is merged (CHANGELOG 052–081). Still to land: the seat-swap league fix, the privileged-critic
+  warm start and the head-to-head evaluator from `claude/combat-critic-init-96179a`, which has no PR yet.
+- Fix the three leftovers from the #22 review:
+  - `compare_combat_evals.py` silently pairs a subset when the map lists differ;
+  - the league RNG is seeded from the process id, so league runs are not reproducible;
+  - value normalisation is on by default, so reproducing the 95.1% reference needs
+    `--no-privileged-critic-value-norm`.
 - Validate the PopArt critic fix (#24) canonically. 3 of 17 runs collapsed without it, and both
   of the best results (95.1%, 98.2%) used the old critic.
 - Make the teacher + privileged-critic + PopArt recipe the combat reference, with 3 seeds.

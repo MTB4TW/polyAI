@@ -1,0 +1,18 @@
+{
+  "name": "gammaturn-local-1m-cpu-seed1",
+  "network_arch": "spatial_resnet_local",
+  "total_timesteps": 1000000,
+  "seed": 1,
+  "extra_ppo_args": "--torch-threads 6 --gamma-per-turn",
+  "submitted_utc": "2026-11-13T01:28:26Z",
+  "submitted_by": "devinlai",
+  "git_commit": "fe641b73c33eb6bcb0aa407377f8c963585410c4",
+  "git_dirty": true,
+  "model_path": "runs/experiments/gammaturn-local-1m-cpu-seed1/gammaturn-local-1m-cpu-seed1.cleanrl_model",
+  "evaluation_id": "20261113_gammaturn-local-1m-cpu-seed1_validation_canonical",
+  "train_job": "1978311",
+  "eval_job": "1978312",
+  "wandb_track": 1,
+  "wandb_upload": 1,
+  "wandb_log_eval": 1
+}

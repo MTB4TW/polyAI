@@ -37,8 +37,14 @@ except Exception:
 
 from pol_env.Tribes.py.register_env import TribesGymWrapper  # adjust if folder name differs
 from py_rl.cleanrl.cleanrl.gae import compute_gae, per_turn_discounts
+from py_rl.cleanrl.cleanrl.init_from import apply_init_from, format_report, load_checkpoint
 from py_rl.cleanrl.cleanrl.obs_normalization import OBS_NORMALIZATION_VERSION, ObsNormalizedAgent
+from py_rl.cleanrl.cleanrl.privileged_critic import privileged_critic_path
 from py_rl.cleanrl.cleanrl.return_normalization import ReturnNormalizer
+from py_rl.cleanrl.cleanrl.teacher_kickstart import (
+    TEACHER_ENV_VAR, TEACHER_SLOT_INFO_KEY, extract_teacher_slots, kickstart_cross_entropy, teacher_coef_at,
+    validate_teacher_args,
+)
 from pol_env.Tribes.py.environment_contract import (
     compute_level_pool_identity,
     environment_compatibility_metadata,
@@ -70,6 +76,30 @@ class Args:
     """if toggled, cuda will be enabled by default"""
     mps: bool = False
     """if toggled and CUDA is not in use, run the learner on the Apple-silicon GPU (MPS backend)"""
+    init_from: Optional[str] = None
+    """warm start: copy compatible weights from this .cleanrl_model (needs its sidecar); optimizer and schedule start fresh"""
+    init_from_reset: str = "auto"
+    """with --init-from: key prefixes to keep freshly initialised ("auto" = critic when the environment version differs, "none", or e.g. "critic.,actor.")"""
+    init_from_fold_scalars: bool = True
+    """with --init-from: fold the combat legacy-scalar scaling into the copied weights when it differs between checkpoint and run"""
+    privileged_critic: bool = False
+    """combat only: compute advantages with a separate critic that sees the true, unfogged state
+    (env info["privileged_obs"]); the policy and its checkpoint are unchanged. Critic weights go to
+    X.cleanrl_model.privileged_critic.pt (training-only)"""
+    privileged_critic_value_norm: bool = True
+    """with --privileged-critic: the critic predicts standardised returns (PopArt value normalisation); without it
+    the critic can saturate and go flat on the raw combat returns"""
+    privileged_critic_flat_patience: int = 5
+    """with --privileged-critic: act when the critic's predictions have had (almost) no spread (std < 1e-3 while the
+    returns' std > 1e-2) for this many updates in a row; 0 disables the check"""
+    privileged_critic_flat_action: str = "reinit"
+    """with --privileged-critic: what to do about a flat critic: "reinit" (fresh critic weights and optimiser state,
+    at most --privileged-critic-max-reinits times, then stop) or "stop" (end the run with an error)"""
+    privileged_critic_max_reinits: int = 3
+    """with --privileged-critic-flat-action reinit: stop the run instead once the critic has been reset this often"""
+    critic_warmup_steps: int = 0
+    """train only the critic head for the first N environment steps (policy, shared trunk and teacher loss frozen);
+    for warm starts with a fresh critic, so the policy is not pushed around by an untrained value estimate"""
     track: bool = False
     """if toggled, this experiment will be tracked with Weights and Biases"""
     wandb_project_name: str = "cleanRL"
@@ -114,6 +144,14 @@ class Args:
     """scale rewards by a running std of discounted returns (VecNormalize-style reward scaling; training only)"""
     norm_obs: bool = False
     """normalise observations by a running mean/std saved with the checkpoint (changes what the network sees)"""
+    teacher: Optional[str] = None
+    """Phase 1 kickstarting teacher (training only): 'lookahead_visible' = fog-respecting one-step lookahead"""
+    teacher_coef: float = 1.0
+    """initial weight of the teacher cross-entropy term (used only with --teacher)"""
+    teacher_decay_frac: float = 0.5
+    """linearly decay --teacher-coef to 0 over this fraction of training (0 = constant)"""
+    teacher_disable_after_decay: bool = True
+    """once the coefficient reaches 0, stop running the teacher search in the env workers (saves env time)"""
     num_minibatches: int = 4
     """the number of mini-batches"""
     update_epochs: int = 4
@@ -753,12 +791,15 @@ class Agent(nn.Module):
         legal_action_valid_mask=None,
         legal_action_features=None,
         selected_slot=None,
+        return_distribution=False,
     ):
+        """return_distribution=True appends the policy distribution (over legal slots) as a sixth value."""
         if self.actor_mode == "dense_debug":
             probs = self.get_action_distribution(x, action_mask=action_mask)
             if action is None:
                 action = probs.sample()
-            return action, None, probs.log_prob(action), probs.entropy(), self.critic(x)
+            out = (action, None, probs.log_prob(action), probs.entropy(), self.critic(x))
+            return out + (probs,) if return_distribution else out
 
         if legal_global_ids is None or legal_action_valid_mask is None:
             raise RuntimeError("legal_only actor_mode requires legal_global_ids and legal_action_valid_mask.")
@@ -797,7 +838,8 @@ class Agent(nn.Module):
             raise RuntimeError("selected_slot points to invalid/padded legal slot.")
 
         selected_global_id = legal_ids.gather(1, selected_slot.unsqueeze(1)).squeeze(1)
-        return selected_global_id, selected_slot, probs.log_prob(selected_slot), probs.entropy(), self.critic(x)
+        out = (selected_global_id, selected_slot, probs.log_prob(selected_slot), probs.entropy(), self.critic(x))
+        return out + (probs,) if return_distribution else out
 
 
 def _extract_vector_action_mask(infos, num_envs, action_dim, device):
@@ -1619,6 +1661,10 @@ if __name__ == "__main__":
     run_name = f"{args.env_id}__{args.exp_name}__{args.seed}__{int(time.time())}"
     run_dir = os.path.join("runs", run_name)
     os.makedirs(run_dir, exist_ok=True)
+    if _env_flag_bool("POLYVISION_COMBAT_LEAGUE_SELF", default=False):
+        # Self-play league: env workers (started below, inheriting the environment) draw opponents from this run's
+        # periodic checkpoints (pol_env/Tribes/py/combat_selfplay.py).
+        os.environ["POLYVISION_COMBAT_LEAGUE_SELF_DIR"] = os.path.abspath(run_dir)
     profile_enabled = _env_flag_bool("POLYVISION_PROFILE_SPS", default=False)
     profile_every_n_steps = max(1, _env_flag_int("POLYVISION_PROFILE_EVERY_N_STEPS", default=1000))
     profile_write_json = _env_flag_bool("POLYVISION_PROFILE_WRITE_JSON", default=True)
@@ -1636,11 +1682,18 @@ if __name__ == "__main__":
         import wandb
         import os
         import sys
+        run_config = dict(vars(args))
+        if str(os.environ.get("POLYVISION_COMBAT_MODE", "0")).strip() in ("1", "true") or \
+                str(os.environ.get("POLYVISION_PHASE", "1")).strip() == "2":
+            # Combat reward weights come from POLYVISION_COMBAT_REWARD_* env vars; record them with the run.
+            run_config.update({f"combat_reward_{k}": v
+                               for k, v in TribesGymWrapper._load_combat_reward_weights().items()})
+            run_config["combat_max_turns"] = int(os.environ.get("POLYVISION_MAX_TURNS", "20"))
         wandb_run = wandb.init(
             project=args.wandb_project_name,
             entity=args.wandb_entity,
             sync_tensorboard=False,
-            config=vars(args),
+            config=run_config,
             name=run_name,
             monitor_gym=True,
             save_code=True,
@@ -1667,6 +1720,9 @@ if __name__ == "__main__":
     )
 
     # TRY NOT TO MODIFY: seeding
+    if args.init_from:
+        # Fail before the slow action-interface validation and env startup if the checkpoint is unusable.
+        load_checkpoint(args.init_from)
     random.seed(args.seed)
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
@@ -1680,6 +1736,17 @@ if __name__ == "__main__":
         device = torch.device("mps")
     else:
         device = torch.device("cpu")
+
+    _combat_run = (
+        str(os.environ.get("POLYVISION_PHASE", "1")).strip() == "2"
+        or str(os.environ.get("POLYVISION_COMBAT_MODE", "0")).strip() in ("1", "true")
+    )
+    teacher_mode = validate_teacher_args(
+        args.teacher, float(args.teacher_coef), float(args.teacher_decay_frac), args.actor_mode, _combat_run)
+    if teacher_mode is not None and args.overlap_rollout:
+        raise SystemExit("--teacher does not support --overlap-rollout (teacher labels are recorded on the plain path)")
+    if os.environ.pop(TEACHER_ENV_VAR, None) is not None and teacher_mode is None:
+        print(f"[TEACHER] ignoring {TEACHER_ENV_VAR} from the environment; use --teacher to enable it")
 
     if args.validate_action_interface:
         # The validator samples from the global RNGs only when it actually runs (not on a cache hit).
@@ -1699,7 +1766,21 @@ if __name__ == "__main__":
         finally:
             _restore_global_rngs(rng_state)
 
-    # env setup
+    # env setup. The teacher is switched on only for the training workers (not the validator above); spawned
+    # workers inherit os.environ.
+    if teacher_mode is not None:
+        os.environ[TEACHER_ENV_VAR] = teacher_mode
+        print(f"[TEACHER] mode={teacher_mode} coef={args.teacher_coef} decay_frac={args.teacher_decay_frac}")
+    from pol_env.Tribes.py.environment_contract import PRIVILEGED_OBS_ENV_VAR
+    if args.privileged_critic:
+        if not _combat_run:
+            raise SystemExit("--privileged-critic is combat-only (set POLYVISION_COMBAT_MODE=1 / POLYVISION_PHASE=2)")
+        if args.actor_mode == "dense_debug":
+            raise SystemExit("--privileged-critic does not support --actor-mode dense_debug")
+        os.environ[PRIVILEGED_OBS_ENV_VAR] = "1"
+        print("[PRIVILEGED_CRITIC] advantages from a full-information critic (training only)")
+    elif os.environ.pop(PRIVILEGED_OBS_ENV_VAR, None) not in (None, "", "0"):
+        print(f"[PRIVILEGED_CRITIC] ignoring {PRIVILEGED_OBS_ENV_VAR} from the environment; use --privileged-critic")
     envs = make_training_vector_env(
         [
             make_env(
@@ -1724,7 +1805,33 @@ if __name__ == "__main__":
         observation_normalization=OBS_NORMALIZATION_VERSION if args.norm_obs else None,
     ).to(device)
     return_normalizer = ReturnNormalizer(args.num_envs, args.gamma) if args.norm_returns else None
-    optimizer = optim.Adam(agent.parameters(), lr=args.learning_rate, eps=1e-5)
+    privileged_critic = None
+    if args.privileged_critic:
+        from py_rl.cleanrl.cleanrl.privileged_critic import (
+            PRIVILEGED_CRITIC_VERSION, FlatCriticGuard, PrivilegedCritic, reinitialize_critic,
+        )
+        obs_dim_flat = int(np.prod(envs.single_observation_space.shape))
+        if args.privileged_critic_flat_action not in ("reinit", "stop"):
+            raise SystemExit("--privileged-critic-flat-action must be 'reinit' or 'stop'")
+        privileged_critic = PrivilegedCritic(obs_dim_flat, norm_obs=bool(args.norm_obs),
+                                             value_norm=bool(args.privileged_critic_value_norm)).to(device)
+        privileged_critic_guard = FlatCriticGuard(int(args.privileged_critic_flat_patience))
+        privileged_critic_reinits = 0
+        print(f"[PRIVILEGED_CRITIC] value_norm={bool(args.privileged_critic_value_norm)} "
+              f"flat_check: patience={int(args.privileged_critic_flat_patience)} action={args.privileged_critic_flat_action}")
+        print(f"[PRIVILEGED_CRITIC] {sum(p.numel() for p in privileged_critic.parameters())} critic parameters")
+    trainable_params = list(agent.parameters()) + (list(privileged_critic.parameters()) if privileged_critic is not None else [])
+    optimizer = optim.Adam(trainable_params, lr=args.learning_rate, eps=1e-5)
+    # --critic-warmup-steps: everything except the critic head stays frozen during the warm-up.
+    non_critic_params = [p for n, p in agent.named_parameters() if not ("." + n).count(".critic.")]
+    if privileged_critic is not None:
+        # The policy's own critic head gets no loss with a privileged critic; warm-up then trains only the latter.
+        non_critic_params = list(agent.parameters())
+    if int(args.critic_warmup_steps) > 0:
+        n_critic = sum(p.numel() for n, p in agent.named_parameters() if ("." + n).count(".critic."))
+        if n_critic == 0:
+            raise ValueError("--critic-warmup-steps: the agent has no parameters under 'critic.'")
+        print(f"[CRITIC_WARMUP] critic only for the first {int(args.critic_warmup_steps)} steps ({n_critic} parameters)")
 
     # ALGO Logic: Storage setup
     obs = torch.zeros((args.num_steps, args.num_envs) + envs.single_observation_space.shape).to(device)
@@ -1733,7 +1840,13 @@ if __name__ == "__main__":
     rewards = torch.zeros((args.num_steps, args.num_envs)).to(device)
     dones = torch.zeros((args.num_steps, args.num_envs)).to(device)
     values = torch.zeros((args.num_steps, args.num_envs)).to(device)
+    priv_obs = None
+    if privileged_critic is not None:
+        priv_obs = torch.zeros((args.num_steps, args.num_envs) + envs.single_observation_space.shape).to(device)
     selected_slots = torch.zeros((args.num_steps, args.num_envs), dtype=torch.long, device=device)
+    teacher_slots_buf = None
+    if teacher_mode is not None:
+        teacher_slots_buf = torch.full((args.num_steps, args.num_envs), -1, dtype=torch.long, device=device)
     legal_global_ids_buf = torch.zeros(
         (args.num_steps, args.num_envs, args.max_legal_actions),
         dtype=torch.long,
@@ -1774,6 +1887,24 @@ if __name__ == "__main__":
     combat_outcome_window = deque(maxlen=100)
     combat_potential_window = deque(maxlen=100)
     combat_games_completed = 0
+    # End-of-game diagnostics (engine-side), rolling over the last 100 finished combat games.
+    combat_end_keys = ("combat_end_enemy_cities", "combat_end_own_cities", "combat_end_enemy_capitals_held",
+                       "combat_end_min_unit_dist_to_enemy_capital", "combat_first_contact_tick")
+    combat_end_windows = {key: deque(maxlen=100) for key in combat_end_keys}
+    # Closest unit to the enemy capital, split by result (a win ends on the capital, so the pooled mean hides timeouts).
+    combat_dist_by_outcome = {o: deque(maxlen=100) for o in ("win", "loss", "timeout")}
+    # End-of-game totals (combat_end_raw_*) and per-game reward by component (combat_end_component_*), logged
+    # both as a 100-game rolling mean and as an exponential moving average over games (alpha = 2/101, a
+    # comparable ~100-game horizon that weights recent games more and has no hard cut-off).
+    combat_breakdown_windows = {}
+    combat_outcome_500 = {}
+    combat_ema = {}
+    COMBAT_EMA_ALPHA = 2.0 / 101.0
+
+    def combat_track(key, value):
+        combat_breakdown_windows.setdefault(key, deque(maxlen=100)).append(float(value))
+        combat_ema[key] = float(value) if key not in combat_ema else (
+            (1.0 - COMBAT_EMA_ALPHA) * combat_ema[key] + COMBAT_EMA_ALPHA * float(value))
     next_action_mask = None
     next_legal_global_ids = None
     next_legal_action_valid_mask = None
@@ -1811,6 +1942,17 @@ if __name__ == "__main__":
                 device,
             )
             profiler.add("trainer/reset_feature_extract", time.perf_counter() - t0_extract_features)
+    next_priv_obs = None
+    if privileged_critic is not None:
+        from py_rl.cleanrl.cleanrl.privileged_critic import extract_privileged_obs
+        next_priv_obs = extract_privileged_obs(reset_infos, args.num_envs, priv_obs.shape[-1], device)
+    next_teacher_slots = None
+    teacher_workers_enabled = teacher_mode is not None
+    if teacher_mode is not None:
+        next_teacher_slots = extract_teacher_slots(reset_infos, args.num_envs, next_legal_action_valid_mask)
+        # The Phase 1 teacher labels every decision; the combat teacher only tactical ones (-1 elsewhere).
+        if teacher_mode == "lookahead_visible" and not bool((next_teacher_slots >= 0).all()):
+            raise RuntimeError(f"--teacher is set but the envs did not report {TEACHER_SLOT_INFO_KEY} after reset")
     # Structural checks look at the network itself (inside the --norm-obs wrapper, if any).
     agent_net = agent.policy if isinstance(agent, ObsNormalizedAgent) else agent
     if args.actor_mode == "dense_debug":
@@ -1869,6 +2011,12 @@ if __name__ == "__main__":
     if args.norm_returns:
         # Informational only: reward scaling is training-only and does not change inference.
         action_interface_meta["return_normalization"] = "running_return_std_v1"
+    if teacher_mode is not None:
+        # Informational only: kickstarting changes the loss during training, not what a checkpoint sees or does.
+        action_interface_meta["training_teacher"] = {
+            "mode": teacher_mode, "coef": float(args.teacher_coef), "decay_frac": float(args.teacher_decay_frac),
+            "loss": "kickstart_cross_entropy_v1",
+        }
     for k in [
         "catalog_version",
         "phase1_opening_version",
@@ -1906,6 +2054,19 @@ if __name__ == "__main__":
         f"action_space_n={envs.single_action_space.n} "
         f"max_legal_actions={args.max_legal_actions}"
     )
+    if args.init_from:
+        init_report = apply_init_from(
+            agent, args.init_from, target_meta=action_interface_meta, network_arch=args.network_arch,
+            reset=args.init_from_reset, fold_scalars=bool(args.init_from_fold_scalars),
+        )
+        for line in format_report(init_report):
+            print(line)
+        # Recorded with every checkpoint so a warm-started model's lineage is visible.
+        action_interface_meta["init_from"] = {k: v for k, v in init_report.items() if k != "kept_fresh"}
+        action_interface_meta["init_from"]["kept_fresh_count"] = len(init_report["kept_fresh"])
+    if privileged_critic is not None:
+        # Training-only: the policy checkpoint is unaffected; recorded so the run's lineage is visible.
+        action_interface_meta["privileged_critic"] = PRIVILEGED_CRITIC_VERSION
     writer.add_text("meta/action_interface", json.dumps(action_interface_meta, sort_keys=True, default=str))
 
     game_engine = None
@@ -1962,17 +2123,30 @@ if __name__ == "__main__":
         tm_end_turn_with_useful_move_num = 0.0
         tm_useful_move_available_den = 0.0
 
+        teacher_coef_now = 0.0
+        iter_teacher_labelled = 0
+        iter_teacher_agree = 0
+        if teacher_mode is not None:
+            teacher_coef_now = teacher_coef_at(iteration, args.num_iterations, args.teacher_coef, args.teacher_decay_frac)
+            if teacher_coef_now <= 0.0 and teacher_workers_enabled and args.teacher_disable_after_decay:
+                envs.call("set_teacher_enabled", False)
+                teacher_workers_enabled = False
+                print(f"[TEACHER] coefficient reached 0 at iteration {iteration}; teacher search switched off")
+
         # Annealing the rate if instructed to do so.
         if args.anneal_lr:
             frac = 1.0 - (iteration - 1.0) / args.num_iterations
             lrnow = frac * args.learning_rate
             optimizer.param_groups[0]["lr"] = lrnow
 
+        rollout_max_legal = 0
         for step in range(0, args.num_steps):
             prev_global_step = global_step
             global_step += args.num_envs
             obs[step] = next_obs
             dones[step] = next_done
+            if priv_obs is not None:
+                priv_obs[step] = next_priv_obs
             if args.actor_mode == "dense_debug":
                 action_masks[step] = next_action_mask > 0
             else:
@@ -2020,6 +2194,11 @@ if __name__ == "__main__":
                 actions[step] = action
                 if action_slot is not None:
                     selected_slots[step] = action_slot.long()
+                if teacher_slots_buf is not None:
+                    teacher_slots_buf[step] = next_teacher_slots
+                    labelled = next_teacher_slots >= 0
+                    iter_teacher_labelled += int(labelled.sum().item())
+                    iter_teacher_agree += int((labelled & (action_slot.long() == next_teacher_slots)).sum().item())
                 logprobs[step] = logprob
 
                 # TRY NOT TO MODIFY: execute the game and log data.
@@ -2033,6 +2212,8 @@ if __name__ == "__main__":
             profiler.ingest_env_profile_infos(infos, args.num_envs)
             if game_engine is not None:
                 game_engine.note_infos(step, infos)
+            if privileged_critic is not None:
+                next_priv_obs = extract_privileged_obs(infos, args.num_envs, priv_obs.shape[-1], device)
             # Same-step vector autoreset stores completed episode info separately.
             combat_outcomes = _extract_vector_field(infos, "combat_outcome", args.num_envs)
             final_infos = infos.get("final_info", [])
@@ -2061,6 +2242,56 @@ if __name__ == "__main__":
                 if combat_potential_window:
                     log_scalar("combat/episode_end_potential_last100", float(np.mean(combat_potential_window)), global_step)
                 log_scalar("combat/games_completed", combat_games_completed, global_step)
+                for row in final_infos:
+                    if isinstance(row, dict) and row.get("combat_end_enemy_cities") is not None:
+                        for key in combat_end_keys:
+                            combat_end_windows[key].append(float(row.get(key, -1)))
+                        dist = float(row.get("combat_end_min_unit_dist_to_enemy_capital", -1))
+                        if row.get("combat_outcome") in combat_dist_by_outcome and dist >= 0:
+                            combat_dist_by_outcome[row["combat_outcome"]].append(dist)
+                for row in final_infos:
+                    if not isinstance(row, dict) or row.get("combat_outcome") not in ("win", "loss", "timeout"):
+                        continue
+                    for outcome in ("win", "loss", "timeout"):
+                        combat_track(f"outcome/{outcome}_rate", float(row["combat_outcome"] == outcome))
+                        # A 500-game window for the trend: the 100-game one swings about +/-4 points from sampling alone.
+                        combat_outcome_500.setdefault(outcome, deque(maxlen=500)).append(float(row["combat_outcome"] == outcome))
+                    for metric_key, raw_value in row.items():
+                        if metric_key.startswith("combat_end_raw_"):
+                            combat_track("end_raw/" + metric_key[len("combat_end_raw_"):], raw_value)
+                        elif metric_key.startswith("combat_end_techturn_") and float(raw_value) >= 0:
+                            # Turn a tech was researched, averaged over the games that researched it.
+                            combat_track("tech_turn/" + metric_key[len("combat_end_techturn_"):], raw_value)
+                    comps = {k[len("combat_end_component_"):]: float(v) for k, v in row.items()
+                             if k.startswith("combat_end_component_")}
+                    if comps:
+                        total_abs = sum(abs(v) for v in comps.values())
+                        for comp_name, comp_value in comps.items():
+                            combat_track(f"reward_component/{comp_name}", comp_value)
+                            # Share of the game's total |reward| that came from this component.
+                            combat_track(f"reward_share/{comp_name}", abs(comp_value) / total_abs if total_abs > 0 else 0.0)
+                        combat_track("reward_component/total", sum(comps.values()))
+                for outcome, window500 in combat_outcome_500.items():
+                    log_scalar(f"combat_outcome/{outcome}_rate_last500", float(np.mean(window500)), global_step)
+                for metric_key, metric_window in combat_breakdown_windows.items():
+                    log_scalar(f"combat_{metric_key}_last100", float(np.mean(metric_window)), global_step)
+                    log_scalar(f"combat_{metric_key}_ema", combat_ema[metric_key], global_step)
+                for outcome, dists in combat_dist_by_outcome.items():
+                    if dists:
+                        log_scalar(f"combat/{outcome}_min_dist_to_enemy_capital_last100", float(np.mean(dists)), global_step)
+                if combat_dist_by_outcome["timeout"]:
+                    log_scalar("combat/timeout_within_1_tile_of_enemy_capital_rate_last100",
+                               float(np.mean([d <= 1 for d in combat_dist_by_outcome["timeout"]])), global_step)
+                contact = combat_end_windows["combat_first_contact_tick"]
+                if contact:
+                    for key in combat_end_keys[:4]:
+                        window_vals = [v for v in combat_end_windows[key] if v >= 0]
+                        if window_vals:
+                            log_scalar(f"combat/{key[len('combat_'):]}_last100", float(np.mean(window_vals)), global_step)
+                    log_scalar("combat/enemy_contact_rate_last100", float(np.mean([v >= 0 for v in contact])), global_step)
+                    seen = [v for v in contact if v >= 0]
+                    if seen:
+                        log_scalar("combat/first_contact_tick_last100", float(np.mean(seen)), global_step)
             next_done = np.logical_or(terminations, truncations)
             t0_step_tensor = time.perf_counter()
             train_reward = reward
@@ -2068,7 +2299,10 @@ if __name__ == "__main__":
                 # Only the training target is scaled; `reward` stays raw for anything that logs it.
                 step_discount = None
                 if args.gamma_per_turn:
-                    step_discount = per_turn_discounts(action_np.reshape(-1).astype(np.int64), args.gamma)
+                    # Read the stored actions: the --overlap-rollout path fills actions[step] per half and
+                    # has no action_np.
+                    step_discount = per_turn_discounts(
+                        actions[step].reshape(-1).long().cpu().numpy().astype(np.int64), args.gamma)
                 train_reward = return_normalizer(reward, next_done, step_discount)
             rewards[step] = torch.tensor(train_reward, dtype=torch.float32).to(device).view(-1)
             next_obs, next_done = torch.Tensor(next_obs).to(device), torch.Tensor(next_done).to(device)
@@ -2092,6 +2326,8 @@ if __name__ == "__main__":
                     device,
                 )
                 profiler.add("trainer/step_info_extract", time.perf_counter() - t0_extract_legal)
+                if next_legal_action_valid_mask is not None:
+                    rollout_max_legal = max(rollout_max_legal, int(next_legal_action_valid_mask.sum(dim=1).max().item()))
                 if args.actor_mode == "legal_features":
                     t0_extract_features = time.perf_counter()
                     next_legal_action_features = _extract_vector_legal_feature_tensors(
@@ -2102,6 +2338,8 @@ if __name__ == "__main__":
                         device,
                     )
                     profiler.add("trainer/step_feature_extract", time.perf_counter() - t0_extract_features)
+                if teacher_slots_buf is not None:
+                    next_teacher_slots = extract_teacher_slots(infos, args.num_envs, next_legal_action_valid_mask)
                 selected_global_values = _extract_vector_field(infos, "selected_global_id", args.num_envs, default_value=None)
                 for env_i, v in enumerate(selected_global_values):
                     if v is None:
@@ -2588,6 +2826,8 @@ if __name__ == "__main__":
                             checkpoint_path = os.path.join(run_dir, f"model_checkpoint_{checkpoint_step}.cleanrl_model")
                             t0_ckpt = time.perf_counter()
                             torch.save(agent.state_dict(), checkpoint_path)
+                            if privileged_critic is not None:
+                                torch.save(privileged_critic.state_dict(), privileged_critic_path(checkpoint_path))
                             meta_path = checkpoint_path + ".action_interface.json"
                             try:
                                 with open(meta_path, "w", encoding="utf-8") as f:
@@ -2602,13 +2842,22 @@ if __name__ == "__main__":
         # bootstrap value if not done
         t0_update_iter = time.perf_counter()
         with torch.no_grad():
-            next_value = agent.get_value(next_obs).reshape(1, -1)
+            if privileged_critic is not None:
+                # The rollout's value estimates (from the policy's own head) are replaced by the privileged critic's.
+                # copy_ keeps the buffer object the overlap stepper writes into.
+                values.copy_(privileged_critic.values(priv_obs.reshape(-1, priv_obs.shape[-1])).view(args.num_steps, args.num_envs))
+                next_value = privileged_critic.values(next_priv_obs).reshape(1, -1)
+            else:
+                next_value = agent.get_value(next_obs).reshape(1, -1)
             step_discounts = None
             if args.gamma_per_turn:
                 step_discounts = per_turn_discounts(actions.long(), args.gamma).to(rewards.dtype)
             advantages, returns = compute_gae(
                 rewards, values, dones, next_value, next_done, args.gamma, args.gae_lambda, step_discounts
             )
+            if privileged_critic is not None:
+                # Value normalisation: move the return statistics to this rollout (outputs preserved) before training.
+                privileged_critic.update_return_stats(returns)
 
         if game_engine is not None:
             game_engine.ingest(
@@ -2625,8 +2874,14 @@ if __name__ == "__main__":
         b_advantages = advantages.reshape(-1)
         b_returns = returns.reshape(-1)
         b_values = values.reshape(-1)
+        b_priv_obs = priv_obs.reshape(-1, priv_obs.shape[-1]) if priv_obs is not None else None
         b_action_masks = None
         b_selected_slots = selected_slots.reshape(-1)
+        b_teacher_slots = teacher_slots_buf.reshape(-1) if teacher_slots_buf is not None else None
+        critic_warmup_now = global_step <= int(args.critic_warmup_steps)
+        use_teacher_loss = (not critic_warmup_now and b_teacher_slots is not None and teacher_coef_now > 0.0
+                            and bool((b_teacher_slots >= 0).any()))
+        teacher_ce_sum, teacher_ce_n, teacher_argmax_agree, teacher_argmax_n = 0.0, 0, 0, 0
         b_legal_global_ids = legal_global_ids_buf.reshape((-1, int(args.max_legal_actions)))
         b_legal_action_valid_mask = legal_action_valid_mask_buf.reshape((-1, int(args.max_legal_actions)))
         b_legal_action_features = None
@@ -2663,7 +2918,11 @@ if __name__ == "__main__":
         t0_ppo_update = time.perf_counter()
         b_inds = np.arange(args.batch_size)
         clipfracs = []
+        pcritic_grad_norms = []
+        epochs_completed = 0
+        teacher_ce = None
         for epoch in range(args.update_epochs):
+            epochs_completed = epoch + 1
             np.random.shuffle(b_inds)
             for start in range(0, args.batch_size, args.minibatch_size):
                 end = start + args.minibatch_size
@@ -2683,13 +2942,25 @@ if __name__ == "__main__":
                     slot_global_ids = mb_legal_ids.gather(1, mb_slots.unsqueeze(1)).squeeze(1)
                     if not bool(torch.equal(slot_global_ids.long(), b_actions.long().view(-1)[mb_inds])):
                         raise RuntimeError("Minibatch invariant failed: legal_global_ids_padded[selected_slot] != selected_global_id.")
-                    _, _, newlogprob, entropy, newvalue = agent.get_action_and_value(
+                    _, _, newlogprob, entropy, newvalue, *mb_dist = agent.get_action_and_value(
                         b_obs[mb_inds],
                         legal_global_ids=mb_legal_ids,
                         legal_action_valid_mask=mb_legal_valid,
                         legal_action_features=mb_legal_features,
                         selected_slot=mb_slots,
+                        return_distribution=use_teacher_loss,
                     )
+                    if use_teacher_loss:
+                        mb_teacher = b_teacher_slots[mb_inds]
+                        teacher_ce, n_lab = kickstart_cross_entropy(mb_dist[0], mb_teacher)
+                        if n_lab > 0:
+                            teacher_ce_sum += float(teacher_ce.item()) * n_lab
+                            teacher_ce_n += n_lab
+                            with torch.no_grad():
+                                lab = mb_teacher >= 0
+                                greedy = mb_dist[0].logits.argmax(dim=-1)
+                                teacher_argmax_agree += int((greedy[lab] == mb_teacher[lab]).sum().item())
+                                teacher_argmax_n += n_lab
                 logratio = newlogprob - b_logprobs[mb_inds]
                 ratio = logratio.exp()
 
@@ -2709,26 +2980,49 @@ if __name__ == "__main__":
                 pg_loss = torch.max(pg_loss1, pg_loss2).mean()
 
                 # Value loss
-                newvalue = newvalue.view(-1)
+                if privileged_critic is not None and privileged_critic.value_norm:
+                    # Standardised targets (PopArt value normalisation); --clip-vloss's range applies in those units.
+                    newvalue = privileged_critic.normalized(b_priv_obs[mb_inds]).view(-1)
+                    v_target = privileged_critic.normalize_returns(b_returns[mb_inds])
+                    v_old = privileged_critic.normalize_returns(b_values[mb_inds])
+                else:
+                    if privileged_critic is not None:
+                        newvalue = privileged_critic(b_priv_obs[mb_inds])
+                    newvalue = newvalue.view(-1)
+                    v_target = b_returns[mb_inds]
+                    v_old = b_values[mb_inds]
                 if args.clip_vloss:
-                    v_loss_unclipped = (newvalue - b_returns[mb_inds]) ** 2
-                    v_clipped = b_values[mb_inds] + torch.clamp(
-                        newvalue - b_values[mb_inds],
+                    v_loss_unclipped = (newvalue - v_target) ** 2
+                    v_clipped = v_old + torch.clamp(
+                        newvalue - v_old,
                         -args.clip_coef,
                         args.clip_coef,
                     )
-                    v_loss_clipped = (v_clipped - b_returns[mb_inds]) ** 2
+                    v_loss_clipped = (v_clipped - v_target) ** 2
                     v_loss_max = torch.max(v_loss_unclipped, v_loss_clipped)
                     v_loss = 0.5 * v_loss_max.mean()
                 else:
-                    v_loss = 0.5 * ((newvalue - b_returns[mb_inds]) ** 2).mean()
+                    v_loss = 0.5 * ((newvalue - v_target) ** 2).mean()
 
                 entropy_loss = entropy.mean()
-                loss = pg_loss - args.ent_coef * entropy_loss + v_loss * args.vf_coef
+                if critic_warmup_now:
+                    # Critic warm-up: value loss only, and only the critic head moves (gradients elsewhere dropped,
+                    # so Adam leaves those parameters exactly as they are).
+                    loss = v_loss * args.vf_coef
+                else:
+                    loss = pg_loss - args.ent_coef * entropy_loss + v_loss * args.vf_coef
+                    if teacher_ce is not None:
+                        # Kickstarting: cross-entropy to the teacher's legal slot, weighted by the decaying coefficient.
+                        loss = loss + teacher_coef_now * teacher_ce
 
                 optimizer.zero_grad()
                 loss.backward()
+                if critic_warmup_now:
+                    for p in non_critic_params:
+                        p.grad = None
                 nn.utils.clip_grad_norm_(agent.parameters(), args.max_grad_norm)
+                if privileged_critic is not None:
+                    pcritic_grad_norms.append(float(nn.utils.clip_grad_norm_(privileged_critic.parameters(), args.max_grad_norm)))
                 optimizer.step()
 
             if args.target_kl is not None and approx_kl > args.target_kl:
@@ -2746,6 +3040,8 @@ if __name__ == "__main__":
         # update (including the old-logprob recompute check) see one fixed normalisation.
         if args.norm_obs:
             agent.obs_normalizer.update(b_obs)
+            if privileged_critic is not None:
+                privileged_critic.update_normalizer(b_priv_obs)
         if return_normalizer is not None:
             log_scalar("charts/return_norm_scale", return_normalizer.scale, global_step)
 
@@ -2755,13 +3051,68 @@ if __name__ == "__main__":
 
         # TRY NOT TO MODIFY: record rewards for plotting purposes
         log_scalar("charts/learning_rate", optimizer.param_groups[0]["lr"], global_step)
-        log_scalar("losses/value_loss", v_loss.item(), global_step)
+        if int(args.critic_warmup_steps) > 0:
+            log_scalar("charts/critic_warmup", float(critic_warmup_now), global_step)
+        if privileged_critic is not None and privileged_critic.value_norm:
+            # Trained in standardised units; logged in return units so the curve stays comparable with older runs.
+            log_scalar("privileged_critic/value_loss_normalized", v_loss.item(), global_step)
+            log_scalar("losses/value_loss", v_loss.item() * float(privileged_critic.return_std()) ** 2, global_step)
+        else:
+            log_scalar("losses/value_loss", v_loss.item(), global_step)
         log_scalar("losses/policy_loss", pg_loss.item(), global_step)
         log_scalar("losses/entropy", entropy_loss.item(), global_step)
         log_scalar("losses/old_approx_kl", old_approx_kl.item(), global_step)
         log_scalar("losses/approx_kl", approx_kl.item(), global_step)
         log_scalar("losses/clipfrac", np.mean(clipfracs), global_step)
         log_scalar("losses/explained_variance", explained_var, global_step)
+        # A collapsed critic shows up as value_std ~ 0 (explained_variance then sits at exactly 0).
+        log_scalar("losses/value_mean", float(np.mean(y_pred)), global_step)
+        log_scalar("losses/value_std", float(np.std(y_pred)), global_step)
+        log_scalar("losses/return_std", float(np.std(y_true)), global_step)
+        if privileged_critic is not None:
+            # Critic health (CHANGELOG 080): feature spread, tanh saturation, grad norm, return statistics.
+            pc_diag = privileged_critic.diagnostics(b_priv_obs[: min(4096, b_priv_obs.shape[0])])
+            for k, v in pc_diag.items():
+                log_scalar(f"privileged_critic/{k}", v, global_step)
+            if pcritic_grad_norms:
+                log_scalar("privileged_critic/grad_norm", float(np.mean(pcritic_grad_norms)), global_step)
+            if privileged_critic.value_norm:
+                log_scalar("privileged_critic/return_mean", float(privileged_critic.return_mean), global_step)
+                log_scalar("privileged_critic/return_scale", float(privileged_critic.return_std()), global_step)
+            # Flat-critic guard: predictions with no spread while the returns have some.
+            pc_value_std, pc_return_std = float(np.std(y_pred)), float(np.std(y_true))
+            if privileged_critic_guard.observe(pc_value_std, pc_return_std):
+                msg = (f"[PRIVILEGED_CRITIC] FLAT CRITIC at step {global_step}: value_std={pc_value_std:.3g} "
+                       f"return_std={pc_return_std:.3g} for {privileged_critic_guard.patience} updates "
+                       f"(tanh saturation {pc_diag['tanh1_sat_frac']:.2f}/{pc_diag['tanh2_sat_frac']:.2f})")
+                if (args.privileged_critic_flat_action == "stop"
+                        or privileged_critic_reinits >= int(args.privileged_critic_max_reinits)):
+                    if wandb_run is not None:
+                        try:
+                            wandb_run.alert(title="Privileged critic collapsed", text=msg)
+                        except Exception as e:  # alerts are best-effort; the stop below is what matters
+                            print(f"warning: W&B alert failed: {e}")
+                    raise SystemExit(msg + "; stopping (--privileged-critic-flat-action / max reinits)")
+                privileged_critic_reinits += 1
+                reinitialize_critic(privileged_critic, optimizer)
+                print(msg + f"; reinitialising the critic ({privileged_critic_reinits}/{int(args.privileged_critic_max_reinits)})",
+                      flush=True)
+            print(f"[PRIVILEGED_CRITIC] step={global_step} value_std={pc_value_std:.3g} return_std={pc_return_std:.3g} "
+                  + " ".join(f"{k}={v:.3g}" for k, v in pc_diag.items() if k != "value_std"), flush=True)
+            log_scalar("privileged_critic/flat_updates", privileged_critic_guard.flat_updates, global_step)
+            log_scalar("privileged_critic/reinits", privileged_critic_reinits, global_step)
+        log_scalar("losses/epochs_completed", epochs_completed, global_step)
+        log_scalar("charts/max_legal_action_count", rollout_max_legal, global_step)
+        log_scalar("charts/max_legal_action_fraction", rollout_max_legal / float(args.max_legal_actions), global_step)
+        if teacher_mode is not None:
+            log_scalar("charts/teacher_coef", teacher_coef_now, global_step)
+            if teacher_ce_n > 0:
+                log_scalar("losses/teacher_ce", teacher_ce_sum / teacher_ce_n, global_step)
+                log_scalar("charts/teacher_argmax_agreement", teacher_argmax_agree / max(1, teacher_argmax_n), global_step)
+            if iter_teacher_labelled > 0:
+                log_scalar("charts/teacher_agreement", iter_teacher_agree / iter_teacher_labelled, global_step)
+                log_scalar("charts/teacher_label_coverage",
+                           iter_teacher_labelled / float(args.num_steps * args.num_envs), global_step)
         if args.enable_step_diagnostics and iter_valid_actions_count > 0:
             log_scalar(
                 "charts/mean_valid_actions",
@@ -2849,6 +3200,8 @@ if __name__ == "__main__":
         t0_final_save = time.perf_counter()
         model_path = args.model_path or os.path.join(run_dir, f"{args.exp_name}.cleanrl_model")
         torch.save(agent.state_dict(), model_path)
+        if privileged_critic is not None:
+            torch.save(privileged_critic.state_dict(), privileged_critic_path(model_path))
         meta_path = model_path + ".action_interface.json"
         try:
             with open(meta_path, "w", encoding="utf-8") as f:
