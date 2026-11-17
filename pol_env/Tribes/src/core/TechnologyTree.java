@@ -54,7 +54,7 @@ public class TechnologyTree {
      */
     public boolean isResearched(Types.TECHNOLOGY target) {
         if (target != null) {
-            return researched[target.ordinal()];
+            return target.ordinal() < researched.length && researched[target.ordinal()];
         }
         return false;
     }
@@ -74,16 +74,28 @@ public class TechnologyTree {
      * @return true if target can be researched in this tree.
      */
     public boolean isResearchable(Types.TECHNOLOGY target) {
+        if (!target.isActive()) return false;
         Types.TECHNOLOGY requirement = target.getParentTech();
-        return !isResearched(target) && (requirement == null || isResearched(requirement));
+        if (isResearched(target)) return false;
+        if (requirement == null || isResearched(requirement)) return true;
+        // 2.14.0: techs can be researched "backwards": a tech whose child is researched is researchable
+        // (Vengir can go from Smithery to Mining without Climbing). The cost stays the tech's tier cost.
+        if (RulesVersion.modern()) {
+            for (Types.TECHNOLOGY child : target.getChildTech()) {
+                if (isResearched(child)) return true;
+            }
+        }
+        return false;
     }
 
     /**
      * Computes if every technology is already researched in this tree.
      */
     private void checkEverythingResearched(){
-        for (boolean b : researched){
-            if(!b){return;}
+        Types.TECHNOLOGY[] techs = Types.TECHNOLOGY.values();
+        for (int i = 0; i < researched.length; i++){
+            // Techs absent from the active rule set (DIPLOMACY under 2020 rules) do not count.
+            if(!researched[i] && (i >= techs.length || techs[i].isActive())){return;}
         }
         everythingResearched = true;
     }
@@ -108,7 +120,8 @@ public class TechnologyTree {
             //researching leaves of the tree may
             if(target == SHIELDS || target == AQUATISM || target == CHIVALRY || target == CONSTRUCTION ||
                target == MATHEMATICS || target == NAVIGATION || target == SMITHERY ||
-               target == SPIRITUALISM || target == TRADE || target == PHILOSOPHY)
+               target == SPIRITUALISM || target == TRADE || target == PHILOSOPHY ||
+               RulesVersion.modern())  // 2.15: research can end anywhere (backwards research, Diplomacy)
             {
                     checkEverythingResearched();
             }

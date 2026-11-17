@@ -26,6 +26,14 @@ public class MoveCommand implements ActionCommand {
             Tribe tribe = gs.getTribe(unit.getTribeId());
             Types.TERRAIN destinationTerrain = board.getTerrainAt(destination.x, destination.y);
 
+            // 2.15 rules: moving onto a hidden enemy Cloak reveals it to everyone; the move is cancelled and the
+            // unit's action is not spent.
+            Unit occupant = board.getUnitAt(destination.x, destination.y);
+            if (occupant != null && occupant != unit && occupant instanceof core.actors.units.Cloak) {
+                ((core.actors.units.Cloak) occupant).setHidden(false);
+                return true;
+            }
+
             board.moveUnit(unit, unit.getPosition().x, unit.getPosition().y, destination.x, destination.y, gs.getRandomGenerator());
 
             if(unit.getType().isWaterUnit()){
@@ -39,6 +47,11 @@ public class MoveCommand implements ActionCommand {
             }
 
             unit.transitionToStatus(Types.TURN_STATUS.MOVED);
+
+            // Hide skill (2.15 Cloak): invisible to enemies after it moves.
+            if (unit instanceof core.actors.units.Cloak && unit.getType() == Types.UNIT.CLOAK) {
+                ((core.actors.units.Cloak) unit).setHidden(true);
+            }
 
             return true;
         }

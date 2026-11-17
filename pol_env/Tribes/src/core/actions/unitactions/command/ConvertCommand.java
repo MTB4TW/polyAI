@@ -34,6 +34,8 @@ public class ConvertCommand implements ActionCommand {
             City c = (City) gs.getActor(cityId);
             gs.getBoard().removeUnitFromCity(target, c, targetTribe);
 
+            core.DiplomacyRules.recordHostility(gs, unit.getTribeId(), target.getTribeId());
+
             //add tribe to converted unit
             target.setTribeId(unit.getTribeId());
             gs.getActiveTribe().addExtraUnit(target);

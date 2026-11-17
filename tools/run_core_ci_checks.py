@@ -18,6 +18,7 @@ TEST_FILES = (
     "pol_env/Tribes/py/tests/test_environment_contract.py",
     "pol_env/Tribes/py/tests/test_parity_001_city_state.py",
     "pol_env/Tribes/py/tests/test_parity_002_human_information_parity.py",
+    "pol_env/Tribes/py/tests/test_rules_version.py",
 )
 
 

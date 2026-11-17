@@ -23,6 +23,7 @@ public class Archer extends Unit
         c.setMaxHP(getMaxHP());
         c.setActorId(getActorId());
         c.setStatus(getStatus());
+        c.setLastDirection(getLastDirX(), getLastDirY());
         return hideInfo ? (Archer) c.hide() : c;
     }
 }
