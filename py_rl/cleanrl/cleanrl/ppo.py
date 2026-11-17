@@ -163,6 +163,44 @@ class Args:
     old_logprob_recompute_tol: float = 1e-5
     """absolute tolerance for pre-update old_logprob recomputation invariant"""
 
+    # Saved-game engine (game_store/, docs/game-store.md). Off by default: nothing is recorded.
+    game_store: bool = False
+    """record finished games and add replay updates on the kept ones after each PPO update"""
+    game_store_selector: str = "all"
+    """which games to keep, e.g. 'win', 'surprise|win', 'top_return:fraction=0.2' (game_store/registry.py)"""
+    game_store_learner: str = "sil"
+    """what to learn from them: sil | awr | bc | value | replay_ppo | vtrace, with options as name:key=value"""
+    game_store_payload: str = "full"
+    """'full' stores training tensors; 'actions' stores only replayable action lists (no replay updates)"""
+    game_store_budget_mb: float = 1024.0
+    """memory for stored training tensors; past it the lowest-priority games keep only their action list"""
+    game_store_max_games: int = 100000
+    """most games kept, including action-only ones"""
+    game_store_alpha: float = 1.0
+    """sampling priority exponent (0 = uniform over stored games)"""
+    game_store_half_life: Optional[float] = None
+    """priority half-life in games added (None = priorities do not decay with age)"""
+    game_store_coef: float = 0.1
+    """weight of the replay loss"""
+    game_store_updates: int = 4
+    """replay gradient steps per iteration"""
+    game_store_batch_size: int = 512
+    """steps per replay minibatch"""
+    game_store_games_per_batch: int = 16
+    """games each replay minibatch is drawn from"""
+    game_store_min_games: int = 20
+    """no replay updates until this many games with tensors are stored"""
+    game_store_start_step: int = 0
+    """no replay updates before this global step"""
+    game_store_obs_dtype: str = "float16"
+    """storage precision of observations and legal-action features (float16 or float32)"""
+    game_store_dir: Optional[str] = None
+    """save the store here at the end of training (default: <run dir>/game_store when --save-model)"""
+    game_store_save_every: int = 0
+    """also save every N iterations (0 = only at the end)"""
+    game_store_load_dir: Optional[str] = None
+    """start from games saved by an earlier run"""
+
     # to be filled in runtime
     batch_size: int = 0
     """the batch size (computed in runtime)"""
@@ -1561,6 +1599,9 @@ def _validate_action_interface(
 
 if __name__ == "__main__":
     args = tyro.cli(Args)
+    if args.game_store:
+        # Env workers inherit this: finished games report their map and seed so stored games can be replayed.
+        os.environ["POLYVISION_EPISODE_IDENTITY_INFO"] = "1"
     args.actor_mode = str(args.actor_mode).strip().lower()
     if args.actor_mode not in ("legal_only", "legal_features", "dense_debug"):
         raise RuntimeError(f"Unsupported --actor-mode {args.actor_mode}. Expected legal_only, legal_features, or dense_debug.")
@@ -1867,6 +1908,30 @@ if __name__ == "__main__":
     )
     writer.add_text("meta/action_interface", json.dumps(action_interface_meta, sort_keys=True, default=str))
 
+    game_engine = None
+    if args.game_store:
+        if args.actor_mode == "dense_debug":
+            raise ValueError("--game-store needs a legal-action actor mode (legal_only or legal_features)")
+        from py_rl.cleanrl.cleanrl.game_store.engine import GameReplayEngine, GameStoreConfig
+
+        store_dir = args.game_store_dir or (os.path.join(run_dir, "game_store") if args.save_model else None)
+        game_engine = GameReplayEngine(
+            GameStoreConfig(
+                selector=args.game_store_selector, learner=args.game_store_learner, payload=args.game_store_payload,
+                budget_mb=args.game_store_budget_mb, max_games=args.game_store_max_games, alpha=args.game_store_alpha,
+                half_life=args.game_store_half_life, coef=args.game_store_coef, updates=args.game_store_updates,
+                batch_size=args.game_store_batch_size, games_per_batch=args.game_store_games_per_batch,
+                min_games=args.game_store_min_games, start_step=args.game_store_start_step,
+                obs_dtype=args.game_store_obs_dtype, save_dir=store_dir, save_every=args.game_store_save_every,
+                load_dir=args.game_store_load_dir, seed=args.seed,
+            ),
+            num_envs=args.num_envs, gamma=args.gamma, per_turn=args.gamma_per_turn, device=device,
+            max_grad_norm=args.max_grad_norm,
+            extra_meta={"run_name": run_name, "network_arch": args.network_arch},
+        )
+        print(f"[GAME_STORE] selector={game_engine.selector.describe()} learner={game_engine.learner.describe()} "
+              f"payload={args.game_store_payload} budget_mb={args.game_store_budget_mb} dir={store_dir}")
+
     overlap_stepper = None
     if args.overlap_rollout:
         overlap_stepper = _make_overlap_stepper(
@@ -1966,6 +2031,8 @@ if __name__ == "__main__":
                 infos = _normalize_final_infos(infos, args.num_envs)
                 profiler.add("trainer/envs_step_wall", time.perf_counter() - t0_env_step)
             profiler.ingest_env_profile_infos(infos, args.num_envs)
+            if game_engine is not None:
+                game_engine.note_infos(step, infos)
             # Same-step vector autoreset stores completed episode info separately.
             combat_outcomes = _extract_vector_field(infos, "combat_outcome", args.num_envs)
             final_infos = infos.get("final_info", [])
@@ -2543,6 +2610,14 @@ if __name__ == "__main__":
                 rewards, values, dones, next_value, next_done, args.gamma, args.gae_lambda, step_discounts
             )
 
+        if game_engine is not None:
+            game_engine.ingest(
+                obs=obs, legal_ids=legal_global_ids_buf, legal_valid=legal_action_valid_mask_buf,
+                selected_slots=selected_slots, actions=actions, logprobs=logprobs, values=values, rewards=rewards,
+                dones=dones, next_done=next_done, legal_features=legal_action_features_buf, global_step=global_step,
+                reward_scale=return_normalizer.scale if return_normalizer is not None else 1.0,
+            )
+
         # flatten the batch
         b_obs = obs.reshape((-1,) + envs.single_observation_space.shape)
         b_logprobs = logprobs.reshape(-1)
@@ -2659,6 +2734,13 @@ if __name__ == "__main__":
             if args.target_kl is not None and approx_kl > args.target_kl:
                 break
         profiler.add("trainer/ppo_update", time.perf_counter() - t0_ppo_update)
+        if game_engine is not None:
+            replay_metrics = game_engine.update(
+                agent, optimizer, global_step,
+                reward_scale_now=return_normalizer.scale if return_normalizer is not None else 1.0,
+            )
+            for key, value in {**replay_metrics, **game_engine.log_metrics()}.items():
+                log_scalar(f"game_store/{key}", value, global_step)
 
         # Observation statistics change only here, after the update, so each rollout and its PPO
         # update (including the old-logprob recompute check) see one fixed normalisation.
@@ -2806,5 +2888,9 @@ if __name__ == "__main__":
             except Exception as e:
                 print(f"[SPS_PROFILE] warning: failed to write json summary: {e}")
 
+    if game_engine is not None:
+        saved = game_engine.save()
+        if saved:
+            print(f"[GAME_STORE] saved {len(game_engine.store)} games to {game_engine.cfg.save_dir}")
     envs.close()
     writer.close()

@@ -447,6 +447,8 @@ class TribesGymWrapper(gym.Env):
         self._total_action_decisions = 0
         self._validation_mode = os.environ.get("POLYVISION_ACTION_VALIDATION_MODE", "0").lower() in ("1", "true", "yes", "on")
         self._info_mode = str(os.environ.get("POLYVISION_INFO_MODE", "fast")).strip().lower()
+        self._episode_identity_info = str(os.environ.get("POLYVISION_EPISODE_IDENTITY_INFO", "0")).strip().lower() in (
+            "1", "true", "yes", "on")
         if self._info_mode not in ("fast", "debug", "train"):
             self._info_mode = "fast"
         self._profile_sps_enabled = self._parse_bool_env("POLYVISION_PROFILE_SPS", default=False)
@@ -1776,6 +1778,12 @@ class TribesGymWrapper(gym.Env):
         if self._profile_sps_enabled:
             t_step_sanitize += time.perf_counter() - t_sanitize0
             safe_info["profile_env_step_sanitize_info_s"] = float(t_step_sanitize)
+        if (terminated or truncated) and self._episode_identity_info:
+            # Opt-in (POLYVISION_EPISODE_IDENTITY_INFO=1, set by ppo.py --game-store): name the finished game's
+            # map and seed so it can be replayed. Off by default so trajectory hashes are unchanged.
+            safe_info["map_path"] = self._current_level_file
+            safe_info["map_id"] = os.path.basename(self._current_level_file)
+            safe_info["episode_seed"] = int(self._last_reset_seed) if self._last_reset_seed is not None else None
         return obs_arr, reward, terminated, truncated, safe_info
 
     def _is_debug_info_mode(self):
