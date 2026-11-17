@@ -23,6 +23,7 @@ public class Swordman extends Unit
         c.setMaxHP(getMaxHP());
         c.setActorId(getActorId());
         c.setStatus(getStatus());
+        c.setLastDirection(getLastDirX(), getLastDirY());
         return hideInfo ? (Swordman) c.hide() : c;
     }
 }

@@ -9,6 +9,8 @@ import re
 import time
 from gymnasium.envs.registration import register
 from .gym_env import TribesGymEnv, make_default_env
+from . import combat_shaping
+from . import search_teacher
 from .environment_contract import (
     MapGeometryError,
     ObservationContractError,
@@ -30,13 +32,30 @@ from .environment_contract import (
     ObservationLayout,
     observation_layout,
     PHASE1_ENVIRONMENT_VERSION as CONTRACT_PHASE1_ENVIRONMENT_VERSION,
+    resolve_rules_version,
+    versioned_for_rules,
+    filter_vocab_for_rules,
+    DEFAULT_RULES_VERSION,
+    DIPLOMACY_ACTION_TYPES,
+    DIPLOMACY_MAX_TRIBES,
+    DIPLOMACY_RELATION_FEATURES,
+    DIPLOMACY_TECHNOLOGIES,
+    DIPLOMACY_TRIBE_ACTION_TYPES,
+    DIPLOMACY_UNIT_TYPES,
+    rules_have_diplomacy,
+    FOG_MEMORY_SCALAR_DIM,
+    fog_memory_sees_moves,
+    resolve_fog_memory,
+    versioned_for_fog_memory,
+    PRIVILEGED_OBS_INFO_KEY,
+    resolve_privileged_obs,
 )
 
 
 class GlobalActionCatalog:
     """Deterministic flat global action-ID catalog for fixed map dimensions."""
 
-    def __init__(self, width, height, tech_types, train_unit_types, resource_types, building_types, levelup_choices, enable_combat=False):
+    def __init__(self, width, height, tech_types, train_unit_types, resource_types, building_types, levelup_choices, enable_combat=False, enable_diplomacy=False):
         self.width = int(width)
         self.height = int(height)
         self.n_tiles = int(width * height)
@@ -46,6 +65,8 @@ class GlobalActionCatalog:
         self.building_types = sorted(set(building_types))
         self.levelup_choices = sorted(set(levelup_choices))
         self.enable_combat = bool(enable_combat)
+        # 2.15 rules Diplomacy families (combat only); absent from every other catalog.
+        self.enable_diplomacy = bool(enable_diplomacy) and self.enable_combat
 
         self.tech_to_idx = {k: i for i, k in enumerate(self.tech_types)}
         self.unit_to_idx = {k: i for i, k in enumerate(self.train_unit_types)}
@@ -96,6 +117,15 @@ class GlobalActionCatalog:
             self.offsets["RECOVER"] = cur
             cur += self.n_tiles
 
+        if self.enable_diplomacy:
+            # Cloak source tile x target city tile.
+            self.offsets["INFILTRATE"] = cur
+            cur += self.n_tiles * self.n_tiles
+            # One slot per target tribe id.
+            for a_type in DIPLOMACY_TRIBE_ACTION_TYPES:
+                self.offsets[a_type] = cur
+                cur += DIPLOMACY_MAX_TRIBES
+
         self.total_size = int(cur)
         self.end_turn_id = int(self.offsets["END_TURN"])
 
@@ -108,6 +138,20 @@ class GlobalActionCatalog:
         if unit_tile is None or "RECOVER" not in self.offsets:
             return None
         return int(self.offsets["RECOVER"] + unit_tile)
+
+    def id_infiltrate(self, src_tile, city_tile):
+        if src_tile is None or city_tile is None or "INFILTRATE" not in self.offsets:
+            return None
+        return int(self.offsets["INFILTRATE"] + src_tile * self.n_tiles + city_tile)
+
+    def id_diplomacy(self, action_type, target_tribe_id):
+        a_type = str(action_type or "").upper()
+        if a_type not in self.offsets or a_type not in DIPLOMACY_TRIBE_ACTION_TYPES or target_tribe_id is None:
+            return None
+        target = int(target_tribe_id)
+        if target < 0 or target >= DIPLOMACY_MAX_TRIBES:
+            return None
+        return int(self.offsets[a_type] + target)
 
     def tile_id(self, x, y):
         x = int(x)
@@ -328,12 +372,46 @@ class TribesGymWrapper(gym.Env):
             if self.MAX_TURNS < 1:
                 raise ValueError("POLYVISION_MAX_TURNS must be positive")
             self.PHASE1_OPENING_VERSION = "combat_no_scripted_opening_v1"
-            self.PHASE1_ENVIRONMENT_VERSION = f"combat_v3_potential_shaping_horizon_{self.MAX_TURNS}"
+            self.PHASE1_ENVIRONMENT_VERSION = f"combat_v5_scaled_scalars_horizon_{self.MAX_TURNS}"
             self._combat_reward_weights = self._load_combat_reward_weights()
             self._combat_prev_potential = 0.0
+            self._combat_first_contact_tick = -1
+            self._combat_prev_state = None
+            self._combat_turn_start_state = None
+            self._combat_prev_terms = {}
+            self._combat_ep_components = {}
+            self._combat_reset_turn_trackers()
+        # Self-play league (combat_selfplay.py; opt-in, POLYVISION_COMBAT_LEAGUE=1): snapshots play tribe 1 in some games.
+        self._combat_league = None
+        self._combat_opponent = None
+        if self._is_combat_mode and str(os.environ.get("POLYVISION_COMBAT_LEAGUE", "0")).strip() in ("1", "true"):
+            from pol_env.Tribes.py.combat_selfplay import CombatLeague
+
+            self._combat_league = CombatLeague(rng=np.random.default_rng(
+                (int(os.environ.get("POLYVISION_BASE_SEED", "42")) * 7919 + os.getpid()) % (2**32)))
+        # Combat is won by holding every capital (in 1v1: taking the enemy capital while keeping ours);
+        # SCORE mode would require taking every enemy city. Phase 1 keeps SCORE.
+        self._engine_game_mode = "CAPITALS" if self._is_combat_mode else "SCORE"
+        # Divisors for the six legacy scalars (stars, score, cities, kills, tick, active tribe) in combat.
+        self.COMBAT_LEGACY_SCALAR_SCALES = (50.0, 1000.0, 6.0, 10.0, float(getattr(self, "MAX_TURNS", 20)), 1.0)
+        # Game rules (POLYVISION_RULES). The default leaves the version strings untouched; this applies to the
+        # combat version string set above as well as the Phase 1 one.
+        self.RULES_VERSION = resolve_rules_version()
+        # Combat fog memory (POLYVISION_FOG_MEMORY=1, combat only): extra observation channels and a version suffix.
+        self.FOG_MEMORY = resolve_fog_memory()
+        self.PHASE1_ENVIRONMENT_VERSION = versioned_for_fog_memory(self.PHASE1_ENVIRONMENT_VERSION, self.FOG_MEMORY)
+        self.PHASE1_ENVIRONMENT_VERSION = versioned_for_rules(self.PHASE1_ENVIRONMENT_VERSION, self.RULES_VERSION)
+        self._has_diplomacy = rules_have_diplomacy(self.RULES_VERSION)
+        if self._is_combat_mode and self._has_diplomacy:
+            self.ALLOWED_ACTION_TYPES = set(self.ALLOWED_ACTION_TYPES) | set(DIPLOMACY_ACTION_TYPES)
         self.tribes_env = make_default_env()
         if self._is_combat_mode:
             self.tribes_env._env.setSoloNoOpponentMode(False)
+        if self.FOG_MEMORY:
+            self.tribes_env._env.setFogMemory(True, bool(fog_memory_sees_moves()))
+        # Privileged critic (POLYVISION_PRIVILEGED_OBS=1, combat only): info["privileged_obs"] is the unfogged state.
+        self._privileged_obs = resolve_privileged_obs()
+        self._init_search_teacher()
         self.level_file = level_file or self.PHASE1_LEVEL_FILE
         self._configured_map_type = str(map_type).strip().upper() if map_type is not None else None
         self._level_selection_mode = str(
@@ -457,7 +535,7 @@ class TribesGymWrapper(gym.Env):
             self._current_level_file = bootstrap_level
             self._current_level_index = bootstrap_idx
             self._validate_level_file_is_square(self._current_level_file)
-            obs = self.tribes_env.reset(self._current_level_file, bootstrap_seed)
+            obs = self.tribes_env.reset(self._current_level_file, bootstrap_seed, mode=self._engine_game_mode)
             dims = self._board_dimensions_from_obs(obs)
             if dims is None:
                 raise RuntimeError("Cannot infer board dimensions for action catalog.")
@@ -469,11 +547,12 @@ class TribesGymWrapper(gym.Env):
                 width=width,
                 height=height,
                 tech_types=vocab["TECHNOLOGY"],
-                train_unit_types=[u for u in vocab["UNIT"] if u not in ("BOAT", "SHIP", "BATTLESHIP", "SUPERUNIT")],
+                train_unit_types=[u for u in vocab["UNIT"] if u not in ("BOAT", "SHIP", "BATTLESHIP", "SUPERUNIT", "DAGGER")],
                 resource_types=[r for r in vocab["RESOURCE"] if r in ("ANIMAL", "FISH", "WHALES", "FRUIT", "CROPS", "ORE")],
                 building_types=vocab["BUILDING"],
                 levelup_choices=vocab["CITY_LEVEL_UP"],
                 enable_combat=bool(getattr(self, "_is_combat_mode", False)),
+                enable_diplomacy=bool(getattr(self, "_has_diplomacy", False)),
             )
             self._tech_name_to_obs_idx = {
                 str(name).upper(): int(i)
@@ -506,6 +585,8 @@ class TribesGymWrapper(gym.Env):
             raise RuntimeError(
                 "TribesGymWrapper failed while establishing the real PolyVision interface."
             ) from exc
+        # Fail closed if the JVM plays a different rule set from the one reported in the version strings.
+        self._verify_java_rules_version()
     
     def reset(self, seed=None, options=None):
         t_reset_start = time.perf_counter() if self._profile_sps_enabled else None
@@ -525,7 +606,8 @@ class TribesGymWrapper(gym.Env):
         self._last_reset_seed = int(episode_seed)
         self._validate_level_file_is_square(self._current_level_file)
         t_java0 = time.perf_counter() if self._profile_sps_enabled else None
-        obs = self.tribes_env.reset(self._current_level_file, self._last_reset_seed)
+        self._select_combat_opponent()
+        obs = self.tribes_env.reset(self._current_level_file, self._last_reset_seed, mode=self._engine_game_mode)
         if self._is_combat_mode and len(obs.get("tribes", {})) != 2:
             raise ValueError("Combat training requires a two-player map pool")
         if self._profile_sps_enabled:
@@ -552,7 +634,22 @@ class TribesGymWrapper(gym.Env):
             if self._profile_sps_enabled:
                 t_reset_opening += time.perf_counter() - t_opening0
         if self._is_combat_mode:
-            self._combat_prev_potential = self._combat_potential(obs, self._combat_reward_weights)
+            state = self._combat_state()
+            self._combat_enemy_capital_tiles = [(c["x"], c["y"]) for c in combat_shaping.enemy_capitals(state, 0)]
+            self._combat_prev_state = state
+            self._combat_turn_start_state = state
+            self._combat_prev_terms = self._combat_phi_terms(state)
+            self._combat_prev_potential = float(sum(self._combat_prev_terms.values()))
+            # Start every active component at 0, so a component that never fires in a game still counts (as 0)
+            # in the per-game means and shares, instead of being averaged only over the games where it fired.
+            w = self._combat_reward_weights
+            self._combat_ep_components = {"outcome": 0.0, "early_win": 0.0}
+            self._combat_ep_components.update({f"phi_{k}": 0.0 for k in self._combat_prev_terms})
+            self._combat_ep_components.update({k: 0.0 for k in self.COMBAT_EVENT_TERMS if w.get(k)})
+            self._combat_ep_research_turn = {}
+            self._combat_last_researched = list((((obs or {}).get("tribes", {}).get("0", {}) or {}).get("technology", {}) or {}).get("researched") or [])
+            self._combat_reset_turn_trackers()
+            self._combat_first_contact_tick = -1
         self._starting_city_count = self._get_city_count(obs)
         self._last_city_count = self._starting_city_count
         self._moved_on_t0 = False
@@ -672,6 +769,13 @@ class TribesGymWrapper(gym.Env):
         if self._profile_sps_enabled:
             t_reset_obs_flatten += time.perf_counter() - t_obs0
             info["profile_env_reset_obs_flatten_s"] = float(t_reset_obs_flatten)
+        if self._teacher_enabled:
+            self._attach_teacher_info(
+                info, legal_global_ids_padded, legal_action_valid_mask, legal_action_features_padded,
+                legal_id_to_raw_index, decision_state=True,
+            )
+        if self._privileged_obs:
+            info[PRIVILEGED_OBS_INFO_KEY] = self._privileged_obs_array()
         t_sanitize0 = time.perf_counter() if self._profile_sps_enabled else None
         safe_info = self._sanitize_info_for_multiprocessing(info)
         if self._profile_sps_enabled:
@@ -1256,22 +1360,58 @@ class TribesGymWrapper(gym.Env):
 
         reward = float(delta_spt_reward) + reward_adjustment + float(terminal_spt_bonus)
         if self._is_combat_mode:
-            # Outcome reward (win/loss) plus potential-based shaping: the change in a weighted
-            # "who is ahead" score. Shaping telescopes over an episode, so a timeout still pays
-            # out the final advantage, and it does not change which policy is optimal.
+            # Outcome reward (win/loss) plus the change in a weighted "who is ahead" potential.
+            # The shaping telescopes to phi(final) - phi(start), so a timeout pays out the final
+            # advantage: the agent optimizes outcome + phi(final), not the outcome alone.
             _outcome_sign, outcome = self._combat_result(obs, terminated)
             weights = self._combat_reward_weights
-            outcome_reward = weights["win"] if outcome == "win" else (weights["loss"] if outcome == "loss" else 0.0)
-            potential = self._combat_potential(obs, weights)
-            shaping = potential - self._combat_prev_potential
+            if outcome == "win":
+                outcome_reward = weights["win"]
+            elif outcome == "loss":
+                outcome_reward = weights["loss"]
+            else:
+                outcome_reward = weights["timeout"] if truncated else 0.0
+            game_over = bool(terminated or truncated)
+            early_win = (weights["early_win"] * max(0.0, 1.0 - float(self._turn_count) / float(self.MAX_TURNS))
+                         if outcome == "win" else 0.0)
+            post_state = self._combat_state()
+            terms = self._combat_phi_terms(post_state)
+            potential = float(sum(terms.values()))
+            # At game end only `terminal_potential` of the final lead is paid out (1 = all of it).
+            tp = weights["terminal_potential"] if game_over else 1.0
+            shaping_terms = {k: tp * v - self._combat_prev_terms.get(k, 0.0) for k, v in terms.items()}
+            shaping = float(sum(shaping_terms.values()))
+            events = self._combat_event_rewards(self._combat_prev_state, post_state, selected_action,
+                                                selected_action_type, legal_actions, start_obs)
+            self._combat_prev_terms = terms
             self._combat_prev_potential = potential
-            reward = float(outcome_reward + shaping)
+            self._combat_prev_state = post_state
+            if selected_action_type == "END_TURN":
+                self._combat_turn_start_state = post_state
+                self._combat_reset_turn_trackers()
+            components = {"outcome": float(outcome_reward), "early_win": float(early_win)}
+            components.update({f"phi_{k}": v for k, v in shaping_terms.items()})
+            components.update(events)
+            for k, v in components.items():
+                self._combat_ep_components[k] = self._combat_ep_components.get(k, 0.0) + float(v)
+            reward = float(outcome_reward + early_win + shaping + sum(events.values()))
+            info["combat_event_reward"] = float(sum(events.values()))
             info["combat_outcome_reward"] = float(outcome_reward)
             info["combat_shaping_reward"] = float(shaping)
             info["combat_potential"] = float(potential)
             info["combat_outcome"] = outcome if terminated else ("timeout" if truncated else "ongoing")
             info["combat_win"] = int(outcome == "win")
             info["combat_loss"] = int(outcome == "loss")
+            _researched = (((obs or {}).get("tribes", {}).get("0", {}) or {}).get("technology", {}) or {}).get("researched")
+            if _researched:
+                self._combat_last_researched = _researched
+            if self._combat_first_contact_tick < 0 and self._combat_enemy_visible(obs):
+                self._combat_first_contact_tick = int(obs.get("tick", 0) or 0)
+            if terminated or truncated:
+                info.update(self._combat_opponent_end_info(outcome))
+                info.update(self._combat_end_diagnostics(obs))
+                info.update(self._combat_end_breakdown(post_state))
+                info.update(self._combat_end_techs(obs))
         if self._profile_sps_enabled:
             t_reward_board_scans += (t_reward_village_reveal + t_reward_fog_reward)
             t_reward_java_calls += 0.0
@@ -1726,6 +1866,14 @@ class TribesGymWrapper(gym.Env):
             t_step_obs_flatten += time.perf_counter() - t_obs0
             info["profile_env_step_obs_flatten_s"] = float(t_step_obs_flatten)
             info["profile_env_step_total_s"] = float(time.perf_counter() - t_step_start)
+        if self._teacher_enabled:
+            # No decision follows a terminal/truncated step (the vector env resets, and reset attaches its own).
+            self._attach_teacher_info(
+                info, post_legal_global_ids_padded, post_legal_action_valid_mask, post_legal_action_features_padded,
+                post_legal_id_to_raw_index, decision_state=not (bool(terminated) or bool(truncated)),
+            )
+        if self._privileged_obs:
+            info[PRIVILEGED_OBS_INFO_KEY] = self._privileged_obs_array()
         t_sanitize0 = time.perf_counter() if self._profile_sps_enabled else None
         safe_info = self._sanitize_info_for_multiprocessing(info)
         if self._profile_sps_enabled:
@@ -3006,6 +3154,76 @@ class TribesGymWrapper(gym.Env):
                 return True
         return False
 
+    def _init_search_teacher(self):
+        """POLYVISION_TEACHER (training only, Phase 1 only): report a search teacher's choice in info.
+
+        Unset (the default) adds nothing to info and never calls the Java search, so environment outputs are
+        unchanged. With `lookahead_visible`, every decision state's info carries `teacher_slot`: the legal slot the
+        fog-respecting one-step lookahead (tuned weights) would choose, exactly as tools/evaluate_search_policy.py
+        --weights tuned_visible --search-seeding per_decision plays it. The search runs on state copies; observations, legal sets, rewards and transitions are untouched.
+        """
+        self._teacher_mode = search_teacher.parse_teacher_mode(os.environ.get(search_teacher.TEACHER_ENV_VAR))
+        combat_teacher = search_teacher.is_combat_teacher(self._teacher_mode)
+        if self._teacher_mode is not None and self._is_combat_mode != combat_teacher:
+            raise ValueError(f"{search_teacher.TEACHER_ENV_VAR}={self._teacher_mode} does not fit this phase "
+                             "(lookahead_visible: Phase 1; tactical_search: combat)")
+        self._teacher_enabled = self._teacher_mode is not None
+        self._teacher_java_weights = None
+        self._teacher_full_information = False
+        self._teacher_seed_episode, self._teacher_decision_index = None, 0
+        if self._teacher_enabled and not combat_teacher:
+            weights, full_information = search_teacher.TEACHER_MODES[self._teacher_mode]
+            self._teacher_java_weights = search_teacher.java_weight_array(self.tribes_env._gateway, weights)
+            self._teacher_full_information = bool(full_information)
+        self._teacher_is_end_turn_col = int(self.LEGAL_ACTION_FEATURE_NAMES.index("is_end_turn"))
+
+    def set_teacher_enabled(self, enabled):
+        """Switch the configured teacher off (e.g. once its loss weight has decayed to 0) or back on."""
+        enabled = bool(enabled)
+        if enabled and self._teacher_mode is None:
+            raise RuntimeError(f"No teacher configured; set {search_teacher.TEACHER_ENV_VAR} before creating the env")
+        self._teacher_enabled = enabled
+        return self._teacher_enabled
+
+    def teacher_choose_slot(self, legal_global_ids_padded, legal_action_valid_mask, legal_action_features_padded,
+                            legal_id_to_raw_index):
+        """The teacher's legal slot for the current (live) state.
+
+        Same logic as tools/evaluate_search_policy.py LookaheadSearchPolicy with --search-seeding per_decision:
+        call once per decision state, in order (the decision index seeds the search)."""
+        turns_remaining = max(0, int(self.MAX_TURNS) - int(self._turn_count))
+        if self._teacher_seed_episode != self._episode_index:
+            self._teacher_seed_episode, self._teacher_decision_index = self._episode_index, 0
+        seed = search_teacher.decision_seed(self._last_reset_seed, self._teacher_decision_index)
+        self._teacher_decision_index += 1
+        if search_teacher.is_combat_teacher(self._teacher_mode):
+            # Combat: label only decisions where a tactical sequence beats stopping now (-1 elsewhere).
+            return search_teacher.tactical_slot(
+                self.tribes_env._env, self.tribes_env._gateway, np.asarray(legal_global_ids_padded).reshape(-1),
+                np.asarray(legal_action_valid_mask, dtype=bool).reshape(-1), legal_id_to_raw_index, seed,
+                self._teacher_mode)
+        scores = search_teacher.lookahead_scores_seeded(
+            self.tribes_env._env, self._teacher_java_weights, turns_remaining, self._teacher_full_information, seed)
+        feats = np.asarray(legal_action_features_padded)
+        return search_teacher.select_lookahead_slot(
+            scores,
+            np.asarray(legal_global_ids_padded).reshape(-1),
+            np.asarray(legal_action_valid_mask, dtype=bool).reshape(-1),
+            feats[:, self._teacher_is_end_turn_col] > 0.5,
+            legal_id_to_raw_index,
+        )
+
+    def _attach_teacher_info(self, info, legal_global_ids_padded, legal_action_valid_mask,
+                             legal_action_features_padded, legal_id_to_raw_index, decision_state):
+        t0 = time.perf_counter()
+        slot = -1
+        if decision_state and np.any(legal_action_valid_mask):
+            slot = self.teacher_choose_slot(
+                legal_global_ids_padded, legal_action_valid_mask, legal_action_features_padded, legal_id_to_raw_index)
+        info[search_teacher.TEACHER_SLOT_INFO_KEY] = int(slot)
+        if self._profile_sps_enabled:
+            info["profile_env_teacher_s"] = float(time.perf_counter() - t0)
+
     def _sanitize_info_value(self, value):
         # Keep common scalar types as-is.
         if value is None or isinstance(value, (bool, int, float, str)):
@@ -3089,7 +3307,7 @@ class TribesGymWrapper(gym.Env):
         }
         for enum_name in list(out.keys()):
             out[enum_name] = self._extract_enum_names_from_types_java(types_path, enum_name)
-        return out
+        return filter_vocab_for_rules(out, getattr(self, "RULES_VERSION", DEFAULT_RULES_VERSION))
 
     def _extract_enum_names_from_types_java(self, path, enum_name):
         if not os.path.exists(path):
@@ -3901,6 +4119,20 @@ class TribesGymWrapper(gym.Env):
             gid = self._catalog.id_recover(tile)
             return gid, "missing_recover_coords" if gid is None else None
 
+        if a_type == "INFILTRATE":
+            src_x = self._action_int(action, "src_x", None)
+            src_y = self._action_int(action, "src_y", None)
+            dst_x = self._action_int(action, "dst_x", None)
+            dst_y = self._action_int(action, "dst_y", None)
+            if None in (src_x, src_y, dst_x, dst_y):
+                return None, "missing_infiltrate_coords"
+            gid = self._catalog.id_infiltrate(self._catalog.tile_id(src_x, src_y), self._catalog.tile_id(dst_x, dst_y))
+            return gid, "missing_infiltrate_coords" if gid is None else None
+
+        if a_type in DIPLOMACY_TRIBE_ACTION_TYPES:
+            gid = self._catalog.id_diplomacy(a_type, self._action_int(action, "target_tribe_id", None))
+            return gid, "missing_diplomacy_target" if gid is None else None
+
         return None, f"unsupported_action_type:{a_type}"
 
     def _apply_bardur_opening(self, obs, audit_recorder=None):
@@ -4661,12 +4893,28 @@ class TribesGymWrapper(gym.Env):
         # Conservative default for uncertain rules.
         return 0
 
+    def _verify_java_rules_version(self):
+        """Fail closed if the JVM plays a different rule set from the one this wrapper reports."""
+        try:
+            java_rules = str(self.tribes_env._jvm.core.RulesVersion.activeId())
+        except Exception as exc:  # pragma: no cover - only with stale compiled classes
+            raise RuntimeError(
+                "Java engine does not expose core.RulesVersion; recompile pol_env/Tribes/out"
+            ) from exc
+        if java_rules != self.RULES_VERSION:
+            raise RuntimeError(
+                f"Java engine plays rules {java_rules!r} but the wrapper expects {self.RULES_VERSION!r}"
+            )
+
     def _expected_immediate_spt_delta_from_action(self, action):
         a_type = str(action.get("type", "")).upper()
         if a_type == "LEVEL_UP":
             choice = self._resolve_action_levelup_choice(action)
             # Deterministic from rules: WORKSHOP grants +1 production.
             if choice == "WORKSHOP":
+                return 1.0
+            # Under the 2.15 rules a Park also grants +1 production.
+            if choice == "PARK" and self.RULES_VERSION != "tribes_2020":
                 return 1.0
         # Conservative default when uncertain.
         return 0.0
@@ -5210,12 +5458,59 @@ class TribesGymWrapper(gym.Env):
 
     # Combat reward weights; each can be overridden with POLYVISION_COMBAT_REWARD_<NAME>.
     COMBAT_REWARD_DEFAULTS = {
-        "win": 10.0,              # terminal reward for eliminating the opponent
-        "loss": -10.0,            # terminal reward for being eliminated
+        "win": 30.0,              # terminal reward for taking the enemy capital; well above any timeout lead
+        "loss": -10.0,            # terminal reward for losing our capital (kept smaller than win on purpose)
         "city": 1.0,              # potential per city of advantage (ours minus theirs)
         "score_per_1000": 1.0,    # potential per 1000 points of Tribes score advantage
         "kill": 0.25,             # potential per unit-kill of advantage
+        "unit": 0.1,              # potential per unit of advantage (unit count)
+        "unit_value": 0.05,       # potential per star of total unit cost advantage (warrior 2, knight 8, ...)
+        "giant": 0.5,             # potential per giant (super unit) of advantage, on top of its unit value
+        "tile": 0.05,             # potential per territory tile of advantage (a 3x3 city is 9 tiles)
+        "road": 0.05,             # potential per road tile of advantage inside own territory
+        "timeout": 0.0,           # outcome reward for reaching the turn limit (must lie between loss and win)
+        "terminal_potential": 1.0,  # share of the final potential paid out at game end: 1 keeps the lead,
+                                    # 0 treats phi as 0 at game end (shaping then nets ~0 over a game)
+        # Opt-in terms (0 = off); see pol_env/Tribes/py/combat_shaping.py and docs/rewards.md.
+        "capital_proximity": 0.0,       # phi: per unit, proximity (1 on the tile .. 0 across the board) to the enemy capital
+        "capital_proximity_late": 0.0,  # phi: as above, scaled by turn / MAX_TURNS (worth more later in the game)
+        "zone_of_control": 0.0,         # phi: per tile in/next to enemy territory our units can reach this turn
+        "regional_attack": 0.0,         # event: per attack made where we outnumber or out-value them in that region
+        "role_positioning": 0.0,        # event: unit-role score (warrior/rider/catapult end-of-turn spacing,
+                                        # archer retaliation, attacking riders/archers, moving onto roads)
+        "damage_trade": 0.0,            # event: per HP of (enemy HP lost - our HP lost) each step
+        "hanging_population": 0.0,      # event: penalty per population gained this turn without a level-up
+        "early_win": 0.0,               # outcome: extra win reward, max(0, 1 - turns / MAX_TURNS) x this
+        "tech_order": 0.0,              # event: per star of tech cost saved by researching before a capture in the
+                                        # same turn (+ on the capture) or wasted by researching after one (-)
+        "pop_tech": 0.0,                # event: per population a researched pop tech unlocks in our borders beyond
+                                        # the best other pop tech on offer (non-pop techs: 0)
+        "unused_tech": 0.0,             # event: penalty per tech researched this turn but not used before END_TURN
+        "tech_cost": 0.0,               # event: penalty per star spent on research
+        "avoid_fishing": 0.0,           # event: penalty for researching FISHING
+        "avoid_philosophy_meditation": 0.0,  # event: penalty for researching PHILOSOPHY or MEDITATION
+        "avoid_whaling": 0.0,           # event: penalty for researching WHALING
+        "capital_hold": 0.0,            # event: per unit of ours on an enemy capital at the start of our turn
+        "capital_region_kill": 0.0,     # event: per enemy unit killed inside an enemy capital's territory
+        "rider": 0.0,                   # phi: per Rider of ours alive (prefer Riders; a potential, so a Rider
+                                        # that dies takes its reward back and churn cannot be farmed)
+        "train_rider": 0.0,             # event: per Rider trained (faster than Warriors/Swordsmen, Escape skill)
+        "train_infantry": 0.0,          # event: penalty per Warrior or Swordsman trained
+        "rider_attack": 0.0,            # event: per attack made by one of our Riders
+        "embassy": 0.0,                 # event: penalty per embassy built (2.15 rules: in a 1v1 it pays the enemy
+                                        # as much as us, and its stars buy no units)
+        "turn_penalty": 0.0,            # event: penalty per turn ended (a cost of time, pushing for an early win)
+        "star_hoard": 0.0,              # event: penalty per star above star_hoard_threshold still held at END_TURN
+                                        # (stars carried into the next turn buy nothing; see CHANGELOG 081)
+        "star_hoard_threshold": 10.0,   # parameter, not a weight: stars that may be saved without penalty
     }
+
+    # Outcome terms: what the game result and its timing pay. Everything else is shaping ("who is ahead" potential
+    # terms and per-step events) and is multiplied by POLYVISION_COMBAT_REWARD_SHAPING_SCALE (default 1), so a run
+    # can fade the shaping out or train on the outcome alone (0).
+    COMBAT_OUTCOME_TERMS = ("win", "loss", "timeout", "early_win", "terminal_potential", "turn_penalty")
+    # Parameters read from POLYVISION_COMBAT_REWARD_<NAME> that are not reward weights (never scaled).
+    COMBAT_REWARD_PARAMETERS = ("star_hoard_threshold",)
 
     @classmethod
     def _load_combat_reward_weights(cls, environ=None):
@@ -5231,14 +5526,31 @@ class TribesGymWrapper(gym.Env):
                 raise ValueError(f"POLYVISION_COMBAT_REWARD_{name.upper()} must be finite, got {raw!r}")
         if weights["win"] <= 0 or weights["loss"] >= 0:
             raise ValueError("Combat reward needs win > 0 and loss < 0")
+        if not weights["loss"] < weights["timeout"] < weights["win"]:
+            raise ValueError("Combat reward needs loss < timeout < win")
+        if not 0.0 <= weights["terminal_potential"] <= 1.0:
+            raise ValueError("POLYVISION_COMBAT_REWARD_TERMINAL_POTENTIAL must be between 0 and 1")
+        if weights["star_hoard"] < 0 or weights["star_hoard_threshold"] < 0:
+            raise ValueError("POLYVISION_COMBAT_REWARD_STAR_HOARD and _STAR_HOARD_THRESHOLD must be >= 0")
+        raw_scale = environ.get("POLYVISION_COMBAT_REWARD_SHAPING_SCALE")
+        scale = 1.0 if raw_scale is None or str(raw_scale).strip() == "" else float(raw_scale)
+        if not (np.isfinite(scale) and scale >= 0.0):
+            raise ValueError(f"POLYVISION_COMBAT_REWARD_SHAPING_SCALE must be >= 0, got {raw_scale!r}")
+        if scale != 1.0:
+            for name in weights:
+                if name not in cls.COMBAT_OUTCOME_TERMS and name not in cls.COMBAT_REWARD_PARAMETERS:
+                    weights[name] *= scale
         return weights
 
     @staticmethod
     def _combat_potential(obs, weights, me="0"):
-        """Weighted advantage of tribe `me` over all other tribes (cities, Tribes score, kills).
+        """Weighted advantage of tribe `me` over all other tribes (cities, Tribes score, kills, units,
+        unit value, giants, territory tiles, roads).
 
-        Uses tribe-level totals from the engine, which are not fog-limited; this is fine for a
-        training reward because the policy never sees it.
+        `obs` is {"tribes": {id: {...}}}. Pass engine totals (`_combat_engine_totals`), not the policy
+        observation: the observation is fog-limited, so enemy cities and kills there are undercounted
+        and discovering an enemy city would lower the potential. The policy never sees this value.
+        A tribe entry may give "numCities" directly or a "citiesID" list.
         """
         tribes = (obs or {}).get("tribes") or {}
         if not isinstance(tribes, dict):
@@ -5246,14 +5558,256 @@ class TribesGymWrapper(gym.Env):
 
         def stats(t):
             t = t if isinstance(t, dict) else {}
-            return (float(len(t.get("citiesID") or [])), float(t.get("score") or 0.0), float(t.get("nKills") or 0.0))
+            cities = t["numCities"] if "numCities" in t else len(t.get("citiesID") or [])
+            return (float(cities), float(t.get("score") or 0.0), float(t.get("nKills") or 0.0),
+                    float(t.get("units") or 0.0), float(t.get("unitValue") or 0.0), float(t.get("giants") or 0.0),
+                    float(t.get("tiles") or 0.0), float(t.get("roads") or 0.0))
 
         mine = stats(tribes.get(me))
         others = [stats(t) for key, t in tribes.items() if str(key) != str(me)]
-        theirs = tuple(sum(o[i] for o in others) for i in range(3)) if others else (0.0, 0.0, 0.0)
-        return (weights["city"] * (mine[0] - theirs[0])
-                + weights["score_per_1000"] * (mine[1] - theirs[1]) / 1000.0
-                + weights["kill"] * (mine[2] - theirs[2]))
+        theirs = tuple(sum(o[i] for o in others) for i in range(len(mine))) if others else (0.0,) * len(mine)
+        d = [m - t for m, t in zip(mine, theirs)]
+        return (weights["city"] * d[0]
+                + weights["score_per_1000"] * d[1] / 1000.0
+                + weights["kill"] * d[2]
+                + weights.get("unit", 0.0) * d[3]
+                + weights.get("unit_value", 0.0) * d[4]
+                + weights.get("giant", 0.0) * d[5]
+                + weights.get("tile", 0.0) * d[6]
+                + weights.get("road", 0.0) * d[7])
+
+    def _combat_state(self):
+        """True combat state from the engine (`PythonEnv.combatStateJson`); see combat_shaping.py."""
+        return json.loads(str(self.tribes_env._env.combatStateJson()))
+
+    def _combat_engine_totals(self, state=None):
+        """True per-tribe totals (not fog-limited), as {"tribes": {...}} with the keys `_combat_potential` uses."""
+        return {"tribes": combat_shaping.totals(self._combat_state() if state is None else state, 0)}
+
+    def _combat_phi_terms(self, state, me="0"):
+        """Weighted potential terms by name (ours minus theirs); their sum is phi."""
+        w = self._combat_reward_weights
+        tribes = combat_shaping.totals(state, me)
+        mine = tribes.get(str(me), {})
+        others = [t for k, t in tribes.items() if str(k) != str(me)]
+
+        def diff(key):
+            return float(mine.get(key, 0)) - float(sum(t.get(key, 0) for t in others))
+
+        terms = {"city": w["city"] * diff("numCities"),
+                 "score": w["score_per_1000"] * diff("score") / 1000.0,
+                 "kill": w["kill"] * diff("nKills"),
+                 "unit": w["unit"] * diff("units"),
+                 "unit_value": w["unit_value"] * diff("unitValue"),
+                 "giant": w["giant"] * diff("giants"),
+                 "tile": w["tile"] * diff("tiles"),
+                 "road": w["road"] * diff("roads")}
+        if w["capital_proximity"] or w["capital_proximity_late"]:
+            prox = combat_shaping.capital_proximity(state, me, getattr(self, "_combat_enemy_capital_tiles", None))
+            terms["capital_proximity"] = w["capital_proximity"] * prox
+            late = min(1.0, float(self._turn_count) / float(self.MAX_TURNS))
+            terms["capital_proximity_late"] = w["capital_proximity_late"] * late * prox
+        if w["zone_of_control"]:
+            terms["zone_of_control"] = w["zone_of_control"] * combat_shaping.zone_of_control(state, me)
+        if w["rider"]:
+            terms["rider"] = w["rider"] * float(mine.get("riders", 0))
+        return terms
+
+    COMBAT_EVENT_TERMS = ("regional_attack", "role_positioning", "damage_trade", "hanging_population", "tech_order",
+                          "pop_tech", "unused_tech", "tech_cost", "avoid_fishing", "avoid_philosophy_meditation",
+                          "avoid_whaling", "capital_hold", "capital_region_kill", "train_rider", "train_infantry",
+                          "rider_attack", "embassy", "turn_penalty", "star_hoard")
+
+    def _combat_reset_turn_trackers(self):
+        self._combat_turn_research = []      # (tech, tier) researched this turn
+        if not hasattr(self, "_combat_ep_research_turn"):
+            self._combat_ep_research_turn = {}
+        self._combat_turn_captures = 0       # city/village captures this turn
+        self._combat_turn_signatures = set()  # (type, subtype) of actions taken this turn
+
+    def _combat_event_rewards(self, pre, post, action, action_type, legal_actions=None, start_obs=None, me=0):
+        """Per-step event rewards (only those with a nonzero weight), judged on the state before the action."""
+        w = self._combat_reward_weights
+        out = {}
+        if pre is None:
+            return out
+        if action_type == "RESEARCH_TECH":
+            tech = str(action.get("tech_type"))
+            tier = combat_shaping.TECH_TIER.get(tech, 1)
+            if w["tech_cost"]:
+                out["tech_cost"] = -w["tech_cost"] * float(action.get("star_cost", 0) or 0)
+            if w["avoid_fishing"] and tech == "FISHING":
+                out["avoid_fishing"] = -w["avoid_fishing"]
+            if w["avoid_philosophy_meditation"] and tech in ("PHILOSOPHY", "MEDITATION"):
+                out["avoid_philosophy_meditation"] = -w["avoid_philosophy_meditation"]
+            if w["avoid_whaling"] and tech == "WHALING":
+                out["avoid_whaling"] = -w["avoid_whaling"]
+            if w["pop_tech"]:
+                offered = [str(a.get("tech_type")) for a in (legal_actions or []) if a.get("type") == "RESEARCH_TECH"]
+                board = (start_obs or {}).get("board")
+                out["pop_tech"] = w["pop_tech"] * combat_shaping.pop_tech_margin(tech, offered, pre, board, me)
+            if w["tech_order"] and self._combat_turn_captures:
+                # Tech cost grows by `tier` stars per city, so researching after this turn's captures paid extra.
+                out["tech_order"] = -w["tech_order"] * float(tier * self._combat_turn_captures)
+            self._combat_turn_research.append((tech, tier))
+            self._combat_ep_research_turn.setdefault(tech, int(self._turn_count) + 1)
+        elif action_type == "CAPTURE" and str(action.get("capture_type")) in ("CITY", "VILLAGE"):
+            if w["tech_order"] and self._combat_turn_research:
+                out["tech_order"] = w["tech_order"] * float(sum(t for _, t in self._combat_turn_research))
+            self._combat_turn_captures += 1
+        if action_type == "SPAWN":
+            unit_type = str(action.get("unit_type"))
+            if w["train_rider"] and unit_type == "RIDER":
+                out["train_rider"] = w["train_rider"]
+            if w["train_infantry"] and unit_type in ("WARRIOR", "SWORDMAN"):
+                out["train_infantry"] = -w["train_infantry"]
+        if w["rider_attack"] and action_type == "ATTACK" and combat_shaping.attacker_type(pre, action) == "RIDER":
+            out["rider_attack"] = w["rider_attack"]
+        if w["embassy"] and action_type == "BUILD_EMBASSY":
+            out["embassy"] = -w["embassy"]
+        if w["turn_penalty"] and action_type == "END_TURN":
+            out["turn_penalty"] = -w["turn_penalty"]
+        if w["star_hoard"] and action_type == "END_TURN":
+            # Stars still held when we end the turn (from the observation before END_TURN; a tribe's own stars
+            # are never fogged). Saving up to the threshold for a dearer unit or tech is free.
+            carried = float(self._get_tribe_stars(start_obs or {}, tribe_id=me))
+            out["star_hoard"] = -w["star_hoard"] * max(0.0, carried - w["star_hoard_threshold"])
+        if action_type != "END_TURN":
+            self._combat_turn_signatures.add(combat_shaping.action_signature(action))
+        elif w["unused_tech"]:
+            unused = [t for t, _ in self._combat_turn_research
+                      if not combat_shaping.tech_used_by(t, self._combat_turn_signatures)]
+            out["unused_tech"] = -w["unused_tech"] * float(len(unused))
+        if w["regional_attack"] and action_type == "ATTACK" and action.get("dst_x") is not None:
+            out["regional_attack"] = w["regional_attack"] * combat_shaping.regional_superiority(
+                pre, me, action["dst_x"], action["dst_y"])
+        if w["role_positioning"]:
+            role = combat_shaping.action_roles(pre, me, action)
+            if action_type == "END_TURN":
+                role += combat_shaping.end_turn_roles(pre, me)
+            out["role_positioning"] = w["role_positioning"] * role
+        if w["damage_trade"]:
+            lost = combat_shaping.hp_lost(pre, post)
+            ours = lost.get(int(me), 0)
+            theirs = sum(v for k, v in lost.items() if int(k) != int(me))
+            out["damage_trade"] = w["damage_trade"] * float(theirs - ours)
+        if w["capital_hold"] and action_type == "END_TURN":
+            # After END_TURN the opponent has moved, so `post` is the start of our next turn: a unit still on the
+            # enemy capital now can capture it this turn.
+            out["capital_hold"] = w["capital_hold"] * combat_shaping.units_on_enemy_capital(post, me)
+        if w["capital_region_kill"]:
+            out["capital_region_kill"] = w["capital_region_kill"] * combat_shaping.kills_in_enemy_capital_region(
+                pre, post, me)
+        if w["hanging_population"] and action_type == "END_TURN" and self._combat_turn_start_state is not None:
+            out["hanging_population"] = -w["hanging_population"] * combat_shaping.hanging_population(
+                self._combat_turn_start_state, pre, me)
+        return out
+
+    def _combat_end_techs(self, obs, me="0"):
+        """Per tech: researched by the end of the game (1/0, from the observation's tech tree, so starting techs
+        count) and the turn we researched it (-1 if not researched during the game)."""
+        researched = (((obs or {}).get("tribes", {}).get(str(me), {}) or {}).get("technology", {}) or {}).get("researched") or []
+        if researched:
+            self._combat_last_researched = list(researched)
+        else:
+            # After a loss the final observation has no tech tree for us; use the last one we saw.
+            researched = getattr(self, "_combat_last_researched", None) or []
+        out = {}
+        for i, tech in enumerate(combat_shaping.TECH_ORDER):
+            out[f"combat_end_raw_tech_{tech}"] = float(bool(researched[i])) if i < len(researched) else 0.0
+            out[f"combat_end_techturn_{tech}"] = float(self._combat_ep_research_turn.get(tech, -1))
+        out["combat_end_raw_techs_researched_this_game"] = float(len(self._combat_ep_research_turn))
+        return out
+
+    def _combat_end_breakdown(self, state, me="0"):
+        """End-of-game raw totals (ours/theirs) and this game's summed reward per component."""
+        tribes = combat_shaping.totals(state, me)
+        mine = tribes.get(str(me), {})
+        others = [t for k, t in tribes.items() if str(k) != str(me)]
+        out = {}
+        for key in ("numCities", "score", "nKills", "units", "unitValue", "giants", "tiles", "roads"):
+            out[f"combat_end_raw_{key}_ours"] = float(mine.get(key, 0))
+            out[f"combat_end_raw_{key}_theirs"] = float(sum(t.get(key, 0) for t in others))
+        out["combat_end_raw_capital_proximity_ours"] = float(combat_shaping.capital_proximity(
+            state, int(me), getattr(self, "_combat_enemy_capital_tiles", None)))
+        out["combat_end_raw_zone_of_control_ours"] = float(combat_shaping.zone_of_control(state, int(me)))
+        for unit_type, (ours, theirs) in combat_shaping.unit_type_counts(state, int(me)).items():
+            out[f"combat_end_raw_units_{unit_type}_ours"] = float(ours)
+            out[f"combat_end_raw_units_{unit_type}_theirs"] = float(theirs)
+        for k, v in self._combat_ep_components.items():
+            out[f"combat_end_component_{k}"] = float(v)
+        return out
+
+    @staticmethod
+    def _combat_enemy_visible(obs, me=0):
+        """True if any enemy unit or city is in the (fog-limited) observation."""
+        for key in ("unit", "city"):
+            for actor in ((obs or {}).get(key) or {}).values():
+                if isinstance(actor, dict) and int(actor.get("tribeId", me)) != int(me):
+                    return True
+        return False
+
+    def _combat_end_diagnostics(self, obs, me=0):
+        """Engine-side facts about a finished combat game, for judging how close timeouts came to a win."""
+        gs = self.tribes_env._env.getGameState()
+        enemy_ids = [tid for tid in self._combat_engine_totals()["tribes"] if int(tid) != int(me)]
+        enemy_cities = sum(int(gs.getTribe(int(tid)).getNumCities()) for tid in enemy_ids)
+        held, dist = 0, -1
+        for tid in enemy_ids:
+            capital = gs.getActor(int(gs.getTribe(int(tid)).getCapitalID()))
+            if capital is None:
+                continue
+            held += int(int(capital.getTribeId()) == int(me))
+            from py4j.java_gateway import get_field  # Vector2d exposes public fields, not getters
+            pos = capital.getPosition()
+            cx, cy = int(get_field(pos, "x")), int(get_field(pos, "y"))
+            for unit in ((obs or {}).get("unit") or {}).values():
+                if isinstance(unit, dict) and int(unit.get("tribeId", -1)) == int(me):
+                    d = max(abs(int(unit["x"]) - cx), abs(int(unit["y"]) - cy))
+                    dist = d if dist < 0 else min(dist, d)
+        return {
+            "combat_end_enemy_cities": int(enemy_cities),
+            "combat_end_own_cities": int(gs.getTribe(int(me)).getNumCities()),
+            "combat_end_enemy_capitals_held": int(held),
+            "combat_end_min_unit_dist_to_enemy_capital": int(dist),
+            "combat_first_contact_tick": int(self._combat_first_contact_tick),
+        }
+
+    def _select_combat_opponent(self):
+        """Self-play league only: pick this game's opponent (SimpleAgent or a snapshot playing tribe 1)."""
+        if self._combat_league is None or self._catalog is None:
+            return
+        from pol_env.Tribes.py.combat_selfplay import EXTERNAL_OPPONENT, SIMPLE_OPPONENT, OpponentView, play_external_turn
+
+        opponent = self._combat_league.choose(self)
+        self._combat_opponent = opponent
+        java = self.tribes_env._env
+        if opponent is None:
+            java.setOpponentAgent(SIMPLE_OPPONENT, 0)  # reseeded with the episode seed by the reset
+            self.tribes_env.opponent_turn_hook = None
+            return
+        opponent.reseed(int(self._last_reset_seed or 0) * 31 + 7)
+        java.setOpponentAgent(EXTERNAL_OPPONENT, 0)
+        state = {}
+
+        def hook():
+            if "view" not in state:  # built at the first opponent turn, after this game's reset bookkeeping
+                state["view"] = OpponentView(self)
+            play_external_turn(self, opponent, state["view"])
+
+        self.tribes_env.opponent_turn_hook = hook
+
+    def _combat_opponent_end_info(self, outcome):
+        """End-of-game opponent facts; with a league, also records the result for snapshot sampling."""
+        if self._combat_league is None:
+            return {}
+        snapshot = self._combat_opponent
+        won = float(outcome == "win")
+        self._combat_league.record(snapshot.path if snapshot is not None else None, outcome == "win")
+        info = {"combat_end_raw_opponent_snapshot": float(snapshot is not None),
+                "combat_end_raw_league_pool_size": float(len(self._combat_league.pool))}
+        info["combat_end_raw_win_vs_snapshot" if snapshot is not None else "combat_end_raw_win_vs_simple"] = won
+        return info
 
     def combat_reward_config(self):
         """Active combat reward weights (for logging and run records)."""
@@ -5631,6 +6185,18 @@ class TribesGymWrapper(gym.Env):
                 f"Detected out-of-bounds unit(s) ({context}) on board {width}x{height}: {detail}"
             )
     
+    def _privileged_obs_array(self):
+        """The policy observation layout built from the true, unfogged game state (privileged critic only).
+
+        Same encoder as the policy observation, so the critic needs no new layout; with nothing fogged, every
+        enemy unit, city and territory tile is filled in. The fog-memory block (if on) is all zeros here, since
+        nothing is hidden."""
+        full = self.tribes_env.get_observation(full_visibility=True)
+        arr = self._dict_to_array(full)
+        if tuple(arr.shape) != tuple(self.observation_space.shape):
+            raise RuntimeError(f"privileged_obs shape {arr.shape} != observation shape {self.observation_space.shape}")
+        return arr
+
     def _dict_to_array(self, obs_dict):
         features = []
         board = obs_dict.get("board", {})
@@ -5639,7 +6205,7 @@ class TribesGymWrapper(gym.Env):
             width, height = int(dims[0]), int(dims[1])
         else:
             width, height = 0, 0
-        layout = observation_layout(width, height)
+        layout = observation_layout(width, height, getattr(self, "RULES_VERSION", None), getattr(self, "FOG_MEMORY", None))
 
         # 1. Terrain Channel (1 channel: width x height)
         terrain_raw = np.asarray(board.get("terrain", []), dtype=np.int16)
@@ -5786,15 +6352,30 @@ class TribesGymWrapper(gym.Env):
         resource_norm[fog_mask] = 0.0  # explicit fog defense
         features.extend(resource_norm.flatten())
 
+        # 6b. 2.15 rules only: Cloak and Dagger channels (signed; an own hidden Cloak is +0.5).
+        if layout.diplomacy_units_end > layout.diplomacy_units_start:
+            features.extend(self._diplomacy_unit_channels(unit_map, fog_mask, width, height, controlled_tribe))
+
+        # 6c. Combat fog memory only: remembered and inferred enemy units we cannot see.
+        if layout.fog_memory_end > layout.fog_memory_start:
+            features.extend(self._fog_memory_channels(obs_dict.get("fogMemory"), width, height))
+
         # 7. Legacy Scalars (6 values)
         tribes_info = obs_dict.get("tribes", {})
         tribe0 = tribes_info.get(str(controlled_tribe), {}) if isinstance(tribes_info, dict) else {}
-        features.append(float(tribe0.get("star", 0)))
-        features.append(float(tribe0.get("score", 0)))
-        features.append(float(len(tribe0.get("citiesID", []))))
-        features.append(float(tribe0.get("nKills", 0)))
-        features.append(float(obs_dict.get("tick", 0)))
-        features.append(float(obs_dict.get("activeTribeID", 0)))
+        legacy = [
+            float(tribe0.get("star", 0)),
+            float(tribe0.get("score", 0)),
+            float(len(tribe0.get("citiesID", []))),
+            float(tribe0.get("nKills", 0)),
+            float(obs_dict.get("tick", 0)),
+            float(obs_dict.get("activeTribeID", 0)),
+        ]
+        if getattr(self, "_is_combat_mode", False):
+            # Raw score (~500-3000), stars and tick saturated the value head's tanh layer, so the critic
+            # output a constant. Combat scales them to roughly [0, 1]; Phase 1 keeps the raw values.
+            legacy = [v / s for v, s in zip(legacy, self.COMBAT_LEGACY_SCALAR_SCALES)]
+        features.extend(legacy)
 
         # 8. Economy / State Scalars (12 values)
         current_stars = float(self._get_bardur_stars(obs_dict))
@@ -5844,6 +6425,14 @@ class TribesGymWrapper(gym.Env):
         city_slot_features = encode_owned_city_slots(canonical_cities, width=width, height=height)
         features.extend(city_slot_features)
 
+        # 11. 2.15 rules only: Diplomacy researched and the controlled tribe's relations with each tribe id.
+        if layout.diplomacy_scalar_end > layout.diplomacy_scalar_start:
+            features.extend(self._diplomacy_scalars(obs_dict, controlled_tribe, effective_techs))
+
+        # 12. Combat fog memory only: hidden tracked units, estimated never-seen units, known enemy unit capacity.
+        if layout.fog_scalar_end > layout.fog_scalar_start:
+            features.extend(self._fog_memory_scalars(obs_dict.get("fogMemory")))
+
         if len(features) != layout.expected_obs_dim:
             raise ObservationContractError(
                 f"Constructed observation vector length {len(features)} != expected {layout.expected_obs_dim}"
@@ -5851,6 +6440,72 @@ class TribesGymWrapper(gym.Env):
 
         return np.array(features, dtype=np.float32)
     
+    # Java FogMemory grid keys, in FOG_MEMORY_CHANNELS order.
+    FOG_MEMORY_GRID_KEYS = ("presence", "attack", "lastSeen", "unseen")
+
+    def _fog_memory_channels(self, block, width, height):
+        """FOG_MEMORY_CHANNELS from the observation's fogMemory block (zeros if absent), each clipped to [0, 1]."""
+        out = []
+        for key in self.FOG_MEMORY_GRID_KEYS:
+            grid = np.zeros((width, height), dtype=np.float32)
+            raw = block.get(key) if isinstance(block, dict) else None
+            if raw is not None:
+                arr = np.asarray(raw, dtype=np.float32)
+                if arr.shape == (width, height):
+                    grid = np.clip(arr, 0.0, 1.0)
+            out.extend(grid.flatten())
+        return out
+
+    def _fog_memory_scalars(self, block):
+        if not isinstance(block, dict):
+            return [0.0] * FOG_MEMORY_SCALAR_DIM
+        return [
+            min(float(block.get("trackedHidden", 0)) / 10.0, 1.0),
+            min(float(block.get("unseenEstimate", 0.0)) / 10.0, 1.0),
+            min(float(block.get("knownEnemyCapacity", 0)) / 20.0, 1.0),
+        ]
+
+    # Java unit-type keys of the 2.15 Diplomacy units (core.Types.UNIT).
+    DIPLOMACY_UNIT_TYPE_KEYS = {"CLOAK": 12, "DAGGER": 13}
+
+    def _diplomacy_unit_channels(self, unit_map, fog_mask, width, height, controlled_tribe):
+        channels = {name: np.zeros((width, height), dtype=np.float32) for name in DIPLOMACY_UNIT_TYPES}
+        key_to_name = {self.DIPLOMACY_UNIT_TYPE_KEYS[n]: n for n in DIPLOMACY_UNIT_TYPES}
+        if isinstance(unit_map, dict):
+            for u_rec in unit_map.values():
+                if not isinstance(u_rec, dict):
+                    continue
+                try:
+                    ux, uy = int(u_rec.get("x", -1)), int(u_rec.get("y", -1))
+                    name = key_to_name.get(int(u_rec.get("type", -1)))
+                    tribe = int(u_rec.get("tribeId", -1))
+                except Exception:
+                    continue
+                if name is None or not (0 <= ux < width and 0 <= uy < height) or fog_mask[ux, uy]:
+                    continue
+                if tribe == int(controlled_tribe):
+                    channels[name][ux, uy] = 0.5 if bool(u_rec.get("hidden", False)) else 1.0
+                else:
+                    channels[name][ux, uy] = -1.0
+        out = []
+        for name in DIPLOMACY_UNIT_TYPES:
+            chan = channels[name]
+            chan[fog_mask] = 0.0
+            out.extend(chan.flatten())
+        return out
+
+    def _diplomacy_scalars(self, obs_dict, controlled_tribe, effective_techs):
+        out = [1.0 if t in effective_techs else 0.0 for t in DIPLOMACY_TECHNOLOGIES]
+        tribes_info = obs_dict.get("tribes", {}) if isinstance(obs_dict, dict) else {}
+        me = tribes_info.get(str(int(controlled_tribe)), {}) if isinstance(tribes_info, dict) else {}
+        rel = me.get("diplomacy", {}) if isinstance(me, dict) else {}
+        for tribe_id in range(DIPLOMACY_MAX_TRIBES):
+            for feature in DIPLOMACY_RELATION_FEATURES:
+                values = rel.get(feature, []) if isinstance(rel, dict) else []
+                flag = bool(values[tribe_id]) if tribe_id < len(values) and tribe_id != int(controlled_tribe) else False
+                out.append(1.0 if flag else 0.0)
+        return out
+
     def close(self):
         """Close the underlying environment"""
         if hasattr(self.tribes_env, 'close'):

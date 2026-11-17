@@ -44,6 +44,10 @@ public class PythonEnv {
     private String loadedLevelFile = null;
     private Agent opponentAgent = null;
     private String opponentType = "simple";
+    // Combat only, opt-in (POLYVISION_FOG_MEMORY=1): one FogMemory per tribe; null when off.
+    private boolean fogMemoryEnabled = false;
+    private boolean fogMemorySeeMoves = true;
+    private FogMemory[] fogMemories = null;
 
     /**
      * Initialize from a CSV level file path (relative to CWD or absolute), seed, and game mode.
@@ -62,6 +66,42 @@ public class PythonEnv {
         if (gs.getTribes() != null && gs.getTribes().length > 1) {
             setOpponentAgent(opponentType, seed);
         }
+        resetFogMemory();
+    }
+
+    /**
+     * Combat only: turn the fog memory (core.game.FogMemory) on or off. When on, every tribe remembers the enemy
+     * units it has seen and infers where unseen ones can be; observationJson() then carries a "fogMemory" block for
+     * the active tribe and the tactical search places remembered units it is sure about. Off by default; when off
+     * nothing is tracked and every output is unchanged. Takes effect from the next initFromLevel.
+     * @param seeMoves follow a watched move (the unit was visible, or had just attacked us) into the fog
+     */
+    public void setFogMemory(boolean enabled, boolean seeMoves) {
+        this.fogMemoryEnabled = enabled;
+        this.fogMemorySeeMoves = seeMoves;
+        if (gs != null) resetFogMemory();
+    }
+
+    public boolean getFogMemory() { return fogMemoryEnabled; }
+
+    private void resetFogMemory() {
+        fogMemories = null;
+        if (!fogMemoryEnabled || gs == null || gs.getTribes() == null || gs.getTribes().length < 2) return;
+        fogMemories = new FogMemory[gs.getTribes().length];
+        for (int i = 0; i < fogMemories.length; i++) {
+            fogMemories[i] = new FogMemory(i, fogMemorySeeMoves);
+            fogMemories[i].reset(gs);
+        }
+    }
+
+    /** Fog memory of a tribe (tests and diagnostics), or null when it is off. */
+    public FogMemory getFogMemoryOf(int tribeId) {
+        return fogMemories == null ? null : fogMemories[tribeId];
+    }
+
+    /** The fog-memory block for a tribe as JSON (what observationJson adds), or "{}" when it is off. */
+    public String fogMemoryJson(int tribeId) {
+        return fogMemories == null ? "{}" : fogMemories[tribeId].toJson(gs).toString();
     }
 
     /**
@@ -183,6 +223,7 @@ public class PythonEnv {
     private void addStructuredActionFields(JSONObject jo, Action a) {
         if (a == null) return;
         jo.put("star_cost", computeActionStarCost(a));
+        DiplomacyJson.addActionFields(jo, a, gs);  // 2.15 rules Diplomacy actions only
 
         if (a instanceof Move) {
             Move m = (Move) a;
@@ -364,6 +405,8 @@ public class PythonEnv {
 
     private int computeActionStarCost(Action a) {
         if (a == null) return 0;
+        int diplomacyCost = DiplomacyJson.starCost(a, gs);  // 2.15 rules Diplomacy actions only
+        if (diplomacyCost >= 0) return diplomacyCost;
         if (a instanceof Spawn) {
             Spawn s = (Spawn) a;
             return s.getUnitType() != null ? s.getUnitType().getCost() : 0;
@@ -390,10 +433,10 @@ public class PythonEnv {
             return core.TribesConfig.GROW_FOREST_COST;
         }
         if (a instanceof core.actions.cityactions.BurnForest) {
-            return core.TribesConfig.BURN_FOREST_COST;
+            return core.TribesConfig.burnForestCost();
         }
         if (a instanceof core.actions.tribeactions.BuildRoad) {
-            return core.TribesConfig.ROAD_COST;
+            return core.TribesConfig.roadCost();
         }
         if (a instanceof core.actions.unitactions.Upgrade) {
             core.actions.unitactions.Upgrade u = (core.actions.unitactions.Upgrade) a;
@@ -447,6 +490,120 @@ public class PythonEnv {
 
     public int actionCount() {
         return gs.getAllAvailableActions().size();
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Search support for oracle/lookahead diagnostics (tools/evaluate_search_policy.py).
+    // These methods only operate on copies of the state; the live game is never modified.
+    // fullInformation=false copies with the active tribe's fog applied (fogged tiles become FOG),
+    // so a search sees only what the player can see. fullInformation=true is a privileged oracle.
+    // ---------------------------------------------------------------------------------------------
+
+    private GameState searchCopy(boolean fullInformation) {
+        return fullInformation ? gs.copy() : gs.copy(gs.getActiveTribeID());
+    }
+
+    /** Heuristic features of the current state (see Phase1SptHeuristic.FEATURE_NAMES). */
+    public double[] heuristicFeatures(int turnsRemaining, boolean fullInformation) {
+        double[] zeros = new double[players.heuristics.Phase1SptHeuristic.NUM_FEATURES];
+        players.heuristics.Phase1SptHeuristic h = new players.heuristics.Phase1SptHeuristic(
+                gs.getActiveTribeID(), zeros, turnsRemaining, gs.getTick());
+        return h.features(searchCopy(fullInformation));
+    }
+
+    /**
+     * One-step lookahead: for every action in the current action list (same indices as listActionsJson /
+     * stepByIndex), the heuristic value of the state after applying it. END_TURN is scored as the current state
+     * (stopping now), so a non-END_TURN action is preferred only if it strictly improves the value.
+     * Infeasible actions in the (possibly fogged) copy score -Infinity.
+     */
+    public double[] lookaheadScores(double[] weights, int turnsRemaining, boolean fullInformation) {
+        return lookaheadScoresImpl(weights, turnsRemaining, fullInformation, false, 0L);
+    }
+
+    /**
+     * Same as lookaheadScores, but reproducible and cheap to transfer. State copies are created with an unseeded
+     * java.util.Random, so actions with random outcomes (EXAMINE ruins, LEVEL_UP with EXPLORER, ...) score
+     * differently on every call. Here the copy for action i is reseeded with seed * 1000003 + i before the action is
+     * applied, so equal (state, seed) give equal scores. The scores are returned as big-endian IEEE-754 doubles in
+     * one byte[] (a single Py4J transfer instead of one round trip per element).
+     */
+    public byte[] lookaheadScoresSeededPacked(double[] weights, int turnsRemaining, boolean fullInformation, long seed) {
+        double[] scores = lookaheadScoresImpl(weights, turnsRemaining, fullInformation, true, seed);
+        java.nio.ByteBuffer buf = java.nio.ByteBuffer.allocate(8 * scores.length);
+        for (double v : scores) buf.putDouble(v);
+        return buf.array();
+    }
+
+    private double[] lookaheadScoresImpl(double[] weights, int turnsRemaining, boolean fullInformation,
+                                         boolean seeded, long seed) {
+        ArrayList<Action> acts = gs.getAllAvailableActions();
+        int me = gs.getActiveTribeID();
+        players.heuristics.Phase1SptHeuristic h =
+                new players.heuristics.Phase1SptHeuristic(me, weights, turnsRemaining, gs.getTick());
+        double base = h.evaluateState(searchCopy(fullInformation));
+        double[] out = new double[acts.size()];
+        for (int i = 0; i < acts.size(); i++) {
+            Action a = acts.get(i);
+            if (a.getActionType() == Types.ACTION.END_TURN) {
+                out[i] = base;
+                continue;
+            }
+            try {
+                GameState s = searchCopy(fullInformation);
+                if (seeded) s.getRandomGenerator().setSeed(seed * 1000003L + i);
+                if (!a.isFeasible(s)) {
+                    out[i] = Double.NEGATIVE_INFINITY;
+                    continue;
+                }
+                s.advance(a, true);
+                out[i] = h.evaluateState(s);
+            } catch (RuntimeException e) {
+                out[i] = Double.NEGATIVE_INFINITY;
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Combat tactical search (players.heuristics.CombatTactics) for the active tribe, on a copy with its fog.
+     * @param allowed raw action indices the caller may choose (the wrapper's legal set)
+     * @return the raw index of the first action of the best tactical sequence, or -1 when no tactical sequence
+     *         improves on stopping now (leave the decision to the policy)
+     */
+    public int tacticalChooseIndex(double[] weights, int[] allowed, int depth, int beam, int radius, long seed) {
+        if (allowed == null || allowed.length == 0) return -1;
+        players.heuristics.CombatTactics t = new players.heuristics.CombatTactics(gs.getActiveTribeID(), weights, radius);
+        GameState root = searchCopy(false);
+        if (fogMemories != null) players.heuristics.CombatTactics.addRememberedUnits(root, fogMemories[gs.getActiveTribeID()]);
+        root.getRandomGenerator().setSeed(seed);
+        return t.chooseIndex(root, gs.getAllAvailableActions(), allowed, depth, beam, seed);
+    }
+
+    /**
+     * Diagnostic: the tactical search's next-turn danger term (quick value minus full value) for the active tribe
+     * on its fogged view, with or without the remembered units the fog memory would add.
+     */
+    public double tacticalDanger(boolean withMemory) {
+        players.heuristics.CombatTactics t = new players.heuristics.CombatTactics(gs.getActiveTribeID(), null, 3);
+        GameState root = searchCopy(false);
+        if (withMemory && fogMemories != null) players.heuristics.CombatTactics.addRememberedUnits(root, fogMemories[gs.getActiveTribeID()]);
+        return t.quickValue(root) - t.value(root);
+    }
+
+    /**
+     * Within-turn MCTS (players.heuristics.Phase1TurnMCTS) from the current state, valued by Phase1SptHeuristic.
+     * @param allowed raw action indices the caller may choose (the wrapper's legal set); must be non-empty
+     * @return the chosen raw action index (an element of allowed)
+     */
+    public int mctsChooseIndex(double[] weights, int turnsRemaining, boolean fullInformation, int[] allowed,
+                               int iterations, double c, int maxDepth, int rolloutSteps, long seed) {
+        if (allowed == null || allowed.length == 0) throw new IllegalArgumentException("allowed must be non-empty");
+        players.heuristics.Phase1SptHeuristic h = new players.heuristics.Phase1SptHeuristic(
+                gs.getActiveTribeID(), weights, turnsRemaining, gs.getTick());
+        players.heuristics.Phase1TurnMCTS mcts =
+                new players.heuristics.Phase1TurnMCTS(h, seed, c, maxDepth, rolloutSteps);
+        return mcts.search(searchCopy(fullInformation), gs.getAllAvailableActions(), allowed, iterations);
     }
 
     /**
@@ -503,7 +660,9 @@ public class PythonEnv {
                 && gs.getActiveTribeID() == gs.getTribes().length - 1) {
             gs.incTick();
         }
+        if (fogMemories != null) for (FogMemory fm : fogMemories) fm.beforeAction(gs, action);
         gs.advance(action, true);
+        if (fogMemories != null) for (FogMemory fm : fogMemories) fm.afterAction(gs);
     }
 
     private String observationJsonFromState(GameState state) {
@@ -572,6 +731,7 @@ public class PythonEnv {
             uInfo.put("tribeId", u.getTribeId());
             uInfo.put("currentHP", u.getCurrentHP());
             uInfo.put("status", u.getStatus() != null ? u.getStatus().toString() : "FRESH");
+            DiplomacyJson.addUnitFields(uInfo, u);  // 2.15 rules Cloak only
             unit.put(String.valueOf(u.getActorId()), uInfo);
         }
 
@@ -634,6 +794,7 @@ public class PythonEnv {
             techJson.put("researched", researchedArr);
             tribeInfo.put("technology", techJson);
             tribeInfo.put("techTree", techJson);
+            DiplomacyJson.addTribeFields(tribeInfo, t, state);  // 2.15 rules only
 
             tribesINFO.put(String.valueOf(t.getActorId()), tribeInfo);
         }
@@ -666,7 +827,128 @@ public class PythonEnv {
     public String observationJson() {
         int povPlayer = gs.getActiveTribeID();
         GameState pov = gs.copy(povPlayer);
-        return observationJsonFromState(pov);
+        if (fogMemories == null) return observationJsonFromState(pov);
+        JSONObject obs = new JSONObject(observationJsonFromState(pov));
+        obs.put("fogMemory", fogMemories[povPlayer].toJson(gs));
+        return obs.toString();
+    }
+
+    /**
+     * Per-tribe totals from the true (not fog-limited) game state, for the combat shaping potential.
+     * Never part of the policy observation. Keys per tribe id: cities, score, kills, units, unitValue
+     * (sum of unit star costs), giants (super units), tiles (territory tiles owned through cities) and
+     * roads (road tiles inside that territory). Used only in combat mode.
+     */
+    /**
+     * Full true (not fog-limited) combat state for reward shaping: per-tribe totals, every unit (id, tribe,
+     * type, position, HP, movement, range, star cost), every city (id, tribe, position, capital, level,
+     * population, population needed) and the territory (tile -> city id, -1 if none) and road grids.
+     * Combat only; never part of the policy observation.
+     */
+    public String combatStateJson() {
+        Board board = gs.getBoard();
+        Tribe[] tribes = gs.getTribes();
+        int size = board.getSize();
+        JSONObject out = new JSONObject();
+        JSONObject totals = new JSONObject();
+        JSONArray cities = new JSONArray();
+        for (int i = 0; i < tribes.length; i++) {
+            JSONObject t = new JSONObject();
+            t.put("cities", tribes[i].getNumCities());
+            t.put("score", tribes[i].getScore());
+            t.put("kills", tribes[i].getnKills());
+            totals.put(String.valueOf(i), t);
+            for (int cityId : tribes[i].getCitiesID()) {
+                if (!(gs.getActor(cityId) instanceof City)) continue;
+                City c = (City) gs.getActor(cityId);
+                JSONObject jc = new JSONObject();
+                jc.put("id", cityId);
+                jc.put("tribe", c.getTribeId());
+                jc.put("x", c.getPosition().x);
+                jc.put("y", c.getPosition().y);
+                jc.put("capital", c.isCapital());
+                jc.put("level", c.getLevel());
+                jc.put("population", c.getPopulation());
+                jc.put("populationNeed", c.getPopulation_need());
+                cities.put(jc);
+            }
+        }
+        JSONArray units = new JSONArray();
+        JSONArray tileCity = new JSONArray();
+        JSONArray road = new JSONArray();
+        for (int x = 0; x < size; x++) {
+            JSONArray tc = new JSONArray();
+            JSONArray rd = new JSONArray();
+            for (int y = 0; y < size; y++) {
+                Unit u = board.getUnitAt(x, y);
+                if (u != null) {
+                    JSONObject ju = new JSONObject();
+                    ju.put("id", u.getActorId());
+                    ju.put("tribe", u.getTribeId());
+                    ju.put("type", u.getType().toString());
+                    ju.put("x", x);
+                    ju.put("y", y);
+                    ju.put("hp", u.getCurrentHP());
+                    ju.put("maxHp", u.getMaxHP());
+                    ju.put("mov", u.MOV);
+                    ju.put("range", u.RANGE);
+                    ju.put("cost", u.getType().getCost());
+                    units.put(ju);
+                }
+                int cityId = board.getCityIdAt(x, y);
+                tc.put(cityId >= 0 && gs.getActor(cityId) instanceof City ? cityId : -1);
+                rd.put(board.isRoad(x, y));
+            }
+            tileCity.put(tc);
+            road.put(rd);
+        }
+        out.put("size", size);
+        out.put("tick", gs.getTick());
+        out.put("tribes", totals);
+        out.put("cities", cities);
+        out.put("units", units);
+        out.put("tileCity", tileCity);
+        out.put("road", road);
+        return out.toString();
+    }
+
+    public String combatTotalsJson() {
+        Board board = gs.getBoard();
+        Tribe[] tribes = gs.getTribes();
+        int n = tribes.length, size = board.getSize();
+        int[] units = new int[n], unitValue = new int[n], giants = new int[n], tiles = new int[n], roads = new int[n];
+        for (int x = 0; x < size; x++) {
+            for (int y = 0; y < size; y++) {
+                Unit u = board.getUnitAt(x, y);
+                if (u != null && u.getTribeId() >= 0 && u.getTribeId() < n) {
+                    units[u.getTribeId()]++;
+                    unitValue[u.getTribeId()] += u.getType().getCost();
+                    if (u.getType() == Types.UNIT.SUPERUNIT) giants[u.getTribeId()]++;
+                }
+                int cityId = board.getCityIdAt(x, y);
+                if (cityId >= 0 && gs.getActor(cityId) instanceof City) {
+                    int owner = gs.getActor(cityId).getTribeId();
+                    if (owner >= 0 && owner < n) {
+                        tiles[owner]++;
+                        if (board.isRoad(x, y)) roads[owner]++;
+                    }
+                }
+            }
+        }
+        JSONObject out = new JSONObject();
+        for (int i = 0; i < n; i++) {
+            JSONObject t = new JSONObject();
+            t.put("cities", tribes[i].getNumCities());
+            t.put("score", tribes[i].getScore());
+            t.put("kills", tribes[i].getnKills());
+            t.put("units", units[i]);
+            t.put("unitValue", unitValue[i]);
+            t.put("giants", giants[i]);
+            t.put("tiles", tiles[i]);
+            t.put("roads", roads[i]);
+            out.put(String.valueOf(i), t);
+        }
+        return out.toString();
     }
 
     /**

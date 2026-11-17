@@ -82,6 +82,17 @@ Phase 1 PPO options (all off by default): `--norm-obs` (running observation mean
 applied by the evaluator), `--norm-returns` (reward scaling by the running std of discounted returns, training only),
 `--gamma-per-turn`, `--no-clip-vloss`, `--learning-rate`, `--update-epochs`, `--target-kl`, `--ent-coef`.
 
+Kickstarting from the search teacher (Phase 1 only, training only; CHANGELOG 056): `--teacher lookahead_visible`
+adds `coef * cross_entropy(policy, teacher slot)` to the PPO loss, where the teacher is the fog-respecting one-step
+lookahead (21.84 SPT diagnostic). `--teacher-coef` (default 1.0) decays linearly to 0 over `--teacher-decay-frac`
+of training (default 0.5; 0 keeps it constant); once it reaches 0 the env workers stop running the search. It costs
+roughly 0.5-1.3 ms of env time per step while active (Mac measurement). Checkpoints and evaluation are unchanged.
+
+```bash
+EXTRA_PPO_ARGS="--norm-obs --teacher lookahead_visible --teacher-coef 1.0 --teacher-decay-frac 0.5" \
+  cluster/run_experiment.sh composed-kickstart-4m-seed1 spatial_resnet_composed 4000000 1
+```
+
 ---
 
 ## 5. Monitoring Jobs and Learning Curves

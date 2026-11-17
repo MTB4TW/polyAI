@@ -23,6 +23,7 @@ public class Warrior extends Unit
         c.setMaxHP(getMaxHP());
         c.setActorId(getActorId());
         c.setStatus(getStatus());
+        c.setLastDirection(getLastDirX(), getLastDirY());
         return hideInfo ? (Warrior) c.hide() : c;
     }
 }
