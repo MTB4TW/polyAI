@@ -100,7 +100,7 @@ TensorBoard events and checkpoints are written to `runs/<run_name>/`. With `--sa
 
 Every saved model has an adjacent `.action_interface.json` sidecar. Evaluators require it and reject mismatched geometry, observation/action dimensions, actor mode, catalog fingerprint/version, feature version/dimension, canonicalizer version, or legal-slot capacity.
 
-The trainer does not implement checkpoint resume or optimizer-state restoration. Loading an existing policy is an evaluation workflow, not a continuation workflow. Note that mid-training telemetry logged during training rollouts reflects stochastic sampling under active policy entropy rather than deterministic argmax convergence; diagnostic evaluation of the 16M run's 4M checkpoint confirmed that deterministic argmax exhibited 0.0% explicit Forestry adoption matching the 16M endpoint.
+The trainer does not implement checkpoint resume or optimizer-state restoration. `--init-from PATH` is a warm start instead: it copies compatible weights from an existing checkpoint into a fresh run (for example a Phase 1 economy policy into a combat run) while the optimizer, schedule and step counter start fresh; see `py_rl/cleanrl/cleanrl/init_from.py` for what is copied, extended, reset and folded. Note that mid-training telemetry logged during training rollouts reflects stochastic sampling under active policy entropy rather than deterministic argmax convergence; diagnostic evaluation of the 16M run's 4M checkpoint confirmed that deterministic argmax exhibited 0.0% explicit Forestry adoption matching the 16M endpoint.
 
 
 ## Tracking
