@@ -36,6 +36,10 @@ public class Convert extends UnitAction
         if(target == null || !unit.canAttack())
             return false;
 
+        // 2.15 rules: no conversion of a tribe at peace or of a hidden Cloak.
+        if (!core.DiplomacyRules.canBeHostile(gs, unit.getTribeId(), target.getTribeId())) return false;
+        if (core.DiplomacyRules.isHiddenFrom(gs, target, unit.getTribeId())) return false;
+
         return unitInRange(unit, target, gs.getBoard());
     }
 

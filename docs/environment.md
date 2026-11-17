@@ -32,6 +32,16 @@ The example's action `0` is the stable global `END_TURN` ID. In general, select 
 
 `POLYVISION_SOLO_NO_OPPONENT_MODE=1` asks the Java bridge to omit opponent play. The current genuine corpus has a single in-bounds Bardur starter and is normally used with this setting. Without it, the wrapper can fast-forward non-Bardur turns when the loaded game has other active tribes.
 
+## Game rules
+
+`POLYVISION_RULES` selects the rule set the Java engine plays: `tribes_2020` (default) is the original Tribes rule set
+(Polytopia as of 2020); `polytopia_2_15` applies the rule changes listed in [Rules parity](rules-parity.md). A
+non-default rule set and its revision are appended to `phase1_environment_version` (for example
+`v5_human_information_parity+rules_polytopia_2_15_r2`), so checkpoints cannot cross rule sets or revisions.
+Under `polytopia_2_15` the observation grows to 6,695 dimensions (Diplomacy channels and scalars) and the
+action catalog gains the Cloak, the Diplomacy tech and, in combat mode, the Diplomacy actions; see
+[Rules parity](rules-parity.md#diplomacy-2122-under-polytopia_2_15).
+
 ## Map selection and seeds
 
 Set `POLYVISION_LEVEL_POOL_GLOB` relative to `pol_env/Tribes/` or as an absolute glob. The default training pool is:

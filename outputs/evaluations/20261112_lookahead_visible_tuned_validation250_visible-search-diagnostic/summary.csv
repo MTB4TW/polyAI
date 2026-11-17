@@ -1,0 +1,2 @@
+policy,maps,episodes,headline_level,mean_spt,median_spt,stddev_spt,min_spt,max_spt,p05_spt,p25_spt,p75_spt,p95_spt,ci95_low,ci95_high
+lookahead_visible,250,250,map_level,21.844,22.0,4.261962140275364,9.0,33.0,14.0,19.0,25.0,28.0,21.304,22.376
