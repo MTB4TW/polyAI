@@ -27,6 +27,12 @@ public class City extends Actor{
     //total production of this city
     private int production = 0;
 
+    // 2.15 rules: stars per turn from this city's Market (core.game.MarketIncome). Always 0 under 2020 rules.
+    private int marketIncome = 0;
+
+    // 2.15 rules: infiltrated by a Cloak since its owner's last turn (no city income next turn, no second infiltration).
+    private boolean infiltrated = false;
+
     //indicates if this city has walls
     private boolean hasWalls;
 
@@ -127,6 +133,7 @@ public class City extends Actor{
     {
         updateBuildingEffects(gameState, building, false, false);
         buildings.add(building);
+        core.game.MarketIncome.refresh(gameState, this.tribeId);
     }
 
     /**
@@ -139,6 +146,7 @@ public class City extends Actor{
     {
         updateBuildingEffects(gameState, building, true, false);
         buildings.remove(building);
+        core.game.MarketIncome.refresh(gameState, this.tribeId);
     }
 
     /**
@@ -255,7 +263,7 @@ public class City extends Actor{
     public int getProduction(){
         if(population >= 0) {
             int capitalBonus = isCapital ? TribesConfig.PROD_CAPITAL_BONUS : 0;
-            return level + production + capitalBonus;
+            return level + production + capitalBonus + marketIncome;
         }
         return population;
     }
@@ -360,6 +368,8 @@ public class City extends Actor{
         c.population_need = population_need;
         c.isCapital = isCapital;
         c.production = hideInfo ? 0 : production;
+        c.marketIncome = hideInfo ? 0 : marketIncome;
+        c.infiltrated = infiltrated;
         c.hasWalls = hasWalls;
         c.bound = bound;
         c.actorId = actorId;
@@ -369,6 +379,14 @@ public class City extends Actor{
     }
 
     /* Getters and setters */
+    public int getMarketIncome() { return marketIncome; }
+
+    public void setMarketIncome(int income) { this.marketIncome = income; }
+
+    public boolean isInfiltrated() { return infiltrated; }
+
+    public void setInfiltrated(boolean infiltrated) { this.infiltrated = infiltrated; }
+
     public int getLevel() {
         return level;
     }

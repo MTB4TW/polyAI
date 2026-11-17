@@ -1,0 +1,17 @@
+{
+  "name": "resnet-16m-seed2",
+  "network_arch": "spatial_resnet",
+  "total_timesteps": 16000000,
+  "seed": 2,
+  "submitted_utc": "2026-11-12T23:26:34Z",
+  "submitted_by": "kevlai",
+  "git_commit": "600737480242b8b3fd7527b6d56d8916fa965566",
+  "git_dirty": true,
+  "model_path": "runs/experiments/resnet-16m-seed2/resnet-16m-seed2.cleanrl_model",
+  "evaluation_id": "20261112_resnet-16m-seed2_validation_canonical",
+  "train_job": "1978050",
+  "eval_job": "1978051",
+  "wandb_track": 1,
+  "wandb_upload": 1,
+  "wandb_log_eval": 1
+}

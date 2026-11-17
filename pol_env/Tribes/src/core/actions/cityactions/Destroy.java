@@ -24,7 +24,7 @@ public class Destroy extends CityAction
         Building buildingToRemove = city.getBuilding(targetPos.x, targetPos.y);
         if(buildingToRemove == null || buildingToRemove.type == null) return false;
         if(gs.getBoard().getCityIdAt(targetPos.x, targetPos.y) != this.cityId) return false;
-        return gs.getTribe(city.getTribeId()).getTechTree().isResearched(Types.TECHNOLOGY.CONSTRUCTION);
+        return gs.getTribe(city.getTribeId()).getTechTree().isResearched(core.TribesConfig.destroyTech());
     }
 
     @Override

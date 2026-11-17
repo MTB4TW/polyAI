@@ -2,6 +2,429 @@
 
 All notable changes to this project are documented in this file.
 
+## [Train-Init_From_Checkpoint-070] - (2026-11-13)
+
+### Scope
+- New `ppo.py --init-from PATH`: warm-start a fresh run from an existing `.cleanrl_model` (its sidecar is
+  required). Weights only; the optimizer, learning-rate schedule and step counter start fresh. Intended for
+  starting combat (Phase 2) runs from a trained Phase 1 economy policy.
+- Strict checks: same `network_arch`, `actor_mode`, `observation_dim`, `legal_action_feature_dim`,
+  `legal_action_feature_version` and board size, and both or neither using `--norm-obs`.
+- Action-indexed tensors (the per-id action embedding, a dense actor head, a composed action-type table) copy
+  their first rows when the run's catalog extends the checkpoint's. The combat catalog is the Phase 1 catalog
+  with ATTACK and RECOVER appended, so all 63,913 Phase 1 ids keep their meaning among combat's 78,675; this is
+  verified by rebuilding both catalogs, and anything else is rejected.
+- `--init-from-reset` (default `auto`): re-initialise the critic when the environment version differs
+  (Phase 1 -> combat values are in different rewards). Accepts `none` or a comma list of key prefixes.
+- `--init-from-fold-scalars` (default on): combat divides the six legacy scalars (flat indices 6292..6297) by
+  (50, 1000, 6, 10, MAX_TURNS, 1) while Phase 1 keeps raw values. The scale is folded into the copied
+  first-layer weights that read those inputs (or into the observation-normalisation statistics), so the
+  copied network computes the same function of the game state.
+- The report (copied, extended, reset, folded, kept fresh, unused) is printed and recorded under `init_from`
+  in every saved checkpoint's sidecar, with the source path and SHA-256.
+- No contract change: what a checkpoint sees and does is unchanged; only the starting weights differ.
+
+### Validation
+- `tools/tests/test_init_from.py` (12 tests): the combat catalog extends Phase 1 and not the reverse; the warm-started policy gives the same move probabilities as the checkpoint on Phase 1 actions for the same game state; scale
+  constants match `register_env.py`; Phase 1 -> combat transfer for `spatial_resnet_local` (prefix rows,
+  fresh combat rows, critic reset, exact copies elsewhere); folding preserves the scalar branch's output for
+  the ResNet and the MLP; folding goes into the normaliser stats for `--norm-obs` checkpoints; mismatched
+  architecture, catalog, normalisation and a missing sidecar are rejected.
+- Combat smoke run warm-started from `farmshare_resnet_5m` (Phase 1, 5M steps): see the PR.
+
+## [Phase2-Combat_Tech_Logging_After_Loss-069] - (2026-11-13)
+
+### Scope
+- Logging fix only (no reward, observation or action change): in a lost game the final observation carries no tech
+  tree for our tribe, so `combat_end_raw_tech_*` logged every tech as 0. These metrics now use the last tech tree
+  seen in the game (filled at reset, refreshed every step). Before the fix every `tech_*` rate was understated by
+  exactly the loss rate (e.g. Hunting, which Bardur always starts with, read 1 − loss rate: 62% when the loss rate
+  was 38%, 97% at 3%). `combat_tech_turn/*` was not affected.
+
+### Validation
+- The live capital-loss test now checks that Hunting is logged as researched; the 39 combat tests pass (live engine).
+
+## [Phase2-Combat_Capital_Terms_and_Unit_Breakdown-068] - (2026-11-13)
+
+### Scope
+- Opt-in combat terms (default 0):
+  - `capital_hold`: per unit of ours on an enemy capital at the start of our turn (the state after END_TURN, once
+    the opponent has moved). A capture needs a unit there at turn start; in the first sweep 30–43% of timeouts
+    ended with a unit next to the capital and enemy units were outnumbered 5:1, but the capital was not taken.
+  - `capital_region_kill`: per enemy unit killed inside an enemy capital's territory.
+  - `avoid_whaling`: penalty for researching Whaling (reachable only for tribes that start with Fishing).
+- End-of-game unit counts by type, ours and theirs (`combat_end_raw_units_<TYPE>_{ours,theirs}`, 12 types).
+- Trainer: `combat_outcome/{win,loss,timeout}_rate_last500`. The 100-game rolling rate swings about ±4 points
+  from binomial sampling alone at a ~20% win rate (√(0.2·0.8/100)), which is what the "oscillation" in the first
+  sweep amounted to (measured swing ±3.8–6.4 points around the trend).
+
+### Validation
+- Unit tests for the capital terms and unit-type counts; the live all-terms test covers the new terms.
+  `tools/run_core_ci_checks.py` and all `tools/tests` (107) pass; trainer smoke run logs the new metrics; Phase 1
+  hashes unchanged.
+
+## [Phase2-Combat_Optional_Shaping_Terms-067] - (2026-11-13)
+
+### Scope
+- New `PythonEnv.combatStateJson()` returns the full true combat state in one call per step (per-tribe totals,
+  every unit with type/position/HP/movement/range/cost, every city with level/population, and the territory and
+  road grids). Combat only, never part of the observation. The potential's totals now come from it.
+- Fourteen opt-in reward terms, all default 0 (reward unchanged unless set), set with
+  `POLYVISION_COMBAT_REWARD_<NAME>`; computed in the new `pol_env/Tribes/py/combat_shaping.py`:
+
+  | Term | Kind | What it pays |
+  |---|---|---|
+  | `capital_proximity` | Φ | per unit, proximity to the enemy capital's starting tile (1 on it, 0 across the board) |
+  | `capital_proximity_late` | Φ | the same, scaled by turn / MAX_TURNS |
+  | `zone_of_control` | Φ | per tile in or next to enemy territory that one of our units can reach (Chebyshev ≤ movement; terrain ignored) |
+  | `regional_attack` | event | per attack where, in the target's city/village region (or a 5×5 window), we have more units or more unit value |
+  | `role_positioning` | event | warriors near the nearest enemy unit and city, riders 3–4 tiles and catapults 3 tiles from the nearest enemy (−1 if closer) at end of turn; −2 for an archer attack from within the target's range; +1 for attacking riders/archers; +0.5 for moving onto a road |
+  | `damage_trade` | event | per HP of (enemy HP lost − our HP lost) each step |
+  | `hanging_population` | event | penalty per population gained this turn without a level-up |
+  | `early_win` | outcome | extra win reward × max(0, 1 − turns / MAX_TURNS) |
+  | `tech_order` | event | per star of tech cost saved by researching before a capture in the same turn, or wasted by researching after one (tech cost rises by tier per city) |
+  | `pop_tech` | event | for population techs, population unlocked inside our borders minus the best other population tech on offer; non-population techs 0 |
+  | `unused_tech` | event | penalty per tech researched this turn and not used before END_TURN (techs without a defined use, e.g. Climbing, are exempt) |
+  | `tech_cost` | event | penalty per star spent on research |
+  | `avoid_fishing` | event | penalty for researching Fishing (already masked on Drylands maps, i.e. the whole combat pool) |
+  | `avoid_philosophy_meditation` | event | penalty for researching Philosophy or Meditation |
+
+- Every game's last step reports `combat_end_raw_<total>_{ours,theirs}` and `combat_end_component_<name>` (that
+  game's summed reward per component; they add up exactly to the game's reward). The trainer logs each as a
+  100-game rolling mean (`combat_<group>/<name>_last100`) and an exponential moving average over games
+  (`_ema`, alpha 2/101), plus `combat_reward_share/<name>`, the component's share of the game's total |reward|,
+  and `combat_outcome/{win,loss,timeout}_rate` in both forms.
+- Reward-only change; combat environment version unchanged.
+- Every active component starts each game at 0, so `combat_reward_component/*` and `combat_reward_share/*`
+  average over all games. (The first sweep, jobs 1980020–1980029, logged event components only in games where
+  they fired, which overstates rare ones such as `avoid_philosophy_meditation`.)
+
+### Validation
+- `tools/tests/test_combat_shaping_terms.py` (11 unit tests of the terms); a live test plays full random games
+  with every term on and checks the components sum to the episode reward.
+- Random play, every term on: each new Φ/event term contributes 0.2–1.6 per game; the tech penalties are larger
+  (about −12 per game) because random play researches constantly. Single-env speed 39 vs 41 steps/s before.
+- `tools/run_core_ci_checks.py` and all `tools/tests` (105, with live JVM tests) pass; Phase 1 observation and
+  reward hashes unchanged.
+
+## [Phase2-Combat_Win_Reward_30-066] - (2026-11-12)
+
+### Scope
+- Default combat win reward 10 → **30** (`POLYVISION_COMBAT_REWARD_WIN`); loss stays −10, timeout 0. Winning is
+  the objective, and at +10 a safe timeout lead (about +3, up to roughly +6 with the extended potential) was
+  worth a third or more of a win while a failed attack risked −10. Against a safe +3 lead, an attack now pays
+  off above about a 33% success rate (p·30 − (1−p)·10 > 3), down from about 65% at +10.
+- Reward-only change; combat environment version unchanged. The W&B run config records the weights
+  (`combat_reward_win`), so runs on either side of this entry can be told apart.
+
+### Validation
+- `tools/tests` (with live JVM tests) and `tools/run_core_ci_checks.py` pass.
+
+## [Phase2-Combat_Extended_Potential-065] - (2026-11-12)
+
+### Scope
+- The combat potential Φ gains five terms, each ours minus theirs from the engine's true game state
+  (weights via `POLYVISION_COMBAT_REWARD_<NAME>`):
+
+  | Term | Default weight | Counts |
+  |---|---:|---|
+  | `unit` | 0.1 | units on the board |
+  | `unit_value` | 0.05 | sum of unit star costs (warrior 2, archer/defender/rider 3, swordsman 5, knight/catapult 8, giant 10) |
+  | `giant` | 0.5 | giants (super units), on top of their unit value |
+  | `tile` | 0.05 | territory tiles owned through cities |
+  | `road` | 0.05 | road tiles inside own territory |
+
+- New Java method `PythonEnv.combatTotalsJson()` returns all per-tribe totals in one call; combat only, never
+  part of the observation. `_combat_engine_totals` uses it.
+- The trainer now records the combat reward weights and turn limit in the W&B run config
+  (`combat_reward_*`, `combat_max_turns`); before, they were only in the job log.
+- Reward-only change: what a checkpoint observes and does is unchanged, so the combat environment version stays
+  `combat_v5_scaled_scalars_horizon_<T>`. Runs before this entry used the three-term potential.
+
+### Validation
+- 12 random-play games: the new terms contribute on average |0.55| (units), |0.87| (unit value), |0.25| (giants)
+  and |1.13| (tiles) to the final Φ, against |1.75| (cities) and |1.18| (score). Roads stayed 0 (random play
+  never built one). Φ at reset is within ±0.06 of 0. Engine unit count matched the observation's own units at
+  all 1,334 steps.
+- New tests: term arithmetic and overrides (`test_combat_reward_shaping.py`), engine totals at reset (live).
+  `tools/run_core_ci_checks.py`, all `tools/tests` with live JVM tests, and a trainer smoke run pass. Phase 1
+  observation and reward hashes unchanged.
+
+## [Phase2-Combat_Timeout_Reward_Options-064] - (2026-11-12)
+
+### Scope
+- Two combat reward options, defaults unchanged (behaviour identical unless set):
+  - `POLYVISION_COMBAT_REWARD_TIMEOUT` (default 0): outcome reward on a turn-limit timeout; must satisfy
+    loss < timeout < win.
+  - `POLYVISION_COMBAT_REWARD_TERMINAL_POTENTIAL` (default 1, range 0–1): share of the final potential paid out
+    at game end. 0 treats Φ as 0 at game end, so the shaping nets about 0 over a game and only the outcome
+    remains (textbook potential shaping, apart from discounting).
+- Trainer logs the closest unit's distance to the enemy capital split by result
+  (`combat/{win,loss,timeout}_min_dist_to_enemy_capital_last100`) and
+  `combat/timeout_within_1_tile_of_enemy_capital_rate_last100`. The pooled mean hid that wins end on the capital.
+
+### Validation
+- `tools/tests/test_combat_reward_shaping.py` rejects out-of-range values; new live test class reruns all combat
+  live tests with timeout −3 and terminal potential 0 and checks the timeout step pays −3 − Φ(before).
+- `tools/run_core_ci_checks.py` and all `tools/tests` (with live JVM tests) pass; trainer smoke run logs the
+  new metrics.
+
+## [Phase2-Combat_Scaled_Legacy_Scalars-063] - (2026-11-12)
+
+### Scope
+- Combat divides the six legacy scalars of the observation (stars, Tribes score, cities, kills, tick, active
+  tribe) by `(50, 1000, 6, 10, MAX_TURNS, 1)`. Raw score (about 500–3,000), stars and tick drove the value
+  head's first tanh layer into saturation: 98% of its units were at ±1 on a freshly initialised network,
+  and 100% in the trained combat checkpoints, so the critic output one constant for every state (explained
+  variance exactly 0 in runs `s2ccxirq`, `lg0047jk`, `4jek7992`, `txiwiofg`). Value clipping and a lower
+  learning rate did not help, because the inputs, not the weights (max |W| about 0.4), were the problem.
+- Phase 1 keeps the raw values, so its observation contract is unchanged. Note: the Phase 1 ResNet
+  checkpoint `farmshare_resnet_5m` shows the same saturation (its critic outputs 90.88 for every state);
+  the Phase 1 MLP critic also takes the raw observation through tanh and is probably affected. Not fixed here.
+- Combat environment version → `combat_v5_scaled_scalars_horizon_<T>`.
+
+### Validation
+- Fresh network on combat observations: largest input 2,875 → 5; first critic layer saturation 98% → 17%;
+  value std across 300 states 0.003 → 0.126.
+- Phase 1 observations and rewards hash identically before and after (151 random-play steps, 3 maps).
+- New live test `test_legacy_scalars_are_scaled_in_combat`; `tools/run_core_ci_checks.py` and all
+  `tools/tests` (with live JVM tests) pass.
+
+## [Phase2-Combat_Capitals_Win_and_Engine_Potential-062] - (2026-11-12)
+
+### Scope
+- **Win condition:** combat resets the engine in CAPITALS mode (`TribesGymWrapper._engine_game_mode`). A tribe
+  wins as soon as it holds every capital; in 1v1 that is taking the enemy capital while keeping its own, and
+  losing its own capital is a loss. SCORE mode, used before, required taking every enemy city, so an enemy
+  that had captured villages could not be beaten by taking its capital. Phase 1 stays in SCORE mode.
+- **Potential uses engine totals:** Φ (cities, Tribes score, kills) now reads the engine's game state
+  (`_combat_engine_totals`) instead of the policy observation. The observation is fog-limited: in random games
+  the observed enemy city count was below the true count at 90–100% of steps (one game showed 1 of 4), and
+  enemy kills differed at 223 of 538 steps. So discovering an enemy city cost −1.0 reward, penalizing scouting.
+  Enemy score was already exact.
+- **Episode-end diagnostics** in `info` on a game's last step: `combat_end_enemy_cities`,
+  `combat_end_own_cities`, `combat_end_enemy_capitals_held`, `combat_end_min_unit_dist_to_enemy_capital`,
+  `combat_first_contact_tick`. The trainer logs rolling 100-game means (`combat/end_*_last100`,
+  `combat/enemy_contact_rate_last100`, `combat/first_contact_tick_last100`).
+- **Trainer diagnostics** (all runs, logging only): `losses/value_mean`, `losses/value_std`,
+  `losses/return_std`, `losses/epochs_completed` (target-KL early stopping), `charts/max_legal_action_count`
+  and `charts/max_legal_action_fraction` per rollout. Motivated by run `s2ccxirq`, whose explained variance
+  sat at exactly 0 (a constant critic) from ~10k steps on.
+- Corrected the claim that the combat shaping leaves the optimal policy unchanged: it telescopes to
+  Φ(final) − Φ(start), so the agent optimizes `outcome + Φ(final)`.
+- Combat environment version → `combat_v4_capitals_engine_potential_horizon_<T>`, so `combat_v3` checkpoints
+  are rejected. No combat checkpoint had been saved yet.
+
+### Validation
+- Live tests (`POLYVISION_RUN_JAVA_TESTS=1`, `tools/tests/test_combat_integration.py`): capturing the enemy
+  capital while it keeps a second city wins; losing our capital loses; Φ counts an enemy city hidden by fog;
+  turn-limit timeouts unchanged. The win/loss tests now capture capitals instead of forcing `setWinner`, which
+  only ends a game in SCORE mode.
+- `tools/tests/test_combat_reward_shaping.py` passes unchanged.
+
+## [Phase2-Combat_Legal_Capacity-061] - (2026-11-12)
+
+### Scope
+- Both combat training jobs (`cluster/train_combat_cpu.sbatch`, `cluster/train_farmshare_combat.sbatch`) now pass
+  `--max-legal-actions "$MAX_LEGAL_ACTIONS"`, default **512**. A 1M-step CPU combat run (job 1977872) crashed at
+  ~110k steps with `legal_action_count=257 exceeded max_legal_actions=256`: combat boards with many units exceed
+  the Phase 1 capacity.
+- The trainer exports the value to the environment as `POLYVISION_MAX_LEGAL_ACTIONS` and records it in the
+  checkpoint sidecar, so environment, trainer and checkpoint agree (`docs/troubleshooting.md`). The capacity only
+  pads per-step legal-action tensors; no network weights depend on it.
+- Phase 1 is unchanged: its jobs and the trainer default stay at 256.
+
+### Validation
+- Probe of legal-action counts in combat (11x11 1v1 vs SimpleAgent, 20 turns): 40 random-legal games peaked at
+  118 (p99 81); 20 games that take every non-END_TURN action before ending a turn peaked at 153 (p99 95).
+  Neither reached 256, so the 257 seen in training comes from states a learning agent reaches and random play
+  does not. 512 is about twice the largest count observed; it is a margin, not a proven bound.
+- `bash -n` on both scripts; `tools/run_core_ci_checks.py` passes.
+
+## [Env-Rules_Polytopia_2_15_Diplomacy_Step2-060] - (2026-11-14)
+
+### Scope
+Every remaining item of `docs/rules-parity.md` except the 2.8 naval rework, all behind
+`POLYVISION_RULES=polytopia_2_15`. Nothing changes under `tribes_2020`.
+- Step 2 (Phase 1): Lumber Huts leave their tile as forest; the Market replaces the Customs House in its
+  building slot (5★, Trade, needs an adjacent Sawmill/Windmill/Forge, +1★ per turn per level of each adjacent
+  one, max 8★, counted in city production); the ruin Explorer reward needs a fogged tile in the 5×5 around the
+  ruin; Shields is shown as Strategy.
+- 2.14.0: tribe starting stars (Xin-xi 7, Oumaji 6, Hoodrick 7, Quetzali 7, Yădakk 7, Luxidoor 2, others 5;
+  Bardur unchanged); Ai-Mo starts with Philosophy and a Mind Bender; techs can be researched backwards (a tech
+  whose child is researched is researchable, at its tier cost).
+- Diplomacy (2.1/2.2; Phase 2, Kevin's area): new tech `DIPLOMACY` (tier 3, after Strategy), units `CLOAK`
+  (trainable) and `DAGGER` (spawned by infiltration), unit action `INFILTRATE`, tribe actions `OFFER_PEACE`,
+  `ACCEPT_PEACE`, `BREAK_PEACE`, `BUILD_EMBASSY`; war/peace/offer/embassy state in `core.TribeRelations`;
+  hidden Cloaks are removed from other tribes' observations; capital vision with Diplomacy; embassy income;
+  infiltration denies a city's next income. The first embassy costs 4★ and each later one 2★ more (2.14.0).
+  Details and sources in `docs/rules-parity.md` ("Diplomacy").
+  `SimpleAgent` infiltrates and builds embassies but never makes peace.
+- Bug fixed under 2.15 only: `SuperUnit.copy()` dropped the unit's last direction (used for pushes).
+- New enum constants (`TECHNOLOGY.DIPLOMACY`, `UNIT.CLOAK`, `UNIT.DAGGER`, five `ACTION` values) are appended,
+  report `isActive() == false` under 2020 rules, and are filtered out of the Python vocabulary
+  (`RULES_ONLY_VOCAB`), so older ordinals, the catalog and every 2020 interface stay put.
+- `PythonEnv.java` gains four one-line calls into the new `core.game.DiplomacyJson` (action fields, star cost,
+  per-tribe relations, Cloak `hidden` flag); all no-ops under 2020 rules.
+
+### Contract
+- `polytopia_2_15` is now rules revision 2: environment versions end in `+rules_polytopia_2_15_r2`, so every
+  checkpoint trained under revision 1 (`+rules_polytopia_2_15`, including Farmshare job 1981253) is rejected.
+- Under 2.15 rules the observation has 6,695 dimensions (54 spatial channels × 121 + 161 scalars): Cloak and
+  Dagger channels after the resource channel, and 29 Diplomacy scalars after the city block. The 2020 layout
+  (6,424) is unchanged. `observation_layout()` takes the rules version; `spatial_resnet` reads its sizes from
+  it instead of the fixed 52/132.
+- Under 2.15 rules the catalog adds `CLOAK` to `TRAIN` and `DIPLOMACY` to `RESEARCH_TECH`; in combat mode also
+  `INFILTRATE` (tile × tile) and four tribe families (one slot per tribe id 0-3). The catalog fingerprint
+  changes accordingly. `LEGAL_ACTION_FEATURE_VERSION` and the 47-d features are unchanged: new types use the
+  existing "other type" flag, like `ATTACK`. The composed network (PR #15) derives action types from catalog
+  blocks and will need the five new families mapped before it runs under 2.15 rules.
+- `phase1_opening_version` unchanged: the opening audit under 2.15 rules passes on all 5,000 train and 250
+  validation maps.
+
+### Validation
+- `RulesParityTest.java`: 369 checks under both rule sets (Market, Lumber Hut terrain, ruin Explorer condition,
+  backwards research, starting stars, peace/embassies/war, offer lapse, infiltration and Daggers, hidden Cloak
+  visibility and reveal, Dagger and Cloak skills, no Diplomacy under 2020 rules).
+- `test_rules_version.py`: 15 tests, adding the 2.15 observation layout, vocabulary filter, catalog families
+  and a 2.15 combat wrapper. `test_parity_002` now allows the appended 2.15-only enum constants.
+- `hash_env_trajectory.py` (3,000 steps): Phase 1 seeds 7 and 11 and combat seed 7 are byte-identical with
+  `POLYVISION_RULES` unset.
+- Random legal play under 2.15 rules: 30,000 combat steps (144 episodes; infiltration, embassies and peace
+  offers occur) and 15,000 Phase 1 steps without errors; an 8,192-step `spatial_resnet` PPO run trains and
+  saves a 6,695-dim checkpoint.
+- No model trained or evaluated.
+
+## [Env-Rules_Version_Switch_Polytopia_2_15-059] - (2026-11-13)
+
+### Scope
+- New gap analysis `docs/rules-parity.md`: the Tribes engine follows Polytopia as of 2020 (before 2.0.31); it
+  lists every rule difference from the current game (2.15.0), the version it changed in, and whether it
+  affects Phase 1, Phase 2 or neither.
+- New rules switch `POLYVISION_RULES` (`core.RulesVersion` in Java; `resolve_rules_version` in
+  `environment_contract.py`). The JVM inherits it from the wrapper. Values:
+  - `tribes_2020` (default): the original rules, unchanged.
+  - `polytopia_2_15`: Phase 1 economy rules: Lumber Hut 3★ (was 2★), Clear Forest +1★ (was +2★), Literacy
+    33% off rounded up (Tribes charged 20% of the cost, a bug), ruin unit reward on land is a veteran
+    Swordsman (was a Giant), Park gives +1★ per turn, Forge allowed on forest, and forest actions (clear,
+    burn, grow) are refused on tiles that carry a building. Phase 2 basics: Knight 10 HP (was 15),
+    Swordsman cannot fortify, mountain defence from Climbing (was Meditation), roads 3★ (was 2★), Burn Forest
+    3★ with Construction (was 5★ with Chivalry), Destroy needs Chivalry (was Construction).
+  - Lighthouses (2.8.0): the four map corners start fogged even inside the capital's starting view; revealing
+    one gives the capital (or the oldest city) +1 population; finding all four makes Eye of God available,
+    with no Navigation needed (replacing "clear all fog").
+  - Meeting: a tribe meets another only when it sees that tribe's unit or territory on its own turn (its view
+    clearing during its turn, or a start-of-turn check); being seen is not meeting, and a tribe never meets
+    itself. The score table is unchanged. The tribe later in turn order (in 1v1, the second player) gets 2★
+    extra (**unverified**, reported from play).
+  - Explorers take 12 steps instead of 15 (**unverified**, fandom only) and steer by the game's version-115
+    rule: tiles scored by fog revealed (lighthouses first), a 3-step breadth-first search, lowest score
+    wins, ties at random, no straight backtracking. Random walk when no fog is within reach.
+  - Push directions for forced spawns (Giant level-up, ruin unit): each unit remembers the direction of its
+    last move, push or ranged shot. Friendly units are pushed that way, enemy units the opposite way, ranged
+    units that way; unmoved units go towards the map centre (south from the exact centre). If blocked, it
+    tries counterclockwise, then clockwise. A unit with nowhere to go is still destroyed (the "Houdini").
+- `PythonEnv.java`: burn-forest and road star costs come from the rules accessors (2 lines).
+- Wrapper: the `PARK` level-up's expected SPT delta feature is +1 under `polytopia_2_15`.
+
+### Contract
+- Under `tribes_2020` every version string is unchanged, so existing checkpoints stay valid.
+- Under `polytopia_2_15`, `phase1_environment_version` becomes `v5_human_information_parity+rules_polytopia_2_15`
+  and the combat version gets the same `+rules_polytopia_2_15` suffix, so checkpoints never cross rule sets.
+- The wrapper asks the JVM which rules it plays (`core.RulesVersion.activeId()`) and fails closed on a
+  mismatch; an unknown `POLYVISION_RULES` value fails in both Python and Java.
+- `phase1_opening_version` is unchanged: `tools/audit_phase1_opening.py` under `polytopia_2_15` passes on all
+  5,000 train and 250 validation maps (every map gets the expected two-unit opening).
+
+### Validation
+- `pol_env/Tribes/tests/java/core/RulesParityTest.java` (246 checks) tests every switched rule under both rule
+  sets; the Literacy costs reproduce the fandom cost table. A deliberate mutation (Park +0★) is caught.
+- `pol_env/Tribes/py/tests/test_rules_version.py` (in `run_core_ci_checks.py`): version strings, checkpoint
+  rejection across rule sets, JVM consistency check, a short `polytopia_2_15` episode, and the Java test.
+- Fixed-seed random-legal trajectories (`hash_env_trajectory.py` from PR #12, 3,000 steps, seeds 7 and 11) are
+  byte-identical before and after this change with `POLYVISION_RULES` unset or `tribes_2020`; with
+  `polytopia_2_15` the trajectory differs, as expected.
+- No model trained or evaluated: Phase 1 references (24.5 SPT, 20.52) are `tribes_2020` results and must be
+  re-run before any comparison under `polytopia_2_15`.
+
+## [Phase1-Search_Teacher_Heuristic_and_MCTS-058] - (2026-11-12)
+
+### Scope
+- New Phase 1 state heuristic `players/heuristics/Phase1SptHeuristic.java`: a weighted sum of SPT, population
+  progress, usable stars, village capture/proximity, techs, cities, vision, units, population unlocked by researched
+  techs, and proximity to the fog frontier. Weights are passed in from Python.
+- New within-turn MCTS `players/heuristics/Phase1TurnMCTS.java`: searches the current turn's action sequence,
+  values leaves with the heuristic, max-backup, greedy leaf rollouts.
+- `PythonEnv` gains search-only bridge methods (`heuristicFeatures`, `lookaheadScores`, `mctsChooseIndex`). They act
+  on copies of the state; `stepByIndex`, observations, actions and rewards are unchanged, so no contract bump.
+  `fullInformation=false` copies with the player's fog applied (`GameState.copy(player)`); `true` is a privileged oracle.
+  `PLAY_WITH_FULL_OBS` is untouched.
+- `tools/evaluate_search_policy.py`: runs lookahead or MCTS through the canonical episode runner (same scripted
+  opening, legal set, `env.step(global_id)`, Turn-10 checks); outputs are always labelled diagnostics, and the test
+  pool is not offered. `tools/tune_search_heuristic.py`: parallel coordinate-ascent weight tuning on training maps.
+
+### Validation (diagnostics, not canonical)
+- Weights tuned on 60 training maps only. On all 250 validation maps, paired against the v5 PPO reference (20.52):
+  visible-information lookahead 21.84 (+1.33 [+0.69, +1.96], 136 W / 30 T / 84 L,
+  `20261112_lookahead_visible_tuned_validation250_visible-search-diagnostic`); privileged lookahead 27.51
+  (+6.99 [+6.40, +7.57], `20261112_lookahead_full_tuned_validation250_oracle-diagnostic`).
+- Visible-information MCTS (200 iterations, depth 8) on the first 50 validation maps: 22.32 vs lookahead 20.70
+  (+1.62 [+0.20, +3.08]) and PPO 19.26 on the same maps. About 21 s per map on a Mac.
+
+## [Perf-Overlapped_Rollout-057] - (2026-11-13)
+
+### Scope
+- New opt-in trainer flag `--overlap-rollout` (default off): the N envs are split into two halves
+  (A = first ceil(N/2), B = the rest), each its own SAME_STEP `AsyncVectorEnv`
+  (`py_rl/cleanrl/cleanrl/overlapped_vector_env.py`). Per rollout step the policy forward for B runs while A
+  steps, and A's next action is sampled and sent while B steps, so policy time and slow workers (episode-end
+  resets, end turns) overlap with the other half's env work. A is not sent ahead on the last step of a
+  rollout (the update changes the policy).
+- Rollout buffers keep the same (step, env) layout and contents; the merged step result (observations,
+  rewards, flags, Gymnasium infos including `final_info`, masks and dtypes) equals what one vector env over
+  all N envs returns for the same actions, and reset seeds are unchanged (env i gets seed + i). The PPO
+  update is unchanged. A prefetched half's policy inputs are checked against the trainer's tensors.
+- Flag on is deterministic for a fixed seed but does not reproduce a flag-off run: actions are sampled in
+  two batches per step, so the policy RNG is consumed in a different order. Needs N >= 2; odd N works.
+- Profiling with the flag: `trainer/envs_step_wall` is the time blocked waiting for a half,
+  `trainer/overlap_step_wall` the whole pipelined step, `trainer/policy_forward_action_selection` per half.
+- New diagnostic `tools/profile_vector_step.py`: per vector step, each worker's busy time (step plus
+  autoreset), the slowest worker, IPC overhead (vector wall - slowest worker) and what the slowest worker was
+  doing (ordinary step, end turn, episode end).
+- No environment, observation, action or checkpoint change; no contract version change.
+
+### Validation
+- Flag off: a 1,024-step run (spatial_resnet, 8 envs x 64 steps, seed 1, `--validation-states 100
+  --force-revalidate-action-interface`) gives parameters identical to the base branch (torch.save files are
+  byte-identical when saved under the same file name; the zip record name follows the file name).
+- Flag on: two identical runs give identical parameters, for spatial_resnet `legal_features` (8 envs and
+  3 envs), `legal_only` (3 envs) and mlp `dense_debug` (3 envs); `POLYVISION_PROFILE_SPS=1` works.
+- New `tools/tests/test_overlapped_vector_env.py`: info merge equals one vector env for N = 2, 3, 5, 6 on a
+  fake env with keys in only some envs, nested dicts, arrays, objects and SAME_STEP final_info; with a fixed
+  action table the default loop and the stepper write identical buffers; prefetch check; real spawn
+  `AsyncVectorEnv`s; opt-in live test (`POLYVISION_RUN_JAVA_TESTS=1`) compares 3 real envs over 200 steps
+  with episode ends (observations, rewards, flags, non-timing infos, legal id/mask/feature tensors).
+- Mac (shared M-series, noisy), 8 envs, spatial_resnet CPU, 8,192 steps, two runs each: rollout collection
+  ~760 -> ~885 steps/s (+16%); whole run including startup, validation and the CPU PPO update 152-156 ->
+  160-161 steps/s (+4%), because the update is ~80% of wall time on this machine. Policy forward per step
+  3.9 ms (one batch of 8) vs 2 x 2.3 ms (two batches of 4); time blocked on envs 6.2 -> 3.1 ms per step.
+
+## [Fix-Validator_RNG_Isolation-055] - (2026-11-12)
+
+### Scope
+- `ppo.py` snapshots the Python, NumPy and torch global RNG states before the action-interface
+  validator and restores them afterwards. The validator samples from `np.random` only when it actually
+  runs, not on a cache hit, so PPO minibatch shuffles (and other draws) used to depend on whether
+  `.cache/action_validator/` held a matching entry. Fresh worktrees or a `--force-revalidate-action-interface`
+  run therefore trained differently from a cached run with the same `--seed`.
+- Validation itself is unchanged. Training with the same seed now matches a cache-hit run from before
+  this fix; a run that previously re-validated will follow a different (now seed-only) random stream.
+
+### Validation
+- `tools/tests/test_validator_rng_isolation.py`: restoring the snapshot returns all three streams to
+  their seeded state.
+- 512-step mlp run (2 envs, seed 5) with forced revalidation and with a cache hit: identical checkpoints.
+
 ## [Net-Composed_Action_Representation-054] - (2026-11-12)
 
 ### Scope
@@ -80,44 +503,6 @@ All notable changes to this project are documented in this file.
   updates; raw feature means up to ~1,400) and whose sidecar records both fields; `tools/evaluate_phase1.py`
   loads it through the sidecar and completes a 2-map, 1-repeat validation diagnostic (not committed).
 
-## [Perf-Overlapped_Rollout-057] - (2026-11-13)
-
-### Scope
-- New opt-in trainer flag `--overlap-rollout` (default off): the N envs are split into two halves
-  (A = first ceil(N/2), B = the rest), each its own SAME_STEP `AsyncVectorEnv`
-  (`py_rl/cleanrl/cleanrl/overlapped_vector_env.py`). Per rollout step the policy forward for B runs while A
-  steps, and A's next action is sampled and sent while B steps, so policy time and slow workers (episode-end
-  resets, end turns) overlap with the other half's env work. A is not sent ahead on the last step of a
-  rollout (the update changes the policy).
-- Rollout buffers keep the same (step, env) layout and contents; the merged step result (observations,
-  rewards, flags, Gymnasium infos including `final_info`, masks and dtypes) equals what one vector env over
-  all N envs returns for the same actions, and reset seeds are unchanged (env i gets seed + i). The PPO
-  update is unchanged. A prefetched half's policy inputs are checked against the trainer's tensors.
-- Flag on is deterministic for a fixed seed but does not reproduce a flag-off run: actions are sampled in
-  two batches per step, so the policy RNG is consumed in a different order. Needs N >= 2; odd N works.
-- Profiling with the flag: `trainer/envs_step_wall` is the time blocked waiting for a half,
-  `trainer/overlap_step_wall` the whole pipelined step, `trainer/policy_forward_action_selection` per half.
-- New diagnostic `tools/profile_vector_step.py`: per vector step, each worker's busy time (step plus
-  autoreset), the slowest worker, IPC overhead (vector wall - slowest worker) and what the slowest worker was
-  doing (ordinary step, end turn, episode end).
-- No environment, observation, action or checkpoint change; no contract version change.
-
-### Validation
-- Flag off: a 1,024-step run (spatial_resnet, 8 envs x 64 steps, seed 1, `--validation-states 100
-  --force-revalidate-action-interface`) gives parameters identical to the base branch (torch.save files are
-  byte-identical when saved under the same file name; the zip record name follows the file name).
-- Flag on: two identical runs give identical parameters, for spatial_resnet `legal_features` (8 envs and
-  3 envs), `legal_only` (3 envs) and mlp `dense_debug` (3 envs); `POLYVISION_PROFILE_SPS=1` works.
-- New `tools/tests/test_overlapped_vector_env.py`: info merge equals one vector env for N = 2, 3, 5, 6 on a
-  fake env with keys in only some envs, nested dicts, arrays, objects and SAME_STEP final_info; with a fixed
-  action table the default loop and the stepper write identical buffers; prefetch check; real spawn
-  `AsyncVectorEnv`s; opt-in live test (`POLYVISION_RUN_JAVA_TESTS=1`) compares 3 real envs over 200 steps
-  with episode ends (observations, rewards, flags, non-timing infos, legal id/mask/feature tensors).
-- Mac (shared M-series, noisy), 8 envs, spatial_resnet CPU, 8,192 steps, two runs each: rollout collection
-  ~760 -> ~885 steps/s (+16%); whole run including startup, validation and the CPU PPO update 152-156 ->
-  160-161 steps/s (+4%), because the update is ~80% of wall time on this machine. Policy forward per step
-  3.9 ms (one batch of 8) vs 2 x 2.3 ms (two batches of 4); time blocked on envs 6.2 -> 3.1 ms per step.
-
 ## [Perf-Vectorized_Features_Compact_IPC-052] - (2026-11-12)
 
 ### Scope
@@ -162,169 +547,6 @@ All notable changes to this project are documented in this file.
   single-env step over the 3,000-step trajectories 5.0-5.6 ms -> 3.9-4.3 ms. Synthetic 2-env
   `AsyncVectorEnv` step plus trainer extraction 0.97 -> 0.67-0.84 ms.
 
-## [Train-Init_From_Checkpoint-058] - (2026-11-13)
-
-### Scope
-- New `ppo.py --init-from PATH`: warm-start a fresh run from an existing `.cleanrl_model` (its sidecar is
-  required). Weights only; the optimizer, learning-rate schedule and step counter start fresh. Intended for
-  starting combat (Phase 2) runs from a trained Phase 1 economy policy.
-- Strict checks: same `network_arch`, `actor_mode`, `observation_dim`, `legal_action_feature_dim`,
-  `legal_action_feature_version` and board size, and both or neither using `--norm-obs`.
-- Action-indexed tensors (the per-id action embedding, a dense actor head, a composed action-type table) copy
-  their first rows when the run's catalog extends the checkpoint's. The combat catalog is the Phase 1 catalog
-  with ATTACK and RECOVER appended, so all 63,913 Phase 1 ids keep their meaning among combat's 78,675; this is
-  verified by rebuilding both catalogs, and anything else is rejected.
-- `--init-from-reset` (default `auto`): re-initialise the critic when the environment version differs
-  (Phase 1 -> combat values are in different rewards). Accepts `none` or a comma list of key prefixes.
-- `--init-from-fold-scalars` (default on): combat divides the six legacy scalars (flat indices 6292..6297) by
-  (50, 1000, 6, 10, MAX_TURNS, 1) while Phase 1 keeps raw values. The scale is folded into the copied
-  first-layer weights that read those inputs (or into the observation-normalisation statistics), so the
-  copied network computes the same function of the game state.
-- The report (copied, extended, reset, folded, kept fresh, unused) is printed and recorded under `init_from`
-  in every saved checkpoint's sidecar, with the source path and SHA-256.
-- No contract change: what a checkpoint sees and does is unchanged; only the starting weights differ.
-
-### Validation
-- `tools/tests/test_init_from.py` (12 tests): the combat catalog extends Phase 1 and not the reverse; the warm-started policy gives the same move probabilities as the checkpoint on Phase 1 actions for the same game state; scale
-  constants match `register_env.py`; Phase 1 -> combat transfer for `spatial_resnet_local` (prefix rows,
-  fresh combat rows, critic reset, exact copies elsewhere); folding preserves the scalar branch's output for
-  the ResNet and the MLP; folding goes into the normaliser stats for `--norm-obs` checkpoints; mismatched
-  architecture, catalog, normalisation and a missing sidecar are rejected.
-- Combat smoke run warm-started from `farmshare_resnet_5m` (Phase 1, 5M steps): see the PR.
-
-## [Phase2-Combat_Win_Reward_30-057] - (2026-11-12)
-
-### Scope
-- Default combat win reward 10 → **30** (`POLYVISION_COMBAT_REWARD_WIN`); loss stays −10, timeout 0. Winning is
-  the objective, and at +10 a safe timeout lead (about +3, up to roughly +6 with the extended potential) was
-  worth a third or more of a win while a failed attack risked −10. Against a safe +3 lead, an attack now pays
-  off above about a 33% success rate (p·30 − (1−p)·10 > 3), down from about 65% at +10.
-- Reward-only change; combat environment version unchanged. The W&B run config records the weights
-  (`combat_reward_win`), so runs on either side of this entry can be told apart.
-
-### Validation
-- `tools/tests` (with live JVM tests) and `tools/run_core_ci_checks.py` pass.
-
-## [Phase2-Combat_Extended_Potential-056] - (2026-11-12)
-
-### Scope
-- The combat potential Φ gains five terms, each ours minus theirs from the engine's true game state
-  (weights via `POLYVISION_COMBAT_REWARD_<NAME>`):
-
-  | Term | Default weight | Counts |
-  |---|---:|---|
-  | `unit` | 0.1 | units on the board |
-  | `unit_value` | 0.05 | sum of unit star costs (warrior 2, archer/defender/rider 3, swordsman 5, knight/catapult 8, giant 10) |
-  | `giant` | 0.5 | giants (super units), on top of their unit value |
-  | `tile` | 0.05 | territory tiles owned through cities |
-  | `road` | 0.05 | road tiles inside own territory |
-
-- New Java method `PythonEnv.combatTotalsJson()` returns all per-tribe totals in one call; combat only, never
-  part of the observation. `_combat_engine_totals` uses it.
-- The trainer now records the combat reward weights and turn limit in the W&B run config
-  (`combat_reward_*`, `combat_max_turns`); before, they were only in the job log.
-- Reward-only change: what a checkpoint observes and does is unchanged, so the combat environment version stays
-  `combat_v5_scaled_scalars_horizon_<T>`. Runs before this entry used the three-term potential.
-
-### Validation
-- 12 random-play games: the new terms contribute on average |0.55| (units), |0.87| (unit value), |0.25| (giants)
-  and |1.13| (tiles) to the final Φ, against |1.75| (cities) and |1.18| (score). Roads stayed 0 (random play
-  never built one). Φ at reset is within ±0.06 of 0. Engine unit count matched the observation's own units at
-  all 1,334 steps.
-- New tests: term arithmetic and overrides (`test_combat_reward_shaping.py`), engine totals at reset (live).
-  `tools/run_core_ci_checks.py`, all `tools/tests` with live JVM tests, and a trainer smoke run pass. Phase 1
-  observation and reward hashes unchanged.
-
-## [Phase2-Combat_Timeout_Reward_Options-055] - (2026-11-12)
-
-### Scope
-- Two combat reward options, defaults unchanged (behaviour identical unless set):
-  - `POLYVISION_COMBAT_REWARD_TIMEOUT` (default 0): outcome reward on a turn-limit timeout; must satisfy
-    loss < timeout < win.
-  - `POLYVISION_COMBAT_REWARD_TERMINAL_POTENTIAL` (default 1, range 0–1): share of the final potential paid out
-    at game end. 0 treats Φ as 0 at game end, so the shaping nets about 0 over a game and only the outcome
-    remains (textbook potential shaping, apart from discounting).
-- Trainer logs the closest unit's distance to the enemy capital split by result
-  (`combat/{win,loss,timeout}_min_dist_to_enemy_capital_last100`) and
-  `combat/timeout_within_1_tile_of_enemy_capital_rate_last100`. The pooled mean hid that wins end on the capital.
-
-### Validation
-- `tools/tests/test_combat_reward_shaping.py` rejects out-of-range values; new live test class reruns all combat
-  live tests with timeout −3 and terminal potential 0 and checks the timeout step pays −3 − Φ(before).
-- `tools/run_core_ci_checks.py` and all `tools/tests` (with live JVM tests) pass; trainer smoke run logs the
-  new metrics.
-
-## [Phase2-Combat_Scaled_Legacy_Scalars-054] - (2026-11-12)
-
-### Scope
-- Combat divides the six legacy scalars of the observation (stars, Tribes score, cities, kills, tick, active
-  tribe) by `(50, 1000, 6, 10, MAX_TURNS, 1)`. Raw score (about 500–3,000), stars and tick drove the value
-  head's first tanh layer into saturation: 98% of its units were at ±1 on a freshly initialised network,
-  and 100% in the trained combat checkpoints, so the critic output one constant for every state (explained
-  variance exactly 0 in runs `s2ccxirq`, `lg0047jk`, `4jek7992`, `txiwiofg`). Value clipping and a lower
-  learning rate did not help, because the inputs, not the weights (max |W| about 0.4), were the problem.
-- Phase 1 keeps the raw values, so its observation contract is unchanged. Note: the Phase 1 ResNet
-  checkpoint `farmshare_resnet_5m` shows the same saturation (its critic outputs 90.88 for every state);
-  the Phase 1 MLP critic also takes the raw observation through tanh and is probably affected. Not fixed here.
-- Combat environment version → `combat_v5_scaled_scalars_horizon_<T>`.
-
-### Validation
-- Fresh network on combat observations: largest input 2,875 → 5; first critic layer saturation 98% → 17%;
-  value std across 300 states 0.003 → 0.126.
-- Phase 1 observations and rewards hash identically before and after (151 random-play steps, 3 maps).
-- New live test `test_legacy_scalars_are_scaled_in_combat`; `tools/run_core_ci_checks.py` and all
-  `tools/tests` (with live JVM tests) pass.
-
-## [Phase2-Combat_Capitals_Win_and_Engine_Potential-053] - (2026-11-12)
-
-### Scope
-- **Win condition:** combat resets the engine in CAPITALS mode (`TribesGymWrapper._engine_game_mode`). A tribe
-  wins as soon as it holds every capital; in 1v1 that is taking the enemy capital while keeping its own, and
-  losing its own capital is a loss. SCORE mode, used before, required taking every enemy city, so an enemy
-  that had captured villages could not be beaten by taking its capital. Phase 1 stays in SCORE mode.
-- **Potential uses engine totals:** Φ (cities, Tribes score, kills) now reads the engine's game state
-  (`_combat_engine_totals`) instead of the policy observation. The observation is fog-limited: in random games
-  the observed enemy city count was below the true count at 90–100% of steps (one game showed 1 of 4), and
-  enemy kills differed at 223 of 538 steps. So discovering an enemy city cost −1.0 reward, penalizing scouting.
-  Enemy score was already exact.
-- **Episode-end diagnostics** in `info` on a game's last step: `combat_end_enemy_cities`,
-  `combat_end_own_cities`, `combat_end_enemy_capitals_held`, `combat_end_min_unit_dist_to_enemy_capital`,
-  `combat_first_contact_tick`. The trainer logs rolling 100-game means (`combat/end_*_last100`,
-  `combat/enemy_contact_rate_last100`, `combat/first_contact_tick_last100`).
-- **Trainer diagnostics** (all runs, logging only): `losses/value_mean`, `losses/value_std`,
-  `losses/return_std`, `losses/epochs_completed` (target-KL early stopping), `charts/max_legal_action_count`
-  and `charts/max_legal_action_fraction` per rollout. Motivated by run `s2ccxirq`, whose explained variance
-  sat at exactly 0 (a constant critic) from ~10k steps on.
-- Corrected the claim that the combat shaping leaves the optimal policy unchanged: it telescopes to
-  Φ(final) − Φ(start), so the agent optimizes `outcome + Φ(final)`.
-- Combat environment version → `combat_v4_capitals_engine_potential_horizon_<T>`, so `combat_v3` checkpoints
-  are rejected. No combat checkpoint had been saved yet.
-
-### Validation
-- Live tests (`POLYVISION_RUN_JAVA_TESTS=1`, `tools/tests/test_combat_integration.py`): capturing the enemy
-  capital while it keeps a second city wins; losing our capital loses; Φ counts an enemy city hidden by fog;
-  turn-limit timeouts unchanged. The win/loss tests now capture capitals instead of forcing `setWinner`, which
-  only ends a game in SCORE mode.
-- `tools/tests/test_combat_reward_shaping.py` passes unchanged.
-
-## [Phase2-Combat_Legal_Capacity-052] - (2026-11-12)
-
-### Scope
-- Both combat training jobs (`cluster/train_combat_cpu.sbatch`, `cluster/train_farmshare_combat.sbatch`) now pass
-  `--max-legal-actions "$MAX_LEGAL_ACTIONS"`, default **512**. A 1M-step CPU combat run (job 1977872) crashed at
-  ~110k steps with `legal_action_count=257 exceeded max_legal_actions=256`: combat boards with many units exceed
-  the Phase 1 capacity.
-- The trainer exports the value to the environment as `POLYVISION_MAX_LEGAL_ACTIONS` and records it in the
-  checkpoint sidecar, so environment, trainer and checkpoint agree (`docs/troubleshooting.md`). The capacity only
-  pads per-step legal-action tensors; no network weights depend on it.
-- Phase 1 is unchanged: its jobs and the trainer default stay at 256.
-
-### Validation
-- Probe of legal-action counts in combat (11x11 1v1 vs SimpleAgent, 20 turns): 40 random-legal games peaked at
-  118 (p99 81); 20 games that take every non-END_TURN action before ending a turn peaked at 153 (p99 95).
-  Neither reached 256, so the 257 seen in training comes from states a learning agent reaches and random play
-  does not. 512 is about twice the largest count observed; it is a margin, not a proven bound.
-- `bash -n` on both scripts; `tools/run_core_ci_checks.py` passes.
 ## [Perf-MPS_Learner_Device-051] - (2026-11-12)
 
 ### Scope
