@@ -5,7 +5,7 @@ description: Submit a PolyAI training run on Farmshare that automatically runs t
 
 # Launch an experiment
 
-Arguments: `NAME ARCH STEPS [SEED]`, where ARCH is `mlp`, `spatial_resnet` or `spatial_resnet_local`.
+Arguments: `NAME ARCH STEPS [SEED]`, where ARCH is `mlp`, `spatial_resnet`, `spatial_resnet_local` or `spatial_resnet_composed`.
 
 1. Confirm you are on Farmshare (`hostname` contains `rice` or `wheat`) inside the repo. If you are on a Mac,
    tell the user the command to run there instead of submitting anything:
