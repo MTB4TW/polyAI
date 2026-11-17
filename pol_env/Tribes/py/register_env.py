@@ -5500,12 +5500,17 @@ class TribesGymWrapper(gym.Env):
         "embassy": 0.0,                 # event: penalty per embassy built (2.15 rules: in a 1v1 it pays the enemy
                                         # as much as us, and its stars buy no units)
         "turn_penalty": 0.0,            # event: penalty per turn ended (a cost of time, pushing for an early win)
+        "star_hoard": 0.0,              # event: penalty per star above star_hoard_threshold still held at END_TURN
+                                        # (stars carried into the next turn buy nothing; see CHANGELOG 081)
+        "star_hoard_threshold": 10.0,   # parameter, not a weight: stars that may be saved without penalty
     }
 
     # Outcome terms: what the game result and its timing pay. Everything else is shaping ("who is ahead" potential
     # terms and per-step events) and is multiplied by POLYVISION_COMBAT_REWARD_SHAPING_SCALE (default 1), so a run
     # can fade the shaping out or train on the outcome alone (0).
     COMBAT_OUTCOME_TERMS = ("win", "loss", "timeout", "early_win", "terminal_potential", "turn_penalty")
+    # Parameters read from POLYVISION_COMBAT_REWARD_<NAME> that are not reward weights (never scaled).
+    COMBAT_REWARD_PARAMETERS = ("star_hoard_threshold",)
 
     @classmethod
     def _load_combat_reward_weights(cls, environ=None):
@@ -5525,13 +5530,15 @@ class TribesGymWrapper(gym.Env):
             raise ValueError("Combat reward needs loss < timeout < win")
         if not 0.0 <= weights["terminal_potential"] <= 1.0:
             raise ValueError("POLYVISION_COMBAT_REWARD_TERMINAL_POTENTIAL must be between 0 and 1")
+        if weights["star_hoard"] < 0 or weights["star_hoard_threshold"] < 0:
+            raise ValueError("POLYVISION_COMBAT_REWARD_STAR_HOARD and _STAR_HOARD_THRESHOLD must be >= 0")
         raw_scale = environ.get("POLYVISION_COMBAT_REWARD_SHAPING_SCALE")
         scale = 1.0 if raw_scale is None or str(raw_scale).strip() == "" else float(raw_scale)
         if not (np.isfinite(scale) and scale >= 0.0):
             raise ValueError(f"POLYVISION_COMBAT_REWARD_SHAPING_SCALE must be >= 0, got {raw_scale!r}")
         if scale != 1.0:
             for name in weights:
-                if name not in cls.COMBAT_OUTCOME_TERMS:
+                if name not in cls.COMBAT_OUTCOME_TERMS and name not in cls.COMBAT_REWARD_PARAMETERS:
                     weights[name] *= scale
         return weights
 
@@ -5609,7 +5616,7 @@ class TribesGymWrapper(gym.Env):
     COMBAT_EVENT_TERMS = ("regional_attack", "role_positioning", "damage_trade", "hanging_population", "tech_order",
                           "pop_tech", "unused_tech", "tech_cost", "avoid_fishing", "avoid_philosophy_meditation",
                           "avoid_whaling", "capital_hold", "capital_region_kill", "train_rider", "train_infantry",
-                          "rider_attack", "embassy", "turn_penalty")
+                          "rider_attack", "embassy", "turn_penalty", "star_hoard")
 
     def _combat_reset_turn_trackers(self):
         self._combat_turn_research = []      # (tech, tier) researched this turn
@@ -5660,6 +5667,11 @@ class TribesGymWrapper(gym.Env):
             out["embassy"] = -w["embassy"]
         if w["turn_penalty"] and action_type == "END_TURN":
             out["turn_penalty"] = -w["turn_penalty"]
+        if w["star_hoard"] and action_type == "END_TURN":
+            # Stars still held when we end the turn (from the observation before END_TURN; a tribe's own stars
+            # are never fogged). Saving up to the threshold for a dearer unit or tech is free.
+            carried = float(self._get_tribe_stars(start_obs or {}, tribe_id=me))
+            out["star_hoard"] = -w["star_hoard"] * max(0.0, carried - w["star_hoard_threshold"])
         if action_type != "END_TURN":
             self._combat_turn_signatures.add(combat_shaping.action_signature(action))
         elif w["unused_tech"]:
