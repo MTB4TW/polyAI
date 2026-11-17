@@ -5,7 +5,7 @@ and evaluation behave exactly as before (fixed-seed trajectory hashes are identi
 each with the canonical combat evaluation (`tools/evaluate_combat.py`, docs/evaluation.md) and compare map by map
 with `tools/compare_combat_evals.py`.
 
-## 1. Outcome-only fine-tuning (CHANGELOG 063)
+## 1. Outcome-only fine-tuning (CHANGELOG 073)
 
 Continue a trained checkpoint with the shaping switched off, so the policy optimises the game result itself:
 
@@ -19,7 +19,7 @@ critic and learning rate 2e-4. There is no intermediate stage with partial shapi
 first maximising the economy terms and then winning.
 `POLYVISION_COMBAT_REWARD_SHAPING_SCALE` is the underlying setting.
 
-## 2. Self-play league (CHANGELOG 064)
+## 2. Self-play league (CHANGELOG 074)
 
 Half the games against SimpleAgent, half against frozen snapshots (the learner's own checkpoints every 100k steps,
 plus fixed opponents such as the v2b runs), chosen by prioritised fictitious self-play:
@@ -34,7 +34,7 @@ sbatch --cpus-per-task=32 --mem=48G --time=36:00:00 cluster/train_combat_cpu.sba
 W&B shows `end_raw/win_vs_simple`, `end_raw/win_vs_snapshot` and `end_raw/opponent_snapshot`. Snapshot games run
 the opponent network in the env workers, so training is slower than against SimpleAgent alone.
 
-## 3. Tactical search: teacher and search at play time (CHANGELOG 065)
+## 3. Tactical search: teacher and search at play time (CHANGELOG 075)
 
 `players/heuristics/CombatTactics.java`: a within-turn beam search (depth 3, beam 8) over attacks, captures,
 infiltrations and moves near the enemy, on a fogged copy of the state. It values material, cities, sieges, holding
@@ -48,7 +48,7 @@ order, taking a capital, blocking) pass on all 50 training maps.
   --policy ppo_search` (ppo_search: the search where it beats stopping, otherwise the policy's best action).
   About 3× slower per game.
 
-## 4. Fog memory (CHANGELOG 066)
+## 4. Fog memory (CHANGELOG 076)
 
 `core/game/FogMemory.java` tracks enemy units we have seen after they go into the clouds, follows a move we watched
 start (a Rider that attacks and retreats into the fog is remembered where it stopped), and estimates never-seen
@@ -66,7 +66,7 @@ visible, so it matters most in the first 15 turns.
 - Compare with `tools/compare_combat_evals.py` against the v2b evaluation: same maps, so the difference is paired.
 
 
-## 5. Full-information critic (CHANGELOG 068)
+## 5. Full-information critic (CHANGELOG 079)
 
 `ppo.py --privileged-critic` computes advantages with a separate critic that sees the unfogged game state; the
 policy still plays from the fogged observation, and its checkpoint is unchanged (the critic is saved to

@@ -47,7 +47,7 @@ action catalog gains the Cloak, the Diplomacy tech and, in combat mode, the Dipl
 `POLYVISION_FOG_MEMORY=1` (combat only, off by default) adds what the controlled tribe remembers and infers about
 enemy units it cannot see (`core/game/FogMemory.java`): 4 spatial channels (expected remembered units per tile,
 the same weighted by attack, where hidden units were last seen, expected never-seen units per tile) and 3 scalars.
-The environment version gains `+fog_memory_v1`. See CHANGELOG 066 for exactly what is and is not inferred.
+The environment version gains `+fog_memory_v1`. See CHANGELOG 076 for exactly what is and is not inferred.
 
 ## Map selection and seeds
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Outcome-only fine-tuning of a trained combat checkpoint in one Farmshare job (CHANGELOG 063): every shaping term
+# Outcome-only fine-tuning of a trained combat checkpoint in one Farmshare job (CHANGELOG 073): every shaping term
 # off (shaping x 0) for STEPS (default 2M), from CHECKPOINT, with a fresh critic (its values were in shaped-reward
 # units) and learning rate 2e-4. The policy is trained on the game result only.
 # Usage (repo root):  cluster/run_combat_finetune.sh runs/X/X.cleanrl_model NAME [SEED]
