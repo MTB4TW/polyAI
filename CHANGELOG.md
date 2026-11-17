@@ -2,7 +2,7 @@
 
 All notable changes to this project are documented in this file.
 
-## [Train-Privileged_Critic_Value_Norm-069] - (2026-11-16)
+## [Train-Privileged_Critic_Value_Norm-072] - (2026-11-16)
 
 ### Problem
 - 3 of the 17 `--privileged-critic` runs on W&B had the critic collapse early and stay flat for the rest of the run:
