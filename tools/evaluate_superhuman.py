@@ -26,6 +26,7 @@ from pol_env.Tribes.py.environment_contract import (
     read_checkpoint_metadata, environment_compatibility_metadata, validate_checkpoint_compatibility,
 )
 from py_rl.cleanrl.cleanrl.agent_factory import make_agent
+from py_rl.cleanrl.cleanrl.obs_normalization import observation_normalization_from_metadata
 from tools.phase1_eval_core import PPOPolicy, load_verified_pool, build_schedule, sha256_file
 from tools.evaluate_phase1 import run_episode, runtime_provenance
 from tools.human_benchmark import load_attempts
@@ -83,7 +84,8 @@ def main():
         adapter = SimpleNamespace(single_observation_space=env.observation_space, single_action_space=env.action_space)
         agent = make_agent(adapter, network_arch=sidecar.get("network_arch", "mlp"),
                            actor_mode=sidecar["actor_mode"], max_legal_actions=sidecar["max_legal_actions"],
-                           legal_action_feature_dim=sidecar["legal_action_feature_dim"]).to(device)
+                           legal_action_feature_dim=sidecar["legal_action_feature_dim"],
+                           observation_normalization=observation_normalization_from_metadata(sidecar)).to(device)
         agent.load_state_dict(torch.load(args.model_path, map_location=device, weights_only=True))
         agent.eval()
         policies = {"ppo_argmax": PPOPolicy(agent, device, False, None),
