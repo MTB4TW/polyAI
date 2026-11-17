@@ -1,0 +1,23 @@
+{
+  "name": "combat_pcritic_fogmem_2m_seed3",
+  "network_arch": "spatial_resnet_composed",
+  "total_timesteps": 2000000,
+  "seed": 3,
+  "env_file": "cluster/combat_fog_memory_v2.env",
+  "rules": "polytopia_2_15",
+  "extra_ppo_args": "--privileged-critic",
+  "submitted_by": "devinlai",
+  "git_commit": "11bcd1c (feat/combat-privileged-critic; code identical to 9bb1b93)",
+  "model_path": "runs/Tribes-v0__combat_pcritic_fogmem_2m_seed3__3__1794816387/combat_pcritic_fogmem_2m_seed3.cleanrl_model (Farmshare ~/polyAI-wt/pcritic)",
+  "evaluation_id": "20261115_combat_pcritic_fogmem_2m_seed3_combat_eval_validation_canonical",
+  "evaluated_on": "Farmshare (cluster/eval_combat_farmshare.sbatch via ~/ablation_smoke/eval_after_train.sh, afterok dependency)",
+  "train_job": "1989752",
+  "eval_job": "1989753",
+  "wandb_run": "r9x3itdh",
+  "wandb_track": 1,
+  "wandb_upload": 0,
+  "baseline": "combat_v2b_pcritic_2m (from scratch, same settings without this arm's change)",
+  "fog_memory": 1,
+  "train_elapsed": "12:45",
+  "training_issue": "privileged critic collapsed to a constant (losses/value_std ~0, explained_variance 0) from ~61k steps and never recovered"
+}
