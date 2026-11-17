@@ -2,6 +2,208 @@
 
 All notable changes to this project are documented in this file.
 
+## [Fix-Combat_Evaluation_Training_Settings-078] - (2026-11-17)
+
+### Scope
+- `tools/evaluate_combat.py` now clears every training-only setting before it builds the environment, not just the
+  reward weights: `POLYVISION_COMBAT_LEAGUE*` (the league is forced off with `POLYVISION_COMBAT_LEAGUE=0`),
+  `POLYVISION_TEACHER`, `POLYVISION_PRIVILEGED_OBS` and `POLYVISION_FOG_MEMORY_SEE_MOVES` (evaluation uses its default,
+  on). Before, an evaluation started from a shell that had sourced `cluster/combat_selfplay_v2.env` played some games
+  against league snapshots instead of SimpleAgent. The evaluator prints what it ignored and refuses to play if the
+  wrapper still has a league, a teacher or privileged observations.
+- `register_env.__init__`: the combat trackers (`_combat_prev_potential`, turn trackers, episode components) are set
+  for every combat run again; the league change (074) had moved them under the league `if`. `reset()` sets them
+  as well, so default runs were unaffected.
+- No change to observations, actions, rewards or checkpoints; no contract bump. Earlier canonical combat
+  evaluations were run without league or teacher settings and stand.
+
+### Validation
+- `tools/tests/test_combat_eval_environment.py`: the settings are removed and the league forced off; the guard
+  rejects a league, a teacher and privileged observations; with Java, a wrapper built from an environment that had
+  `POLYVISION_COMBAT_LEAGUE=1` has no league before or after reset.
+
+## [Train-Critic_Warmup_Warm_Start-077] - (2026-11-15)
+
+### Scope
+- `ppo.py --critic-warmup-steps N` (default 0, off): for the first N environment steps only the critic head is
+  trained (value loss only; gradients of the policy, the shared trunk and the teacher loss are dropped, so Adam
+  leaves them bit for bit). For warm starts with a fresh critic: the untrained value estimate otherwise drives the
+  policy updates. Logged as `charts/critic_warmup`.
+- Why: warm starts from combat_cap_all_v2b seed 1 with a fresh critic (outcome-only fine-tune, fog memory) fell from
+  about 60% to 17-38% training win rate in the first 150k steps (value loss 160-230 at the start, `approx_kl` about
+  twice `--target-kl`), while the run that kept its critic did not.
+- Warm-start settings used for the follow-up runs: `--learning-rate 1e-4 --target-kl 0.015 --ent-coef 0.005`;
+  fog memory keeps the remapped source critic (`--init-from-reset none`).
+
+### Validation
+- Local warm start with the warm-up covering the whole run: every non-critic tensor identical to the source
+  checkpoint (33/33); with a shorter warm-up the policy trains afterwards. Default runs unchanged (option off).
+
+## [Phase2-Combat_Fog_Memory-076] - (2026-11-14)
+
+### Scope
+- Combat fog memory (opt-in, `POLYVISION_FOG_MEMORY=1`, combat only; `core/game/FogMemory.java`): each tribe
+  remembers the enemy units it has seen and infers where the ones it cannot see can be. Fog in this engine (as in
+  Polytopia) is unexplored tiles, so this is about enemy units inside the clouds and hidden Cloaks. Only what the
+  tribe could know is used:
+  - an enemy unit that leaves view can be on the tiles it could reach from where it was last seen; the set grows
+    by a turn of movement at the start of each of its tribe's turns, and tiles the tribe sees are ruled out.
+    Reach is estimated from the tribe's knowledge: unknown tiles are passable, known water blocks land units, our
+    units block their tile and stop movement next to them (zone of control), so blocking shrinks the set;
+  - an enemy unit that attacks one of our units is revealed where it stands;
+  - a move we watched start (the unit was visible or had just attacked) is followed to its destination even in
+    the fog, so a Rider that hits and retreats into the clouds is remembered where it stopped, as Polytopia
+    shows it (`POLYVISION_FOG_MEMORY_SEE_MOVES=0` turns this off, leaving the reachable region instead);
+  - never-seen units are estimated from the unit capacity (level + 1) of the enemy cities we know, an unfound
+    capital counting as level 1, spread over the fog by distance to those cities.
+- Observation (only with the flag): 4 spatial channels after the existing ones (`fog_presence`, `fog_attack`,
+  `fog_last_seen`, `fog_unseen`) and 3 scalars at the end (`FOG_MEMORY_CHANNELS` / `FOG_MEMORY_SCALARS` in
+  `environment_contract.py`): 7,182 dimensions under 2.15 rules, 6,911 under 2020 rules. The environment version gains
+  `+fog_memory_v1` (before any rules suffix), so checkpoints with and without it are never mixed;
+  `--init-from` maps a checkpoint without it into a run with it (new inputs start at zero weight).
+- Tactical search: remembered units it is nearly sure about (at most 3 possible tiles) are placed in the search
+  copy, so the danger term and blocking account for them (`CombatTactics.addRememberedUnits`).
+- `PythonEnv`: `setFogMemory`, `fogMemoryJson`, `tacticalDanger` (diagnostic); `observationJson` carries a
+  `fogMemory` block only when on. `tools/evaluate_combat.py` turns it on for checkpoints that have it and records
+  `fog_memory` in `config.json`. `cluster/combat_fog_memory_v2.env`.
+
+### Validation
+- `tests/java/players/FogMemoryTest.java` (via `tools/tests/test_combat_fog_memory.py`): a watched retreat into
+  the fog is pinned to one tile; without following, a reachable region that excludes seen tiles and grows next
+  turn; an attacker in the fog is revealed; a seen death is forgotten; surrounding a remembered unit leaves it one
+  tile; an unfound capital gives an estimate of 2 spread only over fog; the search sees danger from a remembered
+  Rider and none without memory. Passes on 49 of the first 50 training maps under both rule sets; on the 50th
+  the test fixture finds no city-free area to set up the puzzles.
+- Live 2.15 combat game with the flag: observation 7,182, no belief on any tile we can see, remembered units
+  present. Random play on 8 validation maps (diagnostic): about half the enemy units are hidden from us in turns
+  4-16, and up to a third of those were seen earlier.
+- Fixed-seed trajectory hashes (Phase 1, combat 2020 and combat 2.15; seed 7, 3,000 steps) identical to
+  6e693b8: default runs are unchanged. Not trained or run on Farmshare.
+
+## [Phase2-Combat_Tactical_Search_Teacher-075] - (2026-11-14)
+
+### Scope
+- `players/heuristics/CombatTactics.java`: within-turn tactical beam search for combat (depth 3, beam 8, on a copy
+  with the active tribe's fog) over attacks, city captures, infiltrations and moves near the enemy. Value: result
+  (holding every capital counts as a win), health-weighted material, cities, sieges, minus next-turn danger: which
+  of our units the visible enemies could kill (engine pathfinder, so blocking counts; engine damage formula) and
+  enemy reach to our undefended capital. Returns -1 when no tactical sequence beats stopping now.
+- `PythonEnv.tacticalChooseIndex` (one method). `search_teacher.py`: combat teacher mode `tactical_search`,
+  `tactical_slot`. Merged `feat/lookahead-kickstart` for the `--teacher` machinery; `--teacher tactical_search` is
+  allowed in combat only, labels only tactical decisions (-1 elsewhere), and `--teacher` with `--overlap-rollout`
+  is refused.
+- `tools/evaluate_combat.py --policy ppo_search`: search where it applies, else ppo_argmax (opt-in, not canonical).
+- `cluster/combat_teacher_v2.env`; `docs/combat-next-steps.md` (how to run 073-075).
+
+### Validation
+- `tests/java/players/CombatTacticsTest.java` (via `tools/tests/test_combat_tactics.py`): the archer attacks before
+  the warrior and the enemy dies without retaliation; a unit on the enemy capital captures it; three blockers remove
+  the danger to a weakened besieger; nothing tactical gives -1. Passes on all 50 training maps.
+- A barely trained checkpoint on 4 eval maps: ppo_search won 3 of 4 games, ppo_argmax 0 of 4 (diagnostic only),
+  at about 2.1 s per game against 0.7 s. A short PPO run with the teacher labelled, decayed and switched off.
+- Fixed-seed trajectory hashes (Phase 1 seed 7, combat seed 7, 3,000 steps) identical between e612943 (before
+  073-075) and this commit: none of the three features changes a default run. Not run on Farmshare.
+
+## [Phase2-Combat_Selfplay_League-074] - (2026-11-14)
+
+### Scope
+- Self-play opponents (opt-in, `POLYVISION_COMBAT_LEAGUE=1`; `pol_env/Tribes/py/combat_selfplay.py`): in some games
+  a frozen policy snapshot plays tribe 1 instead of SimpleAgent. Java needs no change: the "external" opponent type
+  leaves tribe 1's turn to Python. The opponent's own fogged observation and legal actions are relabelled so it is
+  tribe 0 (`swap_tribes`) and encoded by a copy of the wrapper (`OpponentView`), so a snapshot plays with exactly
+  the interface it was trained on. `gym_env.py` gains a hook (one call after `stepByIndex`) that plays that turn.
+- `CombatLeague`: SimpleAgent with probability `POLYVISION_COMBAT_LEAGUE_SIMPLE_PROB` (default 0.5), otherwise a
+  snapshot by prioritised fictitious self-play, weight (1 - smoothed learner win rate)^2, over the newest 8 of: the
+  learner's own periodic checkpoints (`POLYVISION_COMBAT_LEAGUE_SELF=1`, wired by `ppo.py`) and
+  `POLYVISION_COMBAT_LEAGUE_GLOB`. Snapshots that do not fit the environment are rejected, not crashed on.
+- End-of-game info: `combat_end_raw_opponent_snapshot`, `combat_end_raw_win_vs_simple` / `_vs_snapshot`,
+  `combat_end_raw_league_pool_size` (logged by the existing `end_raw/` W&B tracking).
+- `cluster/combat_selfplay_v2.env`: v2 weights + league, snapshots every 100k steps, warm start via `INIT_FROM`.
+- Limitation: the opponent view does not track its units' previous tiles, so the "move back to the previous
+  tile" action feature is always 0 for the opponent.
+
+### Validation
+- `tools/tests/test_combat_selfplay.py`: the swap relabels tribes, units, cities, the active tribe, Diplomacy
+  arrays and action fields, and is its own inverse; the pool keeps the newest snapshots; PFSP weighting;
+  unloadable snapshots are rejected once.
+- Live: a real 2.15 composed snapshot played tribe 1 in 6 games (120 opponent turns from Python, 269 decisions over
+  3 games: it moved, trained units and grew its score; its view was relabelled to tribe 0 on every decision).
+- Default runs are unchanged: no league unless `POLYVISION_COMBAT_LEAGUE=1`. Not run on Farmshare yet.
+
+## [Phase2-Combat_Outcome_Finetune-073] - (2026-11-14)
+
+### Scope
+- `POLYVISION_COMBAT_REWARD_SHAPING_SCALE` (default 1, so no run changes) scales every combat reward term except
+  the outcome terms (`TribesGymWrapper.COMBAT_OUTCOME_TERMS`: win, loss, timeout, early win, terminal potential,
+  turn penalty).
+- Outcome-only fine-tuning: `cluster/combat_outcome_finetune.env` (v2 weights, shaping × `SHAPING_SCALE`,
+  `--init-from` with a critic reset unless `RESET_CRITIC=0`, learning rate 2e-4), `cluster/combat_finetune_stage.sbatch`
+  (resolves the checkpoint when the job starts, from `INIT_FROM` or the latest run named `INIT_FROM_EXP`) and
+  `cluster/run_combat_finetune.sh CHECKPOINT NAME [SEED]` (one job: outcome only, shaping × 0 and no end-of-game share of the lead
+  (terminal potential 0), for 2M steps with a fresh critic; an earlier two-stage fade through shaping × 0.5 was dropped so the policy is trained on winning only).
+
+### Validation
+- `test_combat_shaping_terms.py`: the scale halves or zeroes every shaping weight and leaves the outcome weights.
+- Local end-to-end with tiny step counts: a source run, stage 1 (×0.5, critic reset) and stage 2 (×0, from stage 1's
+  checkpoint) all trained and saved.
+- Not run on Farmshare: it fine-tunes the v2b runs once they finish.
+
+## [Eval-Canonical_Combat_Evaluation-072] - (2026-11-14)
+
+### Scope
+- New canonical combat evaluator `tools/evaluate_combat.py` (pure helpers in `tools/combat_eval_core.py`), paired
+  comparison `tools/compare_combat_evals.py`, and Farmshare job `cluster/eval_combat_farmshare.sbatch`
+  (docs/evaluation.md, "Canonical combat (Phase 2) evaluation").
+- New map pools `levels/phase2_pool_1v1/eval_validation` and `eval_test` (120 maps each, seeds 30000+ and 40000+),
+  pinned in `eval_manifest.json`. `tools/generate_phase2_maps.py` gains `--pool/--count/--start-seed`; with no
+  arguments it regenerates train and validation exactly as before (verified byte-identical for map 10000).
+- Canonical: `eval_validation`, 5 replicates, seed 42, `ppo_argmax` + `ppo_sampled` + `random_legal`. Episode seeds
+  depend only on map and replicate, so evaluations pair map by map. `eval_test` needs `--confirm-test`.
+
+### Validation
+- `tools/tests/test_combat_eval.py` (10 tests): manifest matches the files and is reproducible, eval maps are
+  disjoint from training, tribe order follows the engine, seeds pair across policies, canonical classification,
+  per-map statistics, paired comparison and its refusal of unpaired evaluations.
+- A small 2.15 composed checkpoint evaluated twice on 4 maps × 2 replicates gave identical episodes; the evaluator
+  refuses `eval_test` without `--confirm-test`. About 0.4 s per game for a weak policy.
+- No model evaluated canonically yet.
+
+## [Phase2-Combat_Cap_All_v2_Rules_2_15_Composed-071] - (2026-11-14)
+
+### Scope
+- Composed network under the 2.15 rules: `action_types.py` rebuilds the catalog for the active
+  `POLYVISION_RULES` (Cloak, Diplomacy) and adds the Diplomacy types (`INFILTRATE` with tiles; `OFFER_PEACE`,
+  `ACCEPT_PEACE`, `BREAK_PEACE`, `BUILD_EMBASSY` per target tribe, no tile). The 2.15 combat type table has 94
+  types for 93,454 ids.
+- `--init-from` across a rules change and into the composed network: input layers that read the observation
+  (ResNet stem, scalar layer, MLP first layers, normalisation statistics) are remapped block by block for the
+  2.15 layout (6,424 → 6,695), with zero weight on the new inputs, so the warm network initially computes the
+  same function; `spatial_resnet_local` → `spatial_resnet_composed` is allowed, and each composed action type
+  starts as the mean of the source's per-id embeddings of that type; composed → composed transfers match types
+  by name instead of position.
+- New opt-in combat reward terms (default 0, so no existing run changes): `rider` (potential per Rider alive),
+  `train_rider`, `train_infantry`, `rider_attack`, `embassy`, `turn_penalty` (docs/rewards.md).
+- `cluster/combat_cap_all_v2.env`: Kevin's cap_all weights plus 2.15 rules, `spatial_resnet_composed`, 16 envs,
+  seeded-random maps, optional `INIT_FROM`, and starting values for the new terms: +0.3 potential per Rider
+  alive, +0.1 per Rider attack; embassy −5. Outcome over "who is ahead" and against timeouts (48.9% in cap_all,
+  where the potential paid ~20 per game against 14.7 for the outcome): win 60 (was 30), timeout −10 (was 0),
+  loss −15 (was −10, kept close to a timeout so the agent does not play safe), early-win bonus 60 (was 20), half of
+  the final potential paid at game end (was all), −0.25 per turn.
+
+### Validation
+- `test_init_from.py`: a 2020 `spatial_resnet_local` combat agent warm-started into a 2.15 composed agent gives
+  an identical state embedding on observations with zero Diplomacy inputs, and `TRAIN/RIDER` starts at the mean
+  of its per-id rows. `test_combat_shaping_terms.py`: the new terms (off by default) and the v2 env file.
+- End-to-end: a 2,048-step 2020 `spatial_resnet_local` combat checkpoint warm-started a 4,096-step 2.15 composed
+  run sourced from `combat_cap_all_v2.env` (75 of 94 action types seeded, critic reset).
+- The first v2 runs (Farmshare 1982593, 1982602-1982604) used one-off training rewards instead (Riders +1,
+  Warriors and Swordsmen −0.5, +0.25 per Rider attack). Against cap_all's per-game reward breakdown (W&B
+  `vis7ipn7`: outcome 14.7, all potential terms ~22, other events ~5 per game) these could swing ~24 per game
+  between an all-Warrior and an all-Rider army, close to a win, and a Rider that died kept its reward, so they
+  were replaced by the potential.
+- No model trained or evaluated. Kevin's cap_all checkpoints were not uploaded to W&B; upload one before using
+  `INIT_FROM`.
+
 ## [Train-Init_From_Checkpoint-070] - (2026-11-13)
 
 ### Scope
@@ -408,6 +610,70 @@ Every remaining item of `docs/rules-parity.md` except the 2.8 naval rework, all 
   ~760 -> ~885 steps/s (+16%); whole run including startup, validation and the CPU PPO update 152-156 ->
   160-161 steps/s (+4%), because the update is ~80% of wall time on this machine. Policy forward per step
   3.9 ms (one batch of 8) vs 2 x 2.3 ms (two batches of 4); time blocked on envs 6.2 -> 3.1 ms per step.
+
+## [Phase1-Lookahead_Teacher_Kickstarting-056] - (2026-11-13)
+
+### Scope
+- Opt-in kickstarting (Schmitt et al. 2018) of Phase 1 PPO from the fog-respecting lookahead teacher of entry 052.
+  Training only: network, observation, action space, reward, transitions, checkpoint format and evaluation are
+  unchanged, so no contract bump.
+- Environment (`register_env.py`, Phase 1 only): `POLYVISION_TEACHER=lookahead_visible` makes every decision
+  state's info carry `teacher_slot`, the legal slot the one-step lookahead with the tuned visible-information weights
+  would choose (`-1` after a terminal/truncated step; the autoreset info carries the new episode's slot). The slot
+  survives the compact IPC wrapper unchanged (valid slots keep their order). Unset (default) adds no info keys and
+  makes no Java search call. Rejected in combat mode. `set_teacher_enabled(False)` switches the search off in a
+  running worker.
+- Shared logic in `pol_env/Tribes/py/search_teacher.py` (feature order, hand-set and tuned weights, slot selection);
+  `tools/evaluate_search_policy.py` now imports it, so the evaluator and the env teacher are one code path. The tuned
+  weights are copied bit for bit from the 21.84 SPT evaluation's `config.json` (`--weights tuned_visible`).
+- Reproducibility fix for the search: `GameState.copy` gives each copy an unseeded `java.util.Random`, so actions with
+  random outcomes (EXAMINE ruins, LEVEL_UP with EXPLORER) scored differently on every call and the PR #11 evaluator
+  is not reproducible (a rerun of the first 20 validation maps gave 22 instead of 19 SPT on one map). New
+  `PythonEnv.lookaheadScoresSeededPacked` reseeds the copy for action i with `seed * 1000003 + i` and returns the
+  scores as one big-endian double byte[] (one Py4J transfer instead of one round trip per element; 2.8 -> 0.5 ms
+  median per decision). The env teacher seeds each decision from `sha256(episode seed, decision index)`;
+  `evaluate_search_policy.py --search-seeding per_decision` plays the identical seeded teacher. The default
+  (`none`) keeps PR #11's unseeded behaviour. Existing `lookaheadScores` / `mctsChooseIndex` are unchanged.
+- Trainer (`ppo.py`, code in `py_rl/cleanrl/cleanrl/teacher_kickstart.py`): `--teacher lookahead_visible` sets the
+  env var for the training workers only (not the action-interface validator; a stray `POLYVISION_TEACHER` without the
+  flag is dropped). Teacher slots are stored in the rollout buffer and the loss becomes
+  `pg_loss - ent_coef * entropy + vf_coef * v_loss + coef(t) * mean(-log pi(teacher_slot | s))` over labelled rows,
+  i.e. cross-entropy between the policy's masked distribution over legal slots and the teacher's choice.
+  `coef(t) = --teacher-coef * max(0, 1 - progress / --teacher-decay-frac)` (defaults 1.0 and 0.5; decay 0 keeps it
+  constant). With `--teacher-disable-after-decay` (default on) the workers stop searching once `coef` reaches 0.
+  Logs `losses/teacher_ce`, `charts/teacher_coef`, `charts/teacher_agreement` (sampled action == teacher),
+  `charts/teacher_argmax_agreement` (policy argmax == teacher, during the update) and `charts/teacher_label_coverage`.
+  `get_action_and_value(..., return_distribution=True)` (MLP and ResNet agents; passes through `ObsNormalizedAgent`)
+  returns the distribution as a sixth value; the default call is unchanged. The sidecar records
+  `training_teacher` for information only.
+- `tools/hash_env_trajectory.py --ignore-info-prefix teacher_` checks that the teacher adds only its own keys.
+
+### Validation (diagnostics, not results)
+- Teacher parity, first 20 validation maps (1,574 decisions): `--search-seeding per_decision` evaluator and an env
+  policy that plays `info["teacher_slot"]` chose identical slots at every decision and identical SPT (mean 21.55);
+  the seeded evaluator run twice is identical. Same SPT as the committed 250-map evaluation on 19/20 maps (the
+  unseeded PR #11 evaluator, rerun, differs from its own committed result on the same one map).
+- Trajectory hash (1,500 steps, seed 7): teacher off, before and after this change, identical
+  (`b74639a2...`, features `4511000e...`); teacher on with `teacher_` keys ignored also identical, so the search does
+  not perturb the game.
+- `tools/tests/test_teacher_kickstart.py`: slot selection equals the PR #11 code on 3,000 random cases; tuned weights
+  equal the committed config; feature order equals the Java heuristic; schedule, slot extraction, compact IPC;
+  cross-entropy equals `F.cross_entropy` on the masked logits with gradients, for `mlp`, `spatial_resnet_local`,
+  `spatial_resnet_composed`, each with and without `--norm-obs`; teacher flags survive the `EXTRA_PPO_ARGS` filter;
+  opt-in live tests (`POLYVISION_RUN_JAVA_TESTS=1`): no search call and no teacher key with the teacher off, a valid
+  slot and one search per decision with it on.
+- Cost (this Mac, single env, random legal play via the hash tool): mean step 1.48-1.61 ms off vs 2.11-2.74 ms on
+  (+0.5 to +1.3 ms, +35-85%); median 1.37-1.45 vs 1.85-2.06 ms. For a 4M-step run with the default decay (teacher
+  active for 2M steps) that is about 1,000-2,600 extra env-seconds in total, spread over the env workers (a few
+  minutes of wall time with 8-12 workers if cores are free; scale up for slower cluster CPUs).
+- Smoke runs (diagnostic, 2,048 steps, 2 envs, `--norm-obs`, seed 3): `spatial_resnet_composed` and
+  `spatial_resnet_local` with `--teacher lookahead_visible` train end to end; `charts/teacher_coef` goes
+  1.0/0.75/0.5/0.25/0 and the workers' search switches off at iteration 5; label coverage 1.0 while active;
+  teacher_ce ~2.3. With a constant coefficient (decay 0) argmax agreement with the teacher rises 0.30 -> ~0.5 in 8
+  updates (sampled-action agreement ~0.2). Trainer SPS 130 vs 142 for the no-teacher control at this tiny scale.
+  The sidecar records `training_teacher`; `tools/evaluate_phase1.py` loaded the composed checkpoint and played
+  2 validation maps (1 repeat): ppo_argmax 9.5, ppo_sampled 7.5 SPT (untrained smoke model; not a result, not
+  committed). No model was trained for comparison, so there is no `docs/experiments.md` entry.
 
 ## [Fix-Validator_RNG_Isolation-055] - (2026-11-12)
 

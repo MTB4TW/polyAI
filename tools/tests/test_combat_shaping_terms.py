@@ -130,3 +130,102 @@ class TermTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class UnitPreferenceAndTempoTests(unittest.TestCase):
+    """Rider preference, embassy penalty and turn penalty (combat_cap_all_v2)."""
+
+    def wrapper(self, **weights):
+        from pol_env.Tribes.py.register_env import TribesGymWrapper
+
+        w = TribesGymWrapper.__new__(TribesGymWrapper)
+        env = {f"POLYVISION_COMBAT_REWARD_{k.upper()}": str(v) for k, v in weights.items()}
+        w._combat_reward_weights = TribesGymWrapper._load_combat_reward_weights(env)
+        w._turn_count = 0
+        w._combat_turn_start_state = None
+        w._combat_reset_turn_trackers()
+        return w
+
+    def test_attacker_type(self):
+        s = state([unit(1, 0, "RIDER", 2, 2), unit(2, 1, "WARRIOR", 2, 3)])
+        self.assertEqual(cs.attacker_type(s, {"unit_id": 1, "target_unit_id": 2}), "RIDER")
+        self.assertIsNone(cs.attacker_type(s, {"unit_id": 7}))
+
+    def test_terms_are_off_by_default(self):
+        w = self.wrapper()
+        s = state([unit(1, 0, "RIDER", 2, 2)])
+        for action in ({"type": "SPAWN", "unit_type": "RIDER"}, {"type": "BUILD_EMBASSY"}, {"type": "END_TURN"}):
+            self.assertEqual(w._combat_event_rewards(s, s, action, action["type"]), {})
+
+    def test_rider_preference(self):
+        w = self.wrapper(train_rider=1.0, train_infantry=0.5, rider_attack=0.25)
+        s = state([unit(1, 0, "RIDER", 2, 2), unit(2, 0, "WARRIOR", 4, 4), unit(3, 1, "WARRIOR", 2, 3)])
+        self.assertEqual(w._combat_event_rewards(s, s, {"type": "SPAWN", "unit_type": "RIDER"}, "SPAWN"),
+                         {"train_rider": 1.0})
+        for kind in ("WARRIOR", "SWORDMAN"):
+            self.assertEqual(w._combat_event_rewards(s, s, {"type": "SPAWN", "unit_type": kind}, "SPAWN"),
+                             {"train_infantry": -0.5})
+        self.assertEqual(w._combat_event_rewards(s, s, {"type": "SPAWN", "unit_type": "ARCHER"}, "SPAWN"), {})
+        attack = {"type": "ATTACK", "unit_id": 1, "target_unit_id": 3}
+        self.assertEqual(w._combat_event_rewards(s, s, attack, "ATTACK"), {"rider_attack": 0.25})
+        attack = {"type": "ATTACK", "unit_id": 2, "target_unit_id": 3}
+        self.assertEqual(w._combat_event_rewards(s, s, attack, "ATTACK"), {})
+
+    def test_embassy_and_turn_penalties(self):
+        w = self.wrapper(embassy=5, turn_penalty=0.25)
+        s = state([unit(1, 0, "RIDER", 2, 2)])
+        self.assertEqual(w._combat_event_rewards(s, s, {"type": "BUILD_EMBASSY"}, "BUILD_EMBASSY"), {"embassy": -5.0})
+        self.assertEqual(w._combat_event_rewards(s, s, {"type": "END_TURN"}, "END_TURN"), {"turn_penalty": -0.25})
+
+    def test_v2_env_file_weights_are_valid(self):
+        import re
+        from pol_env.Tribes.py.register_env import TribesGymWrapper
+
+        env = {}
+        root = os.path.join(os.path.dirname(__file__), "..", "..", "cluster")
+        for name in ("combat_cap_all.env", "combat_cap_all_v2.env"):
+            with open(os.path.join(root, name), encoding="utf-8") as fh:
+                for line in fh:
+                    m = re.match(r"^export (POLYVISION_COMBAT_REWARD_[A-Z_]+)=(\S+)", line.strip())
+                    if m:
+                        env[m.group(1)] = m.group(2)
+        weights = TribesGymWrapper._load_combat_reward_weights(env)
+        self.assertEqual(weights["timeout"], -10.0)
+        # The outcome must outweigh the lead: win minus timeout well above the cap_all per-game potential (~20).
+        self.assertGreaterEqual(weights["win"] - weights["timeout"], 3 * 20)
+        # Not risk averse: a loss costs far less relative to a timeout than a win gains.
+        self.assertGreaterEqual((weights["win"] - weights["timeout"]) / (weights["timeout"] - weights["loss"]), 10)
+        self.assertEqual(weights["embassy"], 5.0)
+        self.assertGreater(weights["rider"], 0.0)
+        self.assertEqual(weights["train_rider"], 0.0)
+
+    def test_rider_potential_counts_our_riders(self):
+        from pol_env.Tribes.py.register_env import TribesGymWrapper
+
+        w = self.wrapper(rider=0.3)
+        w._turn_count = 0
+        s = state([unit(1, 0, "RIDER", 2, 2, cost=3), unit(2, 0, "RIDER", 3, 3, cost=3),
+                   unit(3, 0, "WARRIOR", 4, 4), unit(4, 1, "RIDER", 9, 9, cost=3)])
+        terms = TribesGymWrapper._combat_phi_terms(w, s)
+        self.assertAlmostEqual(terms["rider"], 0.6)
+        self.assertNotIn("rider", TribesGymWrapper._combat_phi_terms(self.wrapper(), s))
+
+
+class ShapingScaleTests(unittest.TestCase):
+    def test_scale_multiplies_shaping_not_outcome(self):
+        from pol_env.Tribes.py.register_env import TribesGymWrapper as W
+
+        base = W._load_combat_reward_weights({"POLYVISION_COMBAT_REWARD_RIDER": "0.3"})
+        half = W._load_combat_reward_weights({"POLYVISION_COMBAT_REWARD_RIDER": "0.3",
+                                              "POLYVISION_COMBAT_REWARD_SHAPING_SCALE": "0.5"})
+        zero = W._load_combat_reward_weights({"POLYVISION_COMBAT_REWARD_RIDER": "0.3",
+                                              "POLYVISION_COMBAT_REWARD_SHAPING_SCALE": "0"})
+        for name in W.COMBAT_OUTCOME_TERMS:
+            self.assertEqual(half[name], base[name], name)
+            self.assertEqual(zero[name], base[name], name)
+        self.assertAlmostEqual(half["rider"], 0.15)
+        self.assertAlmostEqual(half["city"], base["city"] / 2)
+        shaping = [n for n in W.COMBAT_REWARD_DEFAULTS if n not in W.COMBAT_OUTCOME_TERMS]
+        self.assertTrue(all(zero[n] == 0.0 for n in shaping))
+        with self.assertRaises(ValueError):
+            W._load_combat_reward_weights({"POLYVISION_COMBAT_REWARD_SHAPING_SCALE": "-1"})

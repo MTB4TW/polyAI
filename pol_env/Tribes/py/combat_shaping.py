@@ -43,7 +43,7 @@ def totals(state, me):
     city_owner = {int(c["id"]): int(c["tribe"]) for c in state.get("cities", [])}
     for tid, t in (state.get("tribes") or {}).items():
         out[str(tid)] = {"numCities": int(t["cities"]), "score": int(t["score"]), "nKills": int(t["kills"]),
-                         "units": 0, "unitValue": 0, "giants": 0, "tiles": 0, "roads": 0}
+                         "units": 0, "unitValue": 0, "giants": 0, "riders": 0, "tiles": 0, "roads": 0}
     for u in state.get("units", []):
         t = out.get(str(int(u["tribe"])))
         if t is None:
@@ -51,6 +51,7 @@ def totals(state, me):
         t["units"] += 1
         t["unitValue"] += int(u.get("cost", 0))
         t["giants"] += int(u.get("type") == "SUPERUNIT")
+        t["riders"] += int(u.get("type") == "RIDER")
     tile_city, road = state.get("tileCity") or [], state.get("road") or []
     for x, column in enumerate(tile_city):
         for y, cid in enumerate(column):
@@ -173,6 +174,13 @@ def action_roles(state, me, action):
     return 0.0
 
 
+def attacker_type(state, action):
+    """Unit type of the attacker of an ATTACK action, judged on the state before it (None if unknown)."""
+    units = {int(u["id"]): u for u in state.get("units", [])}
+    att = units.get(int(action.get("unit_id", -1)))
+    return None if att is None else str(att["type"])
+
+
 def hp_lost(prev, cur):
     """HP lost per tribe between two states: drops for surviving units plus all HP of units that vanished
     (killed, or converted to the other side). Healing and new units are not counted."""
@@ -237,7 +245,7 @@ TECH_TIER = {t: 1 for t in ("CLIMBING", "FISHING", "HUNTING", "ORGANIZATION", "R
 TECH_TIER.update({t: 2 for t in ("ARCHERY", "FARMING", "FORESTRY", "FREE_SPIRIT", "MEDITATION", "MINING", "ROADS",
                                  "SAILING", "SHIELDS", "WHALING")})
 TECH_TIER.update({t: 3 for t in ("AQUATISM", "CHIVALRY", "CONSTRUCTION", "MATHEMATICS", "NAVIGATION", "SMITHERY",
-                                 "SPIRITUALISM", "TRADE", "PHILOSOPHY")})
+                                 "SPIRITUALISM", "TRADE", "PHILOSOPHY", "DIPLOMACY")})
 
 # Engine TECHNOLOGY enum order (the observation's `technology.researched` list uses it).
 TECH_ORDER = ("CLIMBING", "FISHING", "HUNTING", "ORGANIZATION", "RIDING", "ARCHERY", "FARMING", "FORESTRY",

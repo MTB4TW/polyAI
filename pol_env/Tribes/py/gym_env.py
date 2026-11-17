@@ -31,6 +31,9 @@ class TribesGymEnv:
         self._gateway = JavaGateway(gateway_parameters=GatewayParameters(port=port, auto_convert=True))
         self._jvm = self._gateway.jvm
         self._env = self._jvm.core.game.PythonEnv()
+        # Self-play (combat_selfplay.py): when set, called after a step that left a non-zero tribe to move, to play
+        # that tribe's turn from Python (the Java opponent is "external").
+        self.opponent_turn_hook = None
         self._solo_no_opponent_mode = str(
             os.environ.get("POLYVISION_SOLO_NO_OPPONENT_MODE", "1")
         ).strip().lower() in ("1", "true", "yes", "on")
@@ -88,6 +91,9 @@ class TribesGymEnv:
 
         t_step0 = time.perf_counter() if self._profile_sps_enabled else None
         self._env.stepByIndex(java_action_index)
+        hook = self.opponent_turn_hook
+        if hook is not None and not bool(self._env.isDone()) and int(self._env.getActiveTribeID()) != 0:
+            hook()
         if self._profile_sps_enabled:
             profile["java_step_call_s"] = float(time.perf_counter() - t_step0)
 
