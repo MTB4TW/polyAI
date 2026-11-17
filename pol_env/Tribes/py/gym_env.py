@@ -34,6 +34,15 @@ class TribesGymEnv:
         # Self-play (combat_selfplay.py): when set, called after a step that left a non-zero tribe to move, to play
         # that tribe's turn from Python (the Java opponent is "external").
         self.opponent_turn_hook = None
+        # Combat seat swap (combat_selfplay.py, POLYVISION_COMBAT_LEAGUE_SWAP_PROB): the Java tribe the learner
+        # plays. 0 = unchanged. With 1 the opponent (tribe 0) moves first, and every observation, legal action,
+        # score and combat state returned here is relabelled so the learner still appears as tribe 0; callers that
+        # need the engine's own ids use relabel=False (the snapshot opponent) or java_tribe_id().
+        self.learner_seat = 0
+        # Set by the wrapper before the learner's last END_TURN in seat 1, so the opponent does not get a
+        # (MAX_TURNS+1)-th turn: both sides play the same number of turns in either seat.
+        self.skip_opponent_turn = False
+        self._java_controlled_tribe = 0
         self._solo_no_opponent_mode = str(
             os.environ.get("POLYVISION_SOLO_NO_OPPONENT_MODE", "1")
         ).strip().lower() in ("1", "true", "yes", "on")
@@ -71,11 +80,58 @@ class TribesGymEnv:
         self._last_list_actions_profile = {}
 
     def reset(self, level_file: str, seed: int = 42, mode: str = "SCORE") -> Dict[str, Any]:
+        """Loads the level. In seat 1 the opponent (tribe 0) is to move on return: the caller plays its first turn
+        with play_opponent_turn() once its own per-game state is ready."""
         game_mode = getattr(self._jvm.core.Types.GAME_MODE, mode)
+        self.skip_opponent_turn = False
+        if int(self.learner_seat) != self._java_controlled_tribe:
+            # Only called once a swap is used, so seat-0 and Phase 1 runs never need the new engine method.
+            self._env.setControlledTribe(int(self.learner_seat))
+            self._java_controlled_tribe = int(self.learner_seat)
         self._env.initFromLevel(level_file, int(seed), game_mode)
-        self._last_obs = json.loads(self._env.observationJson())
+        self._last_obs = self._relabel_obs(json.loads(self._env.observationJson()))
         self._last_spt = self._compute_spt_from_obs(self._last_obs, tribe_id=0)
         return self._last_obs
+
+    # --- seat swap ---------------------------------------------------------------------------------------------
+
+    def java_tribe_id(self, tribe_id: int) -> int:
+        """Engine tribe id of a relabelled (learner = 0) tribe id."""
+        seat = int(self.learner_seat)
+        t = int(tribe_id)
+        return seat if t == 0 else 0 if t == seat else t
+
+    def _relabel_obs(self, obs: Dict[str, Any]) -> Dict[str, Any]:
+        if not self.learner_seat:
+            return obs
+        from .combat_selfplay import swap_tribes
+        return swap_tribes(obs, [], 0, int(self.learner_seat), inplace=True)[0]
+
+    def _relabel_actions(self, actions: List[dict]) -> List[dict]:
+        if not self.learner_seat:
+            return actions
+        from .combat_selfplay import swap_tribes
+        return swap_tribes({}, actions, 0, int(self.learner_seat), inplace=True)[1]
+
+    def combat_state(self) -> Dict[str, Any]:
+        """`PythonEnv.combatStateJson`, relabelled so the learner is tribe 0."""
+        state = json.loads(str(self._env.combatStateJson()))
+        if self.learner_seat:
+            from .combat_selfplay import swap_combat_state
+            swap_combat_state(state, 0, int(self.learner_seat))
+        return state
+
+    def play_opponent_turn(self) -> None:
+        """Plays the opponent until the learner's tribe is to move (or the game ends): the Python hook (league
+        snapshot) if set, otherwise the Java opponent agent."""
+        if bool(self._env.isDone()) or int(self._env.getActiveTribeID()) == int(self.learner_seat):
+            return
+        if self.opponent_turn_hook is not None:
+            self.opponent_turn_hook()
+        else:
+            self._env.playOpponentTurn()
+        if not bool(self._env.isDone()) and int(self._env.getActiveTribeID()) != int(self.learner_seat):
+            raise RuntimeError("Opponent turn ended with the learner's tribe still not to move")
 
     @property
     def action_space_n(self) -> int:
@@ -91,9 +147,16 @@ class TribesGymEnv:
 
         t_step0 = time.perf_counter() if self._profile_sps_enabled else None
         self._env.stepByIndex(java_action_index)
-        hook = self.opponent_turn_hook
-        if hook is not None and not bool(self._env.isDone()) and int(self._env.getActiveTribeID()) != 0:
-            hook()
+        if self.learner_seat:
+            # Seat 1: Java leaves every opponent turn to us (playOpponentTurn / the snapshot hook).
+            if self.skip_opponent_turn:
+                self.skip_opponent_turn = False
+            else:
+                self.play_opponent_turn()
+        else:
+            hook = self.opponent_turn_hook
+            if hook is not None and not bool(self._env.isDone()) and int(self._env.getActiveTribeID()) != 0:
+                hook()
         if self._profile_sps_enabled:
             profile["java_step_call_s"] = float(time.perf_counter() - t_step0)
 
@@ -103,7 +166,7 @@ class TribesGymEnv:
             profile["java_observation_fetch_s"] = float(time.perf_counter() - t_obs_fetch0)
 
         t_obs_parse0 = time.perf_counter() if self._profile_sps_enabled else None
-        obs = json.loads(obs_json)
+        obs = self._relabel_obs(json.loads(obs_json))
         if self._profile_sps_enabled:
             profile["java_response_parse_s"] = float(time.perf_counter() - t_obs_parse0)
 
@@ -144,7 +207,10 @@ class TribesGymEnv:
                 ref_done = bool(self._env.isDone())
                 ref_scores = list(self._env.getScores())
                 ref_tick = int(self._env.getTick())
-                ref_active_tribe_id = int(self._env.getActiveTribeID())
+                ref_active_tribe_id = self.java_tribe_id(int(self._env.getActiveTribeID()))
+                if self.learner_seat and len(ref_scores) > int(self.learner_seat):
+                    seat = int(self.learner_seat)
+                    ref_scores[0], ref_scores[seat] = ref_scores[seat], ref_scores[0]
                 if done != ref_done:
                     raise RuntimeError(f"METADATA_EQUIV mismatch: done={done} vs java={ref_done}")
                 if tick != ref_tick:
@@ -170,8 +236,12 @@ class TribesGymEnv:
             if self._profile_sps_enabled:
                 profile["java_tick_fetch_s"] = float(time.perf_counter() - t_tick0)
 
+            if self.learner_seat and len(scores) > int(self.learner_seat):
+                seat = int(self.learner_seat)
+                scores[0], scores[seat] = scores[seat], scores[0]
+                tribe0_score = scores[0]
             t_active0 = time.perf_counter() if self._profile_sps_enabled else None
-            active_tribe_id = int(self._env.getActiveTribeID())
+            active_tribe_id = self.java_tribe_id(int(self._env.getActiveTribeID()))
             if self._profile_sps_enabled:
                 profile["java_active_tribe_fetch_s"] = float(time.perf_counter() - t_active0)
 
@@ -198,7 +268,11 @@ class TribesGymEnv:
                     spt += float(city.get("production", 0))
         return spt
 
-    def list_actions(self) -> List[dict]:
+    def list_actions(self, relabel: bool = True) -> List[dict]:
+        parsed = self._list_actions_raw()
+        return self._relabel_actions(parsed) if relabel else parsed
+
+    def _list_actions_raw(self) -> List[dict]:
         self._list_actions_call_count += 1
         use_batch = bool(self._batch_legal_action_fetch_enabled)
         profile = {}
@@ -284,14 +358,17 @@ class TribesGymEnv:
             )
         return parsed
 
-    def get_observation(self, full_visibility: bool = False) -> Dict[str, Any]:
+    def get_observation(self, full_visibility: bool = False, relabel: bool = True) -> Dict[str, Any]:
         """Fetch a fresh observation from Java.
 
-        full_visibility=True is diagnostic-only and bypasses fog-of-war.
+        full_visibility=True is diagnostic-only and bypasses fog-of-war. relabel=False returns the engine's own
+        tribe ids (seat swap; see learner_seat).
         """
         if full_visibility:
-            return json.loads(self._env.observationJsonFull())
-        return json.loads(self._env.observationJson())
+            obs = json.loads(self._env.observationJsonFull())
+        else:
+            obs = json.loads(self._env.observationJson())
+        return self._relabel_obs(obs) if relabel else obs
 
     def render(self, mode: str = "ansi") -> Optional[Union[str, "Image.Image"]]:
         """Render the current state.

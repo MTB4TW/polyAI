@@ -44,6 +44,10 @@ public class PythonEnv {
     private String loadedLevelFile = null;
     private Agent opponentAgent = null;
     private String opponentType = "simple";
+    // Tribe the Python learner plays (combat seat swap, POLYVISION_COMBAT_LEAGUE_SWAP_PROB). 0 is the default and
+    // keeps the original behaviour: stepByIndex plays the Java opponent's turns itself. With 1, the opponent
+    // (tribe 0) moves first and Python asks for its turns with playOpponentTurn().
+    private int controlledTribeId = 0;
     // Combat only, opt-in (POLYVISION_FOG_MEMORY=1): one FogMemory per tribe; null when off.
     private boolean fogMemoryEnabled = false;
     private boolean fogMemorySeeMoves = true;
@@ -636,19 +640,38 @@ public class PythonEnv {
                 gs.initTurn(active);
                 gs.computePlayerActions(active);
             }
-        } else if (!gs.isGameOver() && opponentAgent != null && gs.getActiveTribeID() != 0) {
-            int maxOpponentActions = 100;
-            while (!gs.isGameOver() && gs.getActiveTribeID() != 0 && maxOpponentActions-- > 0) {
-                Action oppAct = opponentAgent.act(gs, null);
-                if (oppAct != null) {
-                    advanceCombatAction(oppAct);
-                } else {
-                    advanceCombatAction(new core.actions.tribeactions.EndTurn(gs.getActiveTribeID()));
-                }
+        } else if (!gs.isGameOver() && opponentAgent != null && controlledTribeId == 0 && gs.getActiveTribeID() != 0) {
+            playOpponentTurn();
+        }
+    }
+
+    /** Combat seat swap: the tribe Python plays (0 or 1). Kept across initFromLevel calls. */
+    public void setControlledTribe(int tribeId) {
+        if (tribeId < 0) throw new IllegalArgumentException("controlled tribe must be >= 0");
+        this.controlledTribeId = tribeId;
+    }
+
+    public int getControlledTribe() {
+        return controlledTribeId;
+    }
+
+    /**
+     * Plays the Java opponent agent (e.g. SimpleAgent) until the controlled tribe is active or the game is over.
+     * No-op without a Java opponent ("external": Python plays it).
+     */
+    public void playOpponentTurn() {
+        if (opponentAgent == null) return;
+        int maxOpponentActions = 100;
+        while (!gs.isGameOver() && gs.getActiveTribeID() != controlledTribeId && maxOpponentActions-- > 0) {
+            Action oppAct = opponentAgent.act(gs, null);
+            if (oppAct != null) {
+                advanceCombatAction(oppAct);
+            } else {
+                advanceCombatAction(new core.actions.tribeactions.EndTurn(gs.getActiveTribeID()));
             }
-            if (!gs.isGameOver() && gs.getActiveTribeID() != 0) {
-                throw new IllegalStateException("Opponent exceeded action budget without ending its turn");
-            }
+        }
+        if (!gs.isGameOver() && gs.getActiveTribeID() != controlledTribeId) {
+            throw new IllegalStateException("Opponent exceeded action budget without ending its turn");
         }
     }
 

@@ -51,6 +51,28 @@ def load_privileged_critic_for_init(critic: nn.Module, init_from: str, map_locat
     if not isinstance(state, dict):
         raise RuntimeError(f"[PRIVILEGED_CRITIC] {path} is not a state dict")
     own = critic.state_dict()
+    stat_keys = ("return_mean", "return_sq_mean", "return_stats_initialised")
+    has_stats = all(k in state for k in stat_keys)
+    run_norm = bool(getattr(critic, "value_norm", False))
+    if run_norm and not any(k in state for k in stat_keys):
+        # Saved before value normalisation (CHANGELOG 071): its head emits raw returns. Mean 0 / std 1 (the std
+        # floor) gives V exactly as saved; marking the statistics initialised makes the first PopArt update
+        # preserve those outputs instead of overwriting them.
+        state = dict(state)
+        state["return_mean"] = torch.zeros((), dtype=torch.float32)
+        state["return_sq_mean"] = torch.ones((), dtype=torch.float32)
+        state["return_stats_initialised"] = torch.ones((), dtype=torch.float32)
+        print(f"[PRIVILEGED_CRITIC] init: {path} has no value-normalisation statistics; starting them at mean 0, std 1")
+    elif not run_norm and has_stats:
+        # Saved with value normalisation, loaded without: fold mean/std into the output layer.
+        state = dict(state)
+        mean = state.pop("return_mean").float()
+        var = (state.pop("return_sq_mean").float() - mean ** 2).clamp_min(0.0)
+        std = var.sqrt().clamp_min(float(getattr(critic, "value_norm_min_std", 1.0)))
+        state.pop("return_stats_initialised")
+        state["value_head.4.weight"] = state["value_head.4.weight"] * std
+        state["value_head.4.bias"] = state["value_head.4.bias"] * std + mean
+        print(f"[PRIVILEGED_CRITIC] init: folded saved value-normalisation statistics into the output layer")
     bad = [f"{k}: saved {tuple(v.shape)} vs run {tuple(own[k].shape)}" for k, v in state.items()
            if k in own and hasattr(v, "shape") and tuple(v.shape) != tuple(own[k].shape)]
     if bad:

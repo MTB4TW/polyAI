@@ -179,6 +179,32 @@ class CriticTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "shape mismatch"):
                 load_privileged_critic_for_init(PrivilegedCritic(self.obs_dim, norm_obs=True, hidden_channels=32), model)
 
+    def test_init_from_critic_saved_before_value_norm(self):
+        """A critic saved without PopArt statistics (runs before CHANGELOG 071, e.g. the teacher seeds) loads into
+        a value-normalised critic with V(s) unchanged, also across the first statistics update; and back."""
+        from py_rl.cleanrl.cleanrl.privileged_critic import (
+            PrivilegedCritic, load_privileged_critic_for_init, privileged_critic_path)
+
+        torch.manual_seed(3)
+        old = PrivilegedCritic(self.obs_dim, value_norm=False)
+        with torch.no_grad():
+            old.value_head[-1].bias.fill_(-12.0)  # raw-return scale, as an old combat critic
+        x = torch.randn(6, self.obs_dim)
+        v_old = old(x).detach()
+        with tempfile.TemporaryDirectory() as d:
+            model = os.path.join(d, "m.cleanrl_model")
+            torch.save(old.state_dict(), privileged_critic_path(model))
+            new = PrivilegedCritic(self.obs_dim, value_norm=True)
+            self.assertTrue(load_privileged_critic_for_init(new, model))
+            self.assertTrue(torch.allclose(new(x), v_old, atol=1e-5))
+            new.update_return_stats(torch.randn(200) * 30 - 10)  # preserves outputs (statistics marked initialised)
+            self.assertTrue(torch.allclose(new(x), v_old, atol=1e-3))
+            # Value-normalised critic loaded without value normalisation: statistics folded into the output layer.
+            torch.save(new.state_dict(), privileged_critic_path(model))
+            plain = PrivilegedCritic(self.obs_dim, value_norm=False)
+            self.assertTrue(load_privileged_critic_for_init(plain, model))
+            self.assertTrue(torch.allclose(plain(x), v_old, atol=1e-3))
+
 
 
 class FlatGuardTests(unittest.TestCase):

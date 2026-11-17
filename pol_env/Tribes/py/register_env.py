@@ -627,6 +627,13 @@ class TribesGymWrapper(gym.Env):
         self._episode_index += 1
         self._turn_count = 0
         self._unit_previous_tiles = {}
+        if int(getattr(self.tribes_env, "learner_seat", 0)):
+            # Seat swap: the opponent (tribe 0) moves first; the learner's first observation follows its turn.
+            self.tribes_env.play_opponent_turn()
+            obs = self.tribes_env.get_observation()
+            self.tribes_env._last_obs = obs
+            if bool(self.tribes_env._env.isDone()):
+                raise RuntimeError("Combat game ended during the opponent's first turn")
         t_opening0 = time.perf_counter() if self._profile_sps_enabled else None
         is_combat = str(os.environ.get("POLYVISION_PHASE", "1")).strip() == "2" or str(os.environ.get("POLYVISION_COMBAT_MODE", "0")).strip() in ("1", "true")
         if not is_combat:
@@ -1086,6 +1093,10 @@ class TribesGymWrapper(gym.Env):
                 )
 
         t_java0 = time.perf_counter() if self._profile_sps_enabled else None
+        if (selected_action_type == "END_TURN" and int(getattr(self.tribes_env, "learner_seat", 0))
+                and self._is_combat_mode and int(self._turn_count) >= int(self.MAX_TURNS)):
+            # Seat swap: the opponent moved first and has had its MAX_TURNS turns; the game ends here.
+            self.tribes_env.skip_opponent_turn = True
         obs, _, done, info = self.tribes_env.step(selected_raw_action)
         if self._profile_sps_enabled:
             t_step_java_apply += time.perf_counter() - t_java0
@@ -5570,8 +5581,9 @@ class TribesGymWrapper(gym.Env):
                 + weights.get("road", 0.0) * d[7])
 
     def _combat_state(self):
-        """True combat state from the engine (`PythonEnv.combatStateJson`); see combat_shaping.py."""
-        return json.loads(str(self.tribes_env._env.combatStateJson()))
+        """True combat state from the engine (`PythonEnv.combatStateJson`, relabelled so the learner is tribe 0
+        in a seat-swapped game); see combat_shaping.py."""
+        return self.tribes_env.combat_state()
 
     def _combat_engine_totals(self, state=None):
         """True per-tribe totals (not fog-limited), as {"tribes": {...}} with the keys `_combat_potential` uses."""
@@ -5738,14 +5750,15 @@ class TribesGymWrapper(gym.Env):
     def _combat_end_diagnostics(self, obs, me=0):
         """Engine-side facts about a finished combat game, for judging how close timeouts came to a win."""
         gs = self.tribes_env._env.getGameState()
+        jid = self.tribes_env.java_tribe_id  # relabelled (learner = 0) -> engine tribe id (seat swap)
         enemy_ids = [tid for tid in self._combat_engine_totals()["tribes"] if int(tid) != int(me)]
-        enemy_cities = sum(int(gs.getTribe(int(tid)).getNumCities()) for tid in enemy_ids)
+        enemy_cities = sum(int(gs.getTribe(jid(int(tid))).getNumCities()) for tid in enemy_ids)
         held, dist = 0, -1
         for tid in enemy_ids:
-            capital = gs.getActor(int(gs.getTribe(int(tid)).getCapitalID()))
+            capital = gs.getActor(int(gs.getTribe(jid(int(tid))).getCapitalID()))
             if capital is None:
                 continue
-            held += int(int(capital.getTribeId()) == int(me))
+            held += int(int(capital.getTribeId()) == jid(int(me)))
             from py4j.java_gateway import get_field  # Vector2d exposes public fields, not getters
             pos = capital.getPosition()
             cx, cy = int(get_field(pos, "x")), int(get_field(pos, "y"))
@@ -5755,20 +5768,22 @@ class TribesGymWrapper(gym.Env):
                     dist = d if dist < 0 else min(dist, d)
         return {
             "combat_end_enemy_cities": int(enemy_cities),
-            "combat_end_own_cities": int(gs.getTribe(int(me)).getNumCities()),
+            "combat_end_own_cities": int(gs.getTribe(jid(int(me))).getNumCities()),
             "combat_end_enemy_capitals_held": int(held),
             "combat_end_min_unit_dist_to_enemy_capital": int(dist),
             "combat_first_contact_tick": int(self._combat_first_contact_tick),
         }
 
     def _select_combat_opponent(self):
-        """Self-play league only: pick this game's opponent (SimpleAgent or a snapshot playing tribe 1)."""
+        """Self-play league only: pick this game's opponent (SimpleAgent or a snapshot) and the learner's seat
+        (tribe 0, or tribe 1 with probability POLYVISION_COMBAT_LEAGUE_SWAP_PROB; the opponent takes the other)."""
         if self._combat_league is None or self._catalog is None:
             return
         from pol_env.Tribes.py.combat_selfplay import EXTERNAL_OPPONENT, SIMPLE_OPPONENT, OpponentView, play_external_turn
 
         opponent = self._combat_league.choose(self)
         self._combat_opponent = opponent
+        self.tribes_env.learner_seat = self._combat_league.choose_seat()
         java = self.tribes_env._env
         if opponent is None:
             java.setOpponentAgent(SIMPLE_OPPONENT, 0)  # reseeded with the episode seed by the reset
@@ -5779,7 +5794,7 @@ class TribesGymWrapper(gym.Env):
         state = {}
 
         def hook():
-            if "view" not in state:  # built at the first opponent turn, after this game's reset bookkeeping
+            if "view" not in state:  # built at the first opponent turn (seat 1: during the reset, turn count 0)
                 state["view"] = OpponentView(self)
             play_external_turn(self, opponent, state["view"])
 
@@ -5791,10 +5806,18 @@ class TribesGymWrapper(gym.Env):
             return {}
         snapshot = self._combat_opponent
         won = float(outcome == "win")
+        seat = int(getattr(self.tribes_env, "learner_seat", 0))
         self._combat_league.record(snapshot.path if snapshot is not None else None, outcome == "win")
+        kind = "snapshot" if snapshot is not None else "simple"
         info = {"combat_end_raw_opponent_snapshot": float(snapshot is not None),
-                "combat_end_raw_league_pool_size": float(len(self._combat_league.pool))}
-        info["combat_end_raw_win_vs_snapshot" if snapshot is not None else "combat_end_raw_win_vs_simple"] = won
+                "combat_end_raw_league_pool_size": float(len(self._combat_league.pool)),
+                "combat_end_raw_learner_seat": float(seat),
+                f"combat_end_raw_win_vs_{kind}": won,
+                f"combat_end_raw_win_seat{seat}": won,
+                f"combat_end_raw_win_vs_{kind}_seat{seat}": won,
+                # Per-opponent picks and results, aggregated over env workers by ppo.py (league/...).
+                "combat_league_opponent": self._combat_league.label(snapshot.path if snapshot is not None else None),
+                "combat_league_learner_won": won}
         return info
 
     def combat_reward_config(self):
