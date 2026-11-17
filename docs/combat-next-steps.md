@@ -1,6 +1,6 @@
 # Combat: next experiments (built, not yet run)
 
-Three additions for after the `combat_cap_all_v2b` runs finish. All are opt-in: with none of them enabled, training
+Opt-in additions for after the `combat_cap_all_v2b` runs finish. All are opt-in: with none of them enabled, training
 and evaluation behave exactly as before (fixed-seed trajectory hashes are identical in Phase 1 and combat). Judge
 each with the canonical combat evaluation (`tools/evaluate_combat.py`, docs/evaluation.md) and compare map by map
 with `tools/compare_combat_evals.py`.
@@ -65,3 +65,31 @@ visible, so it matters most in the first 15 turns.
   default matches the real game. The switch is for experiments with less information.
 - Compare with `tools/compare_combat_evals.py` against the v2b evaluation: same maps, so the difference is paired.
 
+
+## 5. Full-information critic (CHANGELOG 079)
+
+`ppo.py --privileged-critic` computes advantages with a separate critic that sees the unfogged game state; the
+policy still plays from the fogged observation, and its checkpoint is unchanged (the critic is saved to
+`X.cleanrl_model.privileged_critic.pt`, needed only to resume training). Under fog the policy's own value head has
+to guess what is in the clouds, which makes the advantages noisier; the full-information critic removes that part
+of the noise. Since fog here is unexplored tiles only, expect the effect mostly in the opening (first contact,
+finding the enemy capital) and with hidden Cloaks.
+
+- A/B against v2b, same settings plus the flag: `source cluster/combat_cap_all_v2.env &&
+  EXP_NAME=combat_cap_all_v2_pcritic_2m EXTRA_PPO_ARGS="--privileged-critic" sbatch cluster/train_combat_cpu.sbatch`
+  (3 seeds with `SEED=1..3`, as for v2b).
+- Watch `losses/explained_variance`: it should be clearly higher than v2b's from early on. If it is not, the
+  critic is not using the extra information and the win rate will not move either.
+- Slower: in a short local test (Mac, 4 envs, composed network, 6k steps) 140 steps/s against 212 without it, and
+  171 with `--overlap-rollout`. Building the unfogged observation costs about 0.6 ms of a 2.75 ms env step; most
+  of the rest is the critic's own ResNet in the update. Check the SPS chart on Farmshare, where more envs hide the
+  env part.
+- Combines with the other items: with fog memory or the teacher, add the flag to their `EXTRA_PPO_ARGS`.
+- Compare with `tools/compare_combat_evals.py` against the v2b evaluation.
+
+**Result (2026-11-15, canonical, docs/experiments.md):** from scratch, 3 seeds, 95.1% wins against v2b's 76.1%
+(seeds pooled +19.0 [+15.4, +22.8] points, 89 of 120 maps better), mostly by turning timeouts into wins; sampled
+play now wins as often as argmax (94.3% against 48.7%). Final `losses/explained_variance` was about the same as
+v2b's (0.93–0.94), so that check did not predict the gain. Warm starts from v2b seed 1 with the flag stayed near
+their source (−4.5 and +4.0 points, both within noise). On Farmshare the runs took about 16 h against v2b's
+10.8 h (about 36 steps/s with 16 envs).
