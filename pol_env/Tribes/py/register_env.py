@@ -372,6 +372,13 @@ class TribesGymWrapper(gym.Env):
             self.PHASE1_OPENING_VERSION = "combat_no_scripted_opening_v1"
             self.PHASE1_ENVIRONMENT_VERSION = f"combat_v5_scaled_scalars_horizon_{self.MAX_TURNS}"
             self._combat_reward_weights = self._load_combat_reward_weights()
+            self._combat_prev_potential = 0.0
+            self._combat_first_contact_tick = -1
+            self._combat_prev_state = None
+            self._combat_turn_start_state = None
+            self._combat_prev_terms = {}
+            self._combat_ep_components = {}
+            self._combat_reset_turn_trackers()
         # Self-play league (combat_selfplay.py; opt-in, POLYVISION_COMBAT_LEAGUE=1): snapshots play tribe 1 in some games.
         self._combat_league = None
         self._combat_opponent = None
@@ -380,13 +387,6 @@ class TribesGymWrapper(gym.Env):
 
             self._combat_league = CombatLeague(rng=np.random.default_rng(
                 (int(os.environ.get("POLYVISION_BASE_SEED", "42")) * 7919 + os.getpid()) % (2**32)))
-            self._combat_prev_potential = 0.0
-            self._combat_first_contact_tick = -1
-            self._combat_prev_state = None
-            self._combat_turn_start_state = None
-            self._combat_prev_terms = {}
-            self._combat_ep_components = {}
-            self._combat_reset_turn_trackers()
         # Combat is won by holding every capital (in 1v1: taking the enemy capital while keeping ours);
         # SCORE mode would require taking every enemy city. Phase 1 keeps SCORE.
         self._engine_game_mode = "CAPITALS" if self._is_combat_mode else "SCORE"

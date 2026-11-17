@@ -47,8 +47,8 @@ def resolve_rules_version(environ: Mapping[str, str] | None = None) -> str:
 
 # Revision of each non-default rule set. Bump it whenever what the rule set plays, shows or allows changes, so
 # checkpoints trained under an earlier revision are rejected. Revision 1 carries no suffix.
-#   polytopia_2_15 r1: Step 1 and combat basics (CHANGELOG 052).
-#   polytopia_2_15 r2: Step 2, Diplomacy, starting stars, backwards research (CHANGELOG 053).
+#   polytopia_2_15 r1: Step 1 and combat basics (CHANGELOG 059).
+#   polytopia_2_15 r2: Step 2, Diplomacy, starting stars, backwards research (CHANGELOG 060).
 RULES_REVISIONS = {"polytopia_2_15": 2}
 
 

@@ -75,7 +75,7 @@ Baselines on the same 250 validation maps: visible greedy 7.93, random legal 6.6
 ### Training-game diagnostics (before the canonical evaluation)
 
 Combat is judged by win rate against SimpleAgent (11×11, 1v1, CAPITALS mode, 20 turns). The canonical combat
-evaluation (`tools/evaluate_combat.py`, docs/evaluation.md, CHANGELOG 062) was added on 2026-11-14; the rows below
+evaluation (`tools/evaluate_combat.py`, docs/evaluation.md, CHANGELOG 072) was added on 2026-11-14; the rows below
 predate it and are **diagnostics from training games** (rate over the last 500 games, averaged over each run's final
 250k steps; about 9,000 games per run), not canonical results.
 
@@ -89,5 +89,5 @@ predate it and are **diagnostics from training games** (rate over the last 500 g
 All four: commit `64c8095`, `spatial_resnet_local`, 16 envs, seeded-random maps from `phase2_pool_1v1/train`.
 In `cap_all`, 47% of timeouts end with one of our units within 1 tile of the enemy capital; the army is mostly
 warriors (12.6 of 15.9 units), and the tech terms cut Philosophy/Meditation from 64%/80% (`none`) to about 1%.
-Tech-researched rates from these runs undercount by the loss rate (fixed in CHANGELOG 060).
+Tech-researched rates from these runs undercount by the loss rate (fixed in CHANGELOG 069).
 
