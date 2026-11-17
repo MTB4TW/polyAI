@@ -1,8 +1,8 @@
 # Rules parity: Tribes engine vs. current Polytopia
 
 Status (November 2026): everything below is implemented behind `POLYVISION_RULES=polytopia_2_15` except the
-2.8 naval rework (CHANGELOG entries 052 and 053). Steps 1-3 came first (052); Step 2, Diplomacy, the 2.14.0
-starting stars and backwards research followed (053, rules revision 2). The default, `tribes_2020`, is the
+2.8 naval rework (CHANGELOG entries 059 and 060). Steps 1-3 came first (059); Step 2, Diplomacy, the 2.14.0
+starting stars and backwards research followed (060, rules revision 2). The default, `tribes_2020`, is the
 original rule set, unchanged.
 
 The Java engine in `pol_env/Tribes/src/` is the Tribes research framework (Perez-Liebana et al., 2020) as
@@ -189,7 +189,7 @@ The scripted opening (two animal harvests and a Workshop on 5★) still complete
 map under these rules (opening audit, 5,250 maps), so `phase1_opening_version` can stay. The Phase 1 reference numbers (24.5 SPT, 20.52) would need re-running under
 the new rules before comparing.
 
-**Step 2: Phase 1, larger or less certain** (implemented, CHANGELOG 053)
+**Step 2: Phase 1, larger or less certain** (implemented, CHANGELOG 060)
 
 10. E4 Lumber Huts stay on forest. A forest tile with a building cannot be cleared, burnt or grown on.
 11. E6 Market replaces the Customs House in the same building slot (`CUSTOMS_HOUSE` in the interfaces, 5★,
@@ -212,7 +212,7 @@ the new rules before comparing.
     clockwise, one step further each time. Saved-game JSON does not store the direction.
 15. E11-E13 roads 3★, Burn Forest 3★/Construction, Destroy/Chivalry.
 
-**Step 4: the rest (implemented, CHANGELOG 053; Diplomacy is Kevin's area, please review)**
+**Step 4: the rest (implemented, CHANGELOG 060; Diplomacy is Kevin's area, please review)**
 
 16. E15 starting stars (2.14.0): Xin-xi 7★, Oumaji 6★, Hoodrick 7★, Quetzali 7★, Yădakk 7★, Luxidoor 2★ (its
     level-3 capital was already a Tribes rule), every other tribe 5★. Ai-Mo starts with Philosophy and a Mind
