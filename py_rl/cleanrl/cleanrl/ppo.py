@@ -86,6 +86,17 @@ class Args:
     """combat only: compute advantages with a separate critic that sees the true, unfogged state
     (env info["privileged_obs"]); the policy and its checkpoint are unchanged. Critic weights go to
     X.cleanrl_model.privileged_critic.pt (training-only)"""
+    privileged_critic_value_norm: bool = True
+    """with --privileged-critic: the critic predicts standardised returns (PopArt value normalisation); without it
+    the critic can saturate and go flat on the raw combat returns"""
+    privileged_critic_flat_patience: int = 5
+    """with --privileged-critic: act when the critic's predictions have had (almost) no spread (std < 1e-3 while the
+    returns' std > 1e-2) for this many updates in a row; 0 disables the check"""
+    privileged_critic_flat_action: str = "reinit"
+    """with --privileged-critic: what to do about a flat critic: "reinit" (fresh critic weights and optimiser state,
+    at most --privileged-critic-max-reinits times, then stop) or "stop" (end the run with an error)"""
+    privileged_critic_max_reinits: int = 3
+    """with --privileged-critic-flat-action reinit: stop the run instead once the critic has been reset this often"""
     critic_warmup_steps: int = 0
     """train only the critic head for the first N environment steps (policy, shared trunk and teacher loss frozen);
     for warm starts with a fresh critic, so the policy is not pushed around by an untrained value estimate"""
@@ -1755,9 +1766,18 @@ if __name__ == "__main__":
     return_normalizer = ReturnNormalizer(args.num_envs, args.gamma) if args.norm_returns else None
     privileged_critic = None
     if args.privileged_critic:
-        from py_rl.cleanrl.cleanrl.privileged_critic import PRIVILEGED_CRITIC_VERSION, PrivilegedCritic
+        from py_rl.cleanrl.cleanrl.privileged_critic import (
+            PRIVILEGED_CRITIC_VERSION, FlatCriticGuard, PrivilegedCritic, reinitialize_critic,
+        )
         obs_dim_flat = int(np.prod(envs.single_observation_space.shape))
-        privileged_critic = PrivilegedCritic(obs_dim_flat, norm_obs=bool(args.norm_obs)).to(device)
+        if args.privileged_critic_flat_action not in ("reinit", "stop"):
+            raise SystemExit("--privileged-critic-flat-action must be 'reinit' or 'stop'")
+        privileged_critic = PrivilegedCritic(obs_dim_flat, norm_obs=bool(args.norm_obs),
+                                             value_norm=bool(args.privileged_critic_value_norm)).to(device)
+        privileged_critic_guard = FlatCriticGuard(int(args.privileged_critic_flat_patience))
+        privileged_critic_reinits = 0
+        print(f"[PRIVILEGED_CRITIC] value_norm={bool(args.privileged_critic_value_norm)} "
+              f"flat_check: patience={int(args.privileged_critic_flat_patience)} action={args.privileged_critic_flat_action}")
         print(f"[PRIVILEGED_CRITIC] {sum(p.numel() for p in privileged_critic.parameters())} critic parameters")
     trainable_params = list(agent.parameters()) + (list(privileged_critic.parameters()) if privileged_critic is not None else [])
     optimizer = optim.Adam(trainable_params, lr=args.learning_rate, eps=1e-5)
@@ -2768,6 +2788,9 @@ if __name__ == "__main__":
             advantages, returns = compute_gae(
                 rewards, values, dones, next_value, next_done, args.gamma, args.gae_lambda, step_discounts
             )
+            if privileged_critic is not None:
+                # Value normalisation: move the return statistics to this rollout (outputs preserved) before training.
+                privileged_critic.update_return_stats(returns)
 
         # flatten the batch
         b_obs = obs.reshape((-1,) + envs.single_observation_space.shape)
@@ -2820,6 +2843,7 @@ if __name__ == "__main__":
         t0_ppo_update = time.perf_counter()
         b_inds = np.arange(args.batch_size)
         clipfracs = []
+        pcritic_grad_norms = []
         epochs_completed = 0
         teacher_ce = None
         for epoch in range(args.update_epochs):
@@ -2881,21 +2905,29 @@ if __name__ == "__main__":
                 pg_loss = torch.max(pg_loss1, pg_loss2).mean()
 
                 # Value loss
-                if privileged_critic is not None:
-                    newvalue = privileged_critic(b_priv_obs[mb_inds])
-                newvalue = newvalue.view(-1)
+                if privileged_critic is not None and privileged_critic.value_norm:
+                    # Standardised targets (PopArt value normalisation); --clip-vloss's range applies in those units.
+                    newvalue = privileged_critic.normalized(b_priv_obs[mb_inds]).view(-1)
+                    v_target = privileged_critic.normalize_returns(b_returns[mb_inds])
+                    v_old = privileged_critic.normalize_returns(b_values[mb_inds])
+                else:
+                    if privileged_critic is not None:
+                        newvalue = privileged_critic(b_priv_obs[mb_inds])
+                    newvalue = newvalue.view(-1)
+                    v_target = b_returns[mb_inds]
+                    v_old = b_values[mb_inds]
                 if args.clip_vloss:
-                    v_loss_unclipped = (newvalue - b_returns[mb_inds]) ** 2
-                    v_clipped = b_values[mb_inds] + torch.clamp(
-                        newvalue - b_values[mb_inds],
+                    v_loss_unclipped = (newvalue - v_target) ** 2
+                    v_clipped = v_old + torch.clamp(
+                        newvalue - v_old,
                         -args.clip_coef,
                         args.clip_coef,
                     )
-                    v_loss_clipped = (v_clipped - b_returns[mb_inds]) ** 2
+                    v_loss_clipped = (v_clipped - v_target) ** 2
                     v_loss_max = torch.max(v_loss_unclipped, v_loss_clipped)
                     v_loss = 0.5 * v_loss_max.mean()
                 else:
-                    v_loss = 0.5 * ((newvalue - b_returns[mb_inds]) ** 2).mean()
+                    v_loss = 0.5 * ((newvalue - v_target) ** 2).mean()
 
                 entropy_loss = entropy.mean()
                 if critic_warmup_now:
@@ -2915,7 +2947,7 @@ if __name__ == "__main__":
                         p.grad = None
                 nn.utils.clip_grad_norm_(agent.parameters(), args.max_grad_norm)
                 if privileged_critic is not None:
-                    nn.utils.clip_grad_norm_(privileged_critic.parameters(), args.max_grad_norm)
+                    pcritic_grad_norms.append(float(nn.utils.clip_grad_norm_(privileged_critic.parameters(), args.max_grad_norm)))
                 optimizer.step()
 
             if args.target_kl is not None and approx_kl > args.target_kl:
@@ -2939,7 +2971,12 @@ if __name__ == "__main__":
         log_scalar("charts/learning_rate", optimizer.param_groups[0]["lr"], global_step)
         if int(args.critic_warmup_steps) > 0:
             log_scalar("charts/critic_warmup", float(critic_warmup_now), global_step)
-        log_scalar("losses/value_loss", v_loss.item(), global_step)
+        if privileged_critic is not None and privileged_critic.value_norm:
+            # Trained in standardised units; logged in return units so the curve stays comparable with older runs.
+            log_scalar("privileged_critic/value_loss_normalized", v_loss.item(), global_step)
+            log_scalar("losses/value_loss", v_loss.item() * float(privileged_critic.return_std()) ** 2, global_step)
+        else:
+            log_scalar("losses/value_loss", v_loss.item(), global_step)
         log_scalar("losses/policy_loss", pg_loss.item(), global_step)
         log_scalar("losses/entropy", entropy_loss.item(), global_step)
         log_scalar("losses/old_approx_kl", old_approx_kl.item(), global_step)
@@ -2950,6 +2987,38 @@ if __name__ == "__main__":
         log_scalar("losses/value_mean", float(np.mean(y_pred)), global_step)
         log_scalar("losses/value_std", float(np.std(y_pred)), global_step)
         log_scalar("losses/return_std", float(np.std(y_true)), global_step)
+        if privileged_critic is not None:
+            # Critic health (CHANGELOG 069): feature spread, tanh saturation, grad norm, return statistics.
+            pc_diag = privileged_critic.diagnostics(b_priv_obs[: min(4096, b_priv_obs.shape[0])])
+            for k, v in pc_diag.items():
+                log_scalar(f"privileged_critic/{k}", v, global_step)
+            if pcritic_grad_norms:
+                log_scalar("privileged_critic/grad_norm", float(np.mean(pcritic_grad_norms)), global_step)
+            if privileged_critic.value_norm:
+                log_scalar("privileged_critic/return_mean", float(privileged_critic.return_mean), global_step)
+                log_scalar("privileged_critic/return_scale", float(privileged_critic.return_std()), global_step)
+            # Flat-critic guard: predictions with no spread while the returns have some.
+            pc_value_std, pc_return_std = float(np.std(y_pred)), float(np.std(y_true))
+            if privileged_critic_guard.observe(pc_value_std, pc_return_std):
+                msg = (f"[PRIVILEGED_CRITIC] FLAT CRITIC at step {global_step}: value_std={pc_value_std:.3g} "
+                       f"return_std={pc_return_std:.3g} for {privileged_critic_guard.patience} updates "
+                       f"(tanh saturation {pc_diag['tanh1_sat_frac']:.2f}/{pc_diag['tanh2_sat_frac']:.2f})")
+                if (args.privileged_critic_flat_action == "stop"
+                        or privileged_critic_reinits >= int(args.privileged_critic_max_reinits)):
+                    if wandb_run is not None:
+                        try:
+                            wandb_run.alert(title="Privileged critic collapsed", text=msg)
+                        except Exception as e:  # alerts are best-effort; the stop below is what matters
+                            print(f"warning: W&B alert failed: {e}")
+                    raise SystemExit(msg + "; stopping (--privileged-critic-flat-action / max reinits)")
+                privileged_critic_reinits += 1
+                reinitialize_critic(privileged_critic, optimizer)
+                print(msg + f"; reinitialising the critic ({privileged_critic_reinits}/{int(args.privileged_critic_max_reinits)})",
+                      flush=True)
+            print(f"[PRIVILEGED_CRITIC] step={global_step} value_std={pc_value_std:.3g} return_std={pc_return_std:.3g} "
+                  + " ".join(f"{k}={v:.3g}" for k, v in pc_diag.items() if k != "value_std"), flush=True)
+            log_scalar("privileged_critic/flat_updates", privileged_critic_guard.flat_updates, global_step)
+            log_scalar("privileged_critic/reinits", privileged_critic_reinits, global_step)
         log_scalar("losses/epochs_completed", epochs_completed, global_step)
         log_scalar("charts/max_legal_action_count", rollout_max_legal, global_step)
         log_scalar("charts/max_legal_action_fraction", rollout_max_legal / float(args.max_legal_actions), global_step)

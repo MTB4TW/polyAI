@@ -60,6 +60,79 @@ class CriticTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             PrivilegedCritic(self.obs_dim + 1)
 
+    def test_value_norm_first_update_standardises_targets(self):
+        from py_rl.cleanrl.cleanrl.privileged_critic import PrivilegedCritic
+
+        torch.manual_seed(0)
+        critic = PrivilegedCritic(self.obs_dim)
+        self.assertTrue(critic.value_norm)
+        returns = torch.randn(512) * 6.0 - 12.0
+        critic.update_return_stats(returns)
+        self.assertAlmostEqual(float(critic.return_mean), float(returns.mean()), places=3)
+        self.assertAlmostEqual(float(critic.return_std()), float(returns.std(unbiased=False)), places=2)
+        z = critic.normalize_returns(returns)
+        self.assertAlmostEqual(float(z.mean()), 0.0, places=3)
+        self.assertAlmostEqual(float(z.std(unbiased=False)), 1.0, places=2)
+        x = torch.rand(9, self.obs_dim)
+        torch.testing.assert_close(critic(x), critic.return_mean + critic.return_std() * critic.normalized(x))
+
+    def test_value_norm_preserves_outputs(self):
+        from py_rl.cleanrl.cleanrl.privileged_critic import PrivilegedCritic
+
+        torch.manual_seed(1)
+        critic = PrivilegedCritic(self.obs_dim)
+        critic.update_return_stats(torch.randn(256) * 3.0 - 12.0)
+        x = torch.rand(11, self.obs_dim)
+        before = critic.values(x)
+        critic.update_return_stats(torch.randn(256) * 40.0 + 60.0)   # a stretch of wins: mean and scale jump
+        self.assertGreater(float(critic.return_std()), 3.5)
+        torch.testing.assert_close(critic.values(x), before, rtol=1e-4, atol=1e-3)
+
+    def test_value_norm_off_is_the_raw_head(self):
+        from py_rl.cleanrl.cleanrl.privileged_critic import PrivilegedCritic
+
+        critic = PrivilegedCritic(self.obs_dim, value_norm=False)
+        x = torch.rand(5, self.obs_dim)
+        before = critic.values(x)
+        critic.update_return_stats(torch.randn(64) * 30)
+        torch.testing.assert_close(critic.values(x), before)
+        torch.testing.assert_close(critic(x), critic.normalized(x))
+        self.assertNotIn("return_mean", critic.state_dict())
+
+    def test_value_loss_is_scale_free(self):
+        """The same fit gives the same loss whatever the reward scale (the cause of the collapse: raw returns of
+        tens pushed the head's tanh layers into saturation)."""
+        from py_rl.cleanrl.cleanrl.privileged_critic import PrivilegedCritic
+
+        torch.manual_seed(2)
+        x = torch.rand(64, self.obs_dim)
+        base = torch.randn(64)
+        losses = []
+        for scale in (1.0, 50.0):
+            torch.manual_seed(3)
+            critic = PrivilegedCritic(self.obs_dim)
+            critic.update_return_stats(base * scale - 12.0 * scale)
+            losses.append(float(critic.value_loss(x, base * scale - 12.0 * scale).detach()))
+        self.assertAlmostEqual(losses[0], losses[1], places=3)
+
+    def test_diagnostics(self):
+        from py_rl.cleanrl.cleanrl.privileged_critic import PrivilegedCritic
+
+        torch.manual_seed(4)
+        critic = PrivilegedCritic(self.obs_dim)
+        d = critic.diagnostics(torch.rand(32, self.obs_dim))
+        for k in ("spatial_dead_frac", "scalar_dead_frac", "feature_std", "tanh1_sat_frac", "tanh2_sat_frac",
+                  "hidden_std", "value_std"):
+            self.assertIn(k, d)
+        self.assertGreater(d["value_std"], 0.0)
+        # A saturated head: every tanh pinned, so V(s) is the same for every state.
+        with torch.no_grad():
+            critic.value_head[2].bias.fill_(1e4)
+        d = critic.diagnostics(torch.rand(32, self.obs_dim))
+        self.assertEqual(d["tanh2_sat_frac"], 1.0)
+        self.assertLess(d["value_std"], 1e-4)
+
+
     def test_extract_from_vector_info(self):
         from py_rl.cleanrl.cleanrl.privileged_critic import extract_privileged_obs
 
@@ -77,6 +150,61 @@ class CriticTests(unittest.TestCase):
         from py_rl.cleanrl.cleanrl.privileged_critic import privileged_critic_path
 
         self.assertEqual(privileged_critic_path("runs/x/m.cleanrl_model"), "runs/x/m.cleanrl_model.privileged_critic.pt")
+
+
+
+class FlatGuardTests(unittest.TestCase):
+    def test_triggers_after_patience(self):
+        from py_rl.cleanrl.cleanrl.privileged_critic import FlatCriticGuard
+
+        g = FlatCriticGuard(patience=3)
+        self.assertFalse(g.observe(1e-6, 2.0))
+        self.assertFalse(g.observe(1e-6, 2.0))
+        self.assertTrue(g.observe(1e-6, 2.0))
+        self.assertEqual(g.flat_updates, 0)          # resets after firing
+
+    def test_healthy_update_resets_the_count(self):
+        from py_rl.cleanrl.cleanrl.privileged_critic import FlatCriticGuard
+
+        g = FlatCriticGuard(patience=2)
+        self.assertFalse(g.observe(1e-6, 2.0))
+        self.assertFalse(g.observe(0.5, 2.0))
+        self.assertFalse(g.observe(1e-6, 2.0))
+        self.assertTrue(g.observe(1e-6, 2.0))
+
+    def test_constant_returns_are_not_a_collapse(self):
+        from py_rl.cleanrl.cleanrl.privileged_critic import FlatCriticGuard
+
+        g = FlatCriticGuard(patience=1)
+        self.assertFalse(g.observe(0.0, 0.0))        # nothing to predict: a flat critic is right
+        self.assertFalse(FlatCriticGuard(patience=0).observe(0.0, 5.0))   # disabled
+
+    def test_reinitialize_critic(self):
+        from py_rl.cleanrl.cleanrl.privileged_critic import PrivilegedCritic, reinitialize_critic
+        from py_rl.cleanrl.cleanrl.spatial_agent import observation_sizes
+
+        c, s = observation_sizes()
+        critic = PrivilegedCritic(c * 121 + s, norm_obs=True)
+        x = torch.rand(16, critic.obs_dim)
+        critic.update_normalizer(x)
+        critic.update_return_stats(torch.randn(64) * 5 - 10)
+        opt = torch.optim.Adam(critic.parameters(), lr=1e-3)
+        critic.value_loss(x, torch.zeros(16)).backward()
+        opt.step()
+        with torch.no_grad():
+            critic.value_head[2].bias.fill_(1e4)    # collapse it
+        stats = {k: v.clone() for k, v in critic.state_dict().items() if critic.is_statistic_key(k)}
+        params = list(critic.parameters())
+        self.assertTrue(all(p in opt.state for p in params))
+        reinitialize_critic(critic, opt, seed=7)
+        self.assertTrue(all(a is b for a, b in zip(params, critic.parameters())))   # same tensors: optimiser intact
+        self.assertFalse(any(p in opt.state for p in params))                       # Adam moments cleared
+        for k, v in stats.items():
+            torch.testing.assert_close(critic.state_dict()[k], v)                   # statistics kept
+        self.assertLess(float(critic.value_head[2].bias.abs().max()), 1.0)
+        self.assertGreater(critic.diagnostics(x)["value_std"], 1e-3)
+        critic.value_loss(x, torch.zeros(16)).backward()
+        opt.step()                                                                  # optimiser still works
 
 
 LIVE_GAME = r"""
@@ -170,7 +298,8 @@ class TinyTraining(unittest.TestCase):
             self.assertFalse(Path(str(b) + ".privileged_critic.pt").exists())
             self.assertIn("value_head.4.weight", torch.load(side, map_location="cpu"))
             meta = json.loads(Path(str(p) + ".action_interface.json").read_text())
-            self.assertEqual(meta.get("privileged_critic"), "privileged_critic_v1")
+            self.assertEqual(meta.get("privileged_critic"), "privileged_critic_v2")
+            self.assertIn("return_mean", torch.load(side, map_location="cpu"))
             self.assertNotIn("privileged_critic", json.loads(Path(str(b) + ".action_interface.json").read_text()))
 
 
