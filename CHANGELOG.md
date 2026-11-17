@@ -2,6 +2,59 @@
 
 All notable changes to this project are documented in this file.
 
+## [Train-Privileged_Critic_Value_Norm-080] - (2026-11-16)
+
+### Problem
+- 3 of the 17 `--privileged-critic` runs on W&B had the critic collapse early and stay flat for the rest of the run:
+  `combat_pcritic_outcome_2m_seed3` (from ~131k steps), `combat_pcritic_fogmem_2m_seed3` (~59k) and
+  `combat_v2b_pcritic_hoard_2m_seed1` (~8k). `losses/value_std` went to ~1e-6 while `losses/return_std` stayed
+  0.3-15, explained variance sat at exactly 0, and only `losses/value_mean` (the output bias) still moved, so
+  advantages were returns minus one constant. The healthy seeds used the same configuration.
+- Cause: the critic regressed raw combat returns (mean about -12, wins +60 to +100) with a unit-scale head
+  (tanh, tanh, linear) trained by Adam (lr 5e-4, 32 steps per update). To reach those values the updates drive the
+  head's tanh layers into saturation; a saturated tanh passes no gradient back, and once enough units are pinned
+  the output is the same for every state and cannot recover. A local rerun of the hoard recipe (8 envs, seed 1)
+  showed it directly: first tanh layer 16% -> 70% saturated after one update, the second layer's output spread
+  0.24 -> 0.008 by 6k steps, value_std 0.07 against return_std 1.5. The encoders were still alive (feature std
+  ~0.2), so it was the head, not dead ReLUs.
+
+### Scope (only with `--privileged-critic`; nothing changes without it, Phase 1 untouched)
+- Value normalisation (PopArt, van Hasselt et al. 2016), on by default (`--privileged-critic-value-norm`): the
+  critic predicts standardised returns and V = mean + std * output. Mean and second moment are EMAs over rollouts
+  (weight 0.1, the first rollout taken as is), std floored at 1.0; whenever they move, the output layer is rescaled
+  so every V(s) is unchanged. The value loss is computed in standardised units (`--clip-vloss`, if on, clips in
+  those units); `losses/value_loss` is still logged in return units, the standardised loss as
+  `privileged_critic/value_loss_normalized`. Advantages still come from V in return units.
+- Flat-critic guard: if the rollout's value predictions have std < 1e-3 while the returns' std > 1e-2 for
+  `--privileged-critic-flat-patience` (5) updates in a row, `--privileged-critic-flat-action reinit` (default)
+  gives the critic fresh weights and drops its Adam state (observation and return statistics kept), at most
+  `--privileged-critic-max-reinits` (3) times; after that, or with `stop`, the run ends with an error and a W&B
+  alert. Logged: `privileged_critic/flat_updates`, `privileged_critic/reinits`.
+- Health metrics every update: `privileged_critic/{tanh1_sat_frac, tanh2_sat_frac, hidden_std, feature_std,
+  spatial_dead_frac, scalar_dead_frac, value_std, grad_norm, return_mean, return_scale}`.
+- The critic file gains `return_mean`, `return_sq_mean`, `return_stats_initialised`; the sidecar records
+  `"privileged_critic": "privileged_critic_v2"`. The policy checkpoint is unchanged (same keys), so evaluation and
+  `--init-from` are unaffected. `--no-privileged-critic-value-norm` gives back the v1 critic.
+
+### Validation
+- `tools/tests/test_privileged_critic.py`: standardised targets after the first rollout, outputs preserved when the
+  statistics jump, value loss independent of the reward scale, v1 behaviour with value normalisation off, health
+  diagnostics flag a saturated head, guard patience/reset/disabled cases, reinitialisation keeps the statistics and
+  the optimiser's parameter tensors and clears their Adam state. `tools/run_core_ci_checks.py` passes.
+- Offline (diagnostic; real privileged observations from 4k random-play steps, returns with alternating no-win and
+  win stretches, the runs' optimiser settings): after one update the v1 critic had 89-94% of its first tanh layer
+  saturated and value_std 0.004-0.007 (value normalisation: 1-61%, 0.85-0.91); after five updates v1 was fully flat
+  (value_std 1e-4, tanh layers 98%/88% saturated, explained variance 0) while the normalised critic reached
+  explained variance 0.89 with under 1% saturation (seed 1).
+- Local rerun of the hoard recipe (diagnostic; 8 envs, seed 1, Mac), v1 vs v2 at the same steps:
+
+  | step | v1 value_std / return_std | v1 tanh1 sat, hidden std | v2 value_std / return_std | v2 tanh1 sat, hidden std |
+  |---|---|---|---|---|
+  | 2048 | 0.50 / 3.08 | 70%, 0.088 | 0.95 / 3.24 | 15%, 0.240 |
+  | 4096 | 0.49 / 1.77 | 43%, 0.067 | 1.45 / 2.51 | 9%, 0.231 |
+  | 6144 | 0.07 / 1.53 | 42%, 0.008 | 1.82 / 2.45 | 11%, 0.185 |
+  | 8192 | (v1 run crashed at ~7k on an unrelated old-logprob tolerance check) | | 2.03 / 2.23 | 11%, 0.185 |
+
 ## [Train-Combat_Privileged_Critic-079] - (2026-11-14)
 
 ### Scope
