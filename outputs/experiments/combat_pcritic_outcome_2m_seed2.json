@@ -1,0 +1,21 @@
+{
+  "name": "combat_pcritic_outcome_2m_seed2",
+  "network_arch": "spatial_resnet_composed",
+  "total_timesteps": 2000000,
+  "seed": 2,
+  "env_file": "cluster/combat_cap_all_v2.env + POLYVISION_COMBAT_REWARD_SHAPING_SCALE=0 POLYVISION_COMBAT_REWARD_TERMINAL_POTENTIAL=0 (reward of cluster/combat_outcome_finetune.env, from scratch; lr 5e-4 as the reference, not the fine-tune's 2e-4)",
+  "rules": "polytopia_2_15",
+  "extra_ppo_args": "--privileged-critic",
+  "submitted_by": "devinlai",
+  "git_commit": "11bcd1c (feat/combat-privileged-critic; code identical to 9bb1b93)",
+  "model_path": "runs/Tribes-v0__combat_pcritic_outcome_2m_seed2__2__1794812773/combat_pcritic_outcome_2m_seed2.cleanrl_model (Farmshare ~/polyAI-wt/pcritic)",
+  "evaluation_id": "20261115_combat_pcritic_outcome_2m_seed2_combat_eval_validation_canonical",
+  "evaluated_on": "Farmshare (cluster/eval_combat_farmshare.sbatch via ~/ablation_smoke/eval_after_train.sh, afterok dependency)",
+  "train_job": "1989744",
+  "eval_job": "1989745",
+  "wandb_run": "robeqffm",
+  "wandb_track": 1,
+  "wandb_upload": 0,
+  "baseline": "combat_v2b_pcritic_2m (from scratch, same settings without this arm's change)",
+  "train_elapsed": "12:27"
+}

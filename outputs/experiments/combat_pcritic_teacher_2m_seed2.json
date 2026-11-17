@@ -1,0 +1,21 @@
+{
+  "name": "combat_pcritic_teacher_2m_seed2",
+  "network_arch": "spatial_resnet_composed",
+  "total_timesteps": 2000000,
+  "seed": 2,
+  "env_file": "cluster/combat_teacher_v2.env",
+  "rules": "polytopia_2_15",
+  "extra_ppo_args": "--teacher tactical_search --teacher-coef 1.0 --teacher-decay-frac 0.3 --privileged-critic",
+  "submitted_by": "devinlai",
+  "git_commit": "11bcd1c (feat/combat-privileged-critic; code identical to 9bb1b93)",
+  "model_path": "runs/Tribes-v0__combat_pcritic_teacher_2m_seed2__2__1794816808/combat_pcritic_teacher_2m_seed2.cleanrl_model (Farmshare ~/polyAI-wt/pcritic)",
+  "evaluation_id": "20261115_combat_pcritic_teacher_2m_seed2_combat_eval_validation_canonical",
+  "evaluated_on": "Farmshare (cluster/eval_combat_farmshare.sbatch via ~/ablation_smoke/eval_after_train.sh, afterok dependency)",
+  "train_job": "1989756",
+  "eval_job": "1989757",
+  "wandb_run": "xcxe4wf6",
+  "wandb_track": 1,
+  "wandb_upload": 0,
+  "baseline": "combat_v2b_pcritic_2m (from scratch, same settings without this arm's change)",
+  "train_elapsed": "8:52"
+}
