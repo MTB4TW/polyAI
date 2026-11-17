@@ -40,6 +40,22 @@ All notable changes to this project are documented in this file.
   160-161 steps/s (+4%), because the update is ~80% of wall time on this machine. Policy forward per step
   3.9 ms (one batch of 8) vs 2 x 2.3 ms (two batches of 4); time blocked on envs 6.2 -> 3.1 ms per step.
 
+## [Fix-Validator_RNG_Isolation-055] - (2026-11-12)
+
+### Scope
+- `ppo.py` snapshots the Python, NumPy and torch global RNG states before the action-interface
+  validator and restores them afterwards. The validator samples from `np.random` only when it actually
+  runs, not on a cache hit, so PPO minibatch shuffles (and other draws) used to depend on whether
+  `.cache/action_validator/` held a matching entry. Fresh worktrees or a `--force-revalidate-action-interface`
+  run therefore trained differently from a cached run with the same `--seed`.
+- Validation itself is unchanged. Training with the same seed now matches a cache-hit run from before
+  this fix; a run that previously re-validated will follow a different (now seed-only) random stream.
+
+### Validation
+- `tools/tests/test_validator_rng_isolation.py`: restoring the snapshot returns all three streams to
+  their seeded state.
+- 512-step mlp run (2 envs, seed 5) with forced revalidation and with a cache hit: identical checkpoints.
+
 ## [Net-Composed_Action_Representation-054] - (2026-11-12)
 
 ### Scope
