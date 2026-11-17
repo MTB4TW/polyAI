@@ -66,6 +66,8 @@ SEED=${SEED:-1}
 #   MODEL_PATH     final model location (default: runs/<run_name>/<EXP_NAME>.cleanrl_model)
 #   TRACK=1        log training curves to W&B (project WANDB_PROJECT, default polyAI)
 #   WANDB_UPLOAD=1 upload the final model + sidecar as a W&B artifact named EXP_NAME
+#   EXTRA_PPO_ARGS="--norm-obs --learning-rate 3e-4"
+#                  extra ppo.py flags, split on whitespace and appended last (they override the defaults below)
 EXTRA_ARGS=()
 if [ -n "${MODEL_PATH:-}" ]; then
     mkdir -p "$(dirname "$MODEL_PATH")"
@@ -74,6 +76,9 @@ fi
 if [ "${TRACK:-0}" = "1" ]; then
     EXTRA_ARGS+=(--track --wandb-project-name "${WANDB_PROJECT:-polyAI}")
 fi
+
+read -r -a PPO_EXTRA_ARGS <<< "${EXTRA_PPO_ARGS:-}"
+[ -z "${EXTRA_PPO_ARGS:-}" ] || echo "Extra PPO args: ${EXTRA_PPO_ARGS}"
 
 echo "Starting training: $TOTAL_TIMESTEPS steps with $NUM_ENVS parallel environments on $DEVICE ($NETWORK_ARCH, seed $SEED)..."
 
@@ -88,7 +93,8 @@ python py_rl/cleanrl/cleanrl/ppo.py \
     --seed "$SEED" \
     --network-arch "$NETWORK_ARCH" \
     --validation-states 10000 \
-    ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}
+    ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"} \
+    ${PPO_EXTRA_ARGS[@]+"${PPO_EXTRA_ARGS[@]}"}
 
 echo "Training finished at: $(date)"
 

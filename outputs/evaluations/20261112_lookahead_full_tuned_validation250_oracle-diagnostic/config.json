@@ -1,0 +1,63 @@
+{
+  "canonical": false,
+  "classification": "oracle-diagnostic",
+  "ended_utc": "2026-11-13T01:32:19.065289Z",
+  "evaluation_id": "20261112_lookahead_full_tuned_validation250_oracle-diagnostic",
+  "feature_names": [
+    "spt",
+    "pop_progress",
+    "stars_usable",
+    "units_on_village",
+    "village_proximity",
+    "techs",
+    "cities",
+    "visible_tiles",
+    "units",
+    "unlocked_pop",
+    "frontier_proximity"
+  ],
+  "heuristic_weights": {
+    "cities": 5.0,
+    "frontier_proximity": 0.3,
+    "pop_progress": 10.0,
+    "spt": 10.0,
+    "stars_usable": 0.125,
+    "techs": 0.0,
+    "units": 1.5,
+    "units_on_village": 9.0,
+    "unlocked_pop": 0.5,
+    "village_proximity": 0.75,
+    "visible_tiles": 37.5
+  },
+  "information_mode": "full",
+  "manifest_path": "pol_env/Tribes/levels/phase1_pool_bardur_real/split_manifest.json",
+  "map_offset": 0,
+  "maps": 250,
+  "mcts": null,
+  "policy": "lookahead_full",
+  "polyvision_environment": {
+    "POLYVISION_COMBAT_MODE": "0",
+    "POLYVISION_INFO_MODE": "fast",
+    "POLYVISION_LEVEL_POOL_GLOB": "levels/phase1_pool_bardur_real/validation/*.csv",
+    "POLYVISION_LEVEL_SELECTION_MODE": "round_robin",
+    "POLYVISION_PHASE": "1",
+    "POLYVISION_SOLO_NO_OPPONENT_MODE": "1"
+  },
+  "pool": "validation",
+  "pool_identity": "a56e74c952ad3b08d4645fc16d66ce0f17e0589fea2fe9042f7cd293669eac72",
+  "privileged_information": true,
+  "runtime": {
+    "git_commit": "600737480242b8b3fd7527b6d56d8916fa965566",
+    "git_dirty": true,
+    "gymnasium": "1.3.0",
+    "java": "openjdk version \"25.0.5\" 2026-10-20 LTS\nOpenJDK Runtime Environment Temurin-25.0.5+8 (build 25.0.5+8-LTS)\nOpenJDK 64-Bit Server VM Temurin-25.0.5+8 (build 25.0.5+8-LTS, mixed mode, sharing)",
+    "platform": "macOS-26.6.2-arm64-arm-64bit",
+    "py4j": "0.10.9.9",
+    "python": "3.12.14",
+    "torch": "2.11.0"
+  },
+  "search": "lookahead",
+  "seed": 42,
+  "started_utc": "2026-11-13T01:27:18.653036Z",
+  "status": "complete"
+}
