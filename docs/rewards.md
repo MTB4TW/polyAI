@@ -104,7 +104,7 @@ changes, e.g. `POLYVISION_COMBAT_REWARD_CITY=2 POLYVISION_COMBAT_REWARD_KILL=0.5
 
 | Variable | Default | Meaning |
 |---|---:|---|
-| `POLYVISION_COMBAT_REWARD_WIN` | 30 | terminal reward for a win (must be > 0); 10 before entry 057 |
+| `POLYVISION_COMBAT_REWARD_WIN` | 30 | terminal reward for a win (must be > 0); 10 before entry 066 |
 | `POLYVISION_COMBAT_REWARD_LOSS` | −10 | terminal reward for a loss (must be < 0) |
 | `POLYVISION_COMBAT_REWARD_CITY` | 1.0 | potential per city of advantage |
 | `POLYVISION_COMBAT_REWARD_SCORE_PER_1000` | 1.0 | potential per 1000 points of Tribes score advantage |
@@ -115,7 +115,7 @@ changes, e.g. `POLYVISION_COMBAT_REWARD_CITY=2 POLYVISION_COMBAT_REWARD_KILL=0.5
 | `POLYVISION_COMBAT_REWARD_TILE` | 0.05 | potential per territory tile of advantage |
 | `POLYVISION_COMBAT_REWARD_ROAD` | 0.05 | potential per road tile (in own territory) of advantage |
 
-Opt-in terms (default 0; definitions in `pol_env/Tribes/py/combat_shaping.py` and CHANGELOG entry 058):
+Opt-in terms (default 0; definitions in `pol_env/Tribes/py/combat_shaping.py` and CHANGELOG entry 067):
 `CAPITAL_PROXIMITY`, `CAPITAL_PROXIMITY_LATE`, `ZONE_OF_CONTROL` (potential terms), `REGIONAL_ATTACK`, `ROLE_POSITIONING`,
 `DAMAGE_TRADE`, `HANGING_POPULATION`, `TECH_ORDER`, `POP_TECH`, `UNUSED_TECH`, `TECH_COST`, `AVOID_FISHING`,
 `AVOID_PHILOSOPHY_MEDITATION` (event terms) and `EARLY_WIN` (extra win reward tapering to 0 at the turn limit).

@@ -44,5 +44,5 @@ each run's final 250k steps; about 9,000 games per run), not canonical results.
 All four: commit `64c8095`, `spatial_resnet_local`, 16 envs, seeded-random maps from `phase2_pool_1v1/train`.
 In `cap_all`, 47% of timeouts end with one of our units within 1 tile of the enemy capital; the army is mostly
 warriors (12.6 of 15.9 units), and the tech terms cut Philosophy/Meditation from 64%/80% (`none`) to about 1%.
-Tech-researched rates from these runs undercount by the loss rate (fixed in CHANGELOG 060).
+Tech-researched rates from these runs undercount by the loss rate (fixed in CHANGELOG 069).
 

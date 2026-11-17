@@ -12,11 +12,21 @@ import torch
 import torch.nn as nn
 from torch.distributions.categorical import Categorical
 
+# Observation sizes under the default (tribes_2020) rules. The 2.15 rules append Diplomacy channels and scalars
+# (pol_env/Tribes/py/environment_contract.py), so the agent reads its sizes from observation_layout().
 SPATIAL_CHANNELS = 52
 BOARD_WIDTH = 11
 BOARD_HEIGHT = 11
 SPATIAL_DIM = SPATIAL_CHANNELS * BOARD_WIDTH * BOARD_HEIGHT  # 6292
 SCALAR_DIM = 132  # 6424 - 6292
+
+
+def observation_sizes(rules_version=None):
+    """(spatial channels, scalar dim) of the 11x11 observation under the given (default: active) rules."""
+    from pol_env.Tribes.py.environment_contract import observation_layout
+
+    layout = observation_layout(BOARD_WIDTH, BOARD_HEIGHT, rules_version)
+    return layout.spatial_channels, layout.scalar_dim
 
 
 def layer_init(layer, std=np.sqrt(2), bias_const=0.0):
@@ -86,20 +96,38 @@ class SpatialResNetAgent(nn.Module):
         actor_mode: str = "legal_features",
         max_legal_actions: int = 256,
         legal_action_feature_dim: int = 47,
-        spatial_channels: int = SPATIAL_CHANNELS,
-        scalar_dim: int = SCALAR_DIM,
+        spatial_channels: int | None = None,
+        scalar_dim: int | None = None,
         local_action_features: bool = False,
+        composed_actions: bool = False,
     ):
         super().__init__()
-        self.local_action_features = bool(local_action_features)
-        if spatial_channels != SPATIAL_CHANNELS or scalar_dim != SCALAR_DIM:
-            raise ValueError("Spatial agent requires the 52-channel 11x11 observation contract")
+        # composed_actions replaces the per-ID embedding with action type + local grid features.
+        self.composed_actions = bool(composed_actions)
+        self.local_action_features = bool(local_action_features) or self.composed_actions
+        expected_channels, expected_scalar = observation_sizes()
+        spatial_channels = expected_channels if spatial_channels is None else int(spatial_channels)
+        scalar_dim = expected_scalar if scalar_dim is None else int(scalar_dim)
+        if spatial_channels != expected_channels or scalar_dim != expected_scalar:
+            raise ValueError(
+                f"Spatial agent requires the {expected_channels}-channel 11x11 observation contract "
+                f"with {expected_scalar} scalars for the active rules"
+            )
+        if envs is not None and getattr(envs, "single_observation_space", None) is not None:
+            obs_dim = int(np.array(envs.single_observation_space.shape).prod())
+            if obs_dim != spatial_channels * BOARD_WIDTH * BOARD_HEIGHT + scalar_dim:
+                raise ValueError(f"Spatial agent got a {obs_dim}-dim observation; expected "
+                                 f"{spatial_channels} x 11 x 11 + {scalar_dim}")
+        self.spatial_channels = spatial_channels
+        self.spatial_dim = spatial_channels * BOARD_WIDTH * BOARD_HEIGHT
         self.actor_mode = str(actor_mode).strip().lower()
         if self.actor_mode not in ("legal_only", "legal_features"):
             raise ValueError(f"Unsupported actor_mode={actor_mode}")
 
         if self.local_action_features and self.actor_mode != "legal_features":
             raise ValueError("Local spatial action features require legal_features actor mode")
+        if self.composed_actions and self.actor_mode != "legal_features":
+            raise ValueError("Composed action representations require legal_features actor mode")
         self.max_legal_actions = int(max_legal_actions)
         self.legal_action_feature_dim = int(legal_action_feature_dim)
         n_actions = envs.single_action_space.n if envs is not None else action_space_n
@@ -129,8 +157,21 @@ class SpatialResNetAgent(nn.Module):
         )
 
         # Action representations
-        self.action_embedding = nn.Embedding(n_actions, 64)
-        nn.init.normal_(self.action_embedding.weight, mean=0.0, std=0.02)
+        if self.composed_actions:
+            # No per-ID table: an action is its type (catalog block) plus the grid features at
+            # its source/target tiles plus the hand-made legal-action features.
+            from py_rl.cleanrl.cleanrl.action_types import action_type_table_for_action_space
+
+            table = action_type_table_for_action_space(n_actions, BOARD_WIDTH, BOARD_HEIGHT)
+            self.action_type_names = [name for name, _, _ in table]
+            self.register_buffer("action_type_starts", torch.tensor([s for _, s, _ in table], dtype=torch.long))
+            self.register_buffer("action_type_has_tile", torch.tensor([t for _, _, t in table], dtype=torch.bool))
+            self.action_embedding = None
+            self.action_type_embedding = nn.Embedding(len(table), 64)
+            nn.init.normal_(self.action_type_embedding.weight, mean=0.0, std=0.02)
+        else:
+            self.action_embedding = nn.Embedding(n_actions, 64)
+            nn.init.normal_(self.action_embedding.weight, mean=0.0, std=0.02)
 
         if self.actor_mode == "legal_features":
             self.action_feature_encoder = nn.Sequential(
@@ -149,9 +190,9 @@ class SpatialResNetAgent(nn.Module):
             self.action_scorer = None
 
     def encode_state(self, x: torch.Tensor, return_grid=False):
-        """Splits raw 6424-dim obs into spatial grid and scalars, returning fused representation and combined embedding."""
-        spatial_raw = x[:, :SPATIAL_DIM].contiguous().view(-1, SPATIAL_CHANNELS, BOARD_HEIGHT, BOARD_WIDTH)
-        scalar_raw = x[:, SPATIAL_DIM:].contiguous()
+        """Splits the raw obs (6424-dim under 2020 rules) into spatial grid and scalars, returning fused representation and combined embedding."""
+        spatial_raw = x[:, :self.spatial_dim].contiguous().view(-1, self.spatial_channels, BOARD_HEIGHT, BOARD_WIDTH)
+        scalar_raw = x[:, self.spatial_dim:].contiguous()
 
         spatial_emb, grid = self.spatial_backbone(spatial_raw, return_grid=True)
         scalar_emb = self.scalar_backbone(scalar_raw)
@@ -188,19 +229,33 @@ class SpatialResNetAgent(nn.Module):
         # action-type features allow the scorer to distinguish global actions.
         return torch.cat(parts, dim=-1)
 
+    def action_types(self, legal_ids):
+        """Map global action IDs to action-type indices (catalog block containing each ID)."""
+        ids = legal_ids.long().clamp(min=0).contiguous()
+        return torch.bucketize(ids, self.action_type_starts, right=True) - 1
+
     def _distribution(self, h, grid, legal_global_ids, legal_action_valid_mask, legal_action_features):
         legal_ids = legal_global_ids.long()
         valid = legal_action_valid_mask.bool()
         if not valid.any(dim=-1).all():
             raise ValueError("Each policy decision requires at least one valid legal action")
-        legal_emb = self.action_embedding(legal_ids)
+        if self.composed_actions:
+            types = self.action_types(legal_ids)
+            legal_emb = self.action_type_embedding(types)
+        else:
+            legal_emb = self.action_embedding(legal_ids)
         if self.actor_mode == "legal_only":
             logits = torch.einsum("bd,bkd->bk", h, legal_emb)
         else:
             features = legal_action_features.float()
             feat_emb = self.action_feature_encoder(features)
             parts = [h.unsqueeze(1).expand(-1, legal_ids.shape[1], -1), legal_emb, feat_emb]
-            if self.local_action_features:
+            if self.composed_actions:
+                # Tile-less actions (END_TURN, RESEARCH_TECH) have zero coordinates; do not let
+                # them read tile (0,0).
+                local = self.gather_local_features(grid, features)
+                parts.append(local * self.action_type_has_tile[types].unsqueeze(-1).to(local.dtype))
+            elif self.local_action_features:
                 parts.append(self.gather_local_features(grid, features))
             logits = self.action_scorer(torch.cat(parts, dim=-1)).squeeze(-1)
         return Categorical(logits=logits.masked_fill(~valid, -1e8))

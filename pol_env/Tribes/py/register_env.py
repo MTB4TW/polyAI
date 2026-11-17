@@ -31,13 +31,24 @@ from .environment_contract import (
     ObservationLayout,
     observation_layout,
     PHASE1_ENVIRONMENT_VERSION as CONTRACT_PHASE1_ENVIRONMENT_VERSION,
+    resolve_rules_version,
+    versioned_for_rules,
+    filter_vocab_for_rules,
+    DEFAULT_RULES_VERSION,
+    DIPLOMACY_ACTION_TYPES,
+    DIPLOMACY_MAX_TRIBES,
+    DIPLOMACY_RELATION_FEATURES,
+    DIPLOMACY_TECHNOLOGIES,
+    DIPLOMACY_TRIBE_ACTION_TYPES,
+    DIPLOMACY_UNIT_TYPES,
+    rules_have_diplomacy,
 )
 
 
 class GlobalActionCatalog:
     """Deterministic flat global action-ID catalog for fixed map dimensions."""
 
-    def __init__(self, width, height, tech_types, train_unit_types, resource_types, building_types, levelup_choices, enable_combat=False):
+    def __init__(self, width, height, tech_types, train_unit_types, resource_types, building_types, levelup_choices, enable_combat=False, enable_diplomacy=False):
         self.width = int(width)
         self.height = int(height)
         self.n_tiles = int(width * height)
@@ -47,6 +58,8 @@ class GlobalActionCatalog:
         self.building_types = sorted(set(building_types))
         self.levelup_choices = sorted(set(levelup_choices))
         self.enable_combat = bool(enable_combat)
+        # 2.15 rules Diplomacy families (combat only); absent from every other catalog.
+        self.enable_diplomacy = bool(enable_diplomacy) and self.enable_combat
 
         self.tech_to_idx = {k: i for i, k in enumerate(self.tech_types)}
         self.unit_to_idx = {k: i for i, k in enumerate(self.train_unit_types)}
@@ -97,6 +110,15 @@ class GlobalActionCatalog:
             self.offsets["RECOVER"] = cur
             cur += self.n_tiles
 
+        if self.enable_diplomacy:
+            # Cloak source tile x target city tile.
+            self.offsets["INFILTRATE"] = cur
+            cur += self.n_tiles * self.n_tiles
+            # One slot per target tribe id.
+            for a_type in DIPLOMACY_TRIBE_ACTION_TYPES:
+                self.offsets[a_type] = cur
+                cur += DIPLOMACY_MAX_TRIBES
+
         self.total_size = int(cur)
         self.end_turn_id = int(self.offsets["END_TURN"])
 
@@ -109,6 +131,20 @@ class GlobalActionCatalog:
         if unit_tile is None or "RECOVER" not in self.offsets:
             return None
         return int(self.offsets["RECOVER"] + unit_tile)
+
+    def id_infiltrate(self, src_tile, city_tile):
+        if src_tile is None or city_tile is None or "INFILTRATE" not in self.offsets:
+            return None
+        return int(self.offsets["INFILTRATE"] + src_tile * self.n_tiles + city_tile)
+
+    def id_diplomacy(self, action_type, target_tribe_id):
+        a_type = str(action_type or "").upper()
+        if a_type not in self.offsets or a_type not in DIPLOMACY_TRIBE_ACTION_TYPES or target_tribe_id is None:
+            return None
+        target = int(target_tribe_id)
+        if target < 0 or target >= DIPLOMACY_MAX_TRIBES:
+            return None
+        return int(self.offsets[a_type] + target)
 
     def tile_id(self, x, y):
         x = int(x)
@@ -343,6 +379,13 @@ class TribesGymWrapper(gym.Env):
         self._engine_game_mode = "CAPITALS" if self._is_combat_mode else "SCORE"
         # Divisors for the six legacy scalars (stars, score, cities, kills, tick, active tribe) in combat.
         self.COMBAT_LEGACY_SCALAR_SCALES = (50.0, 1000.0, 6.0, 10.0, float(getattr(self, "MAX_TURNS", 20)), 1.0)
+        # Game rules (POLYVISION_RULES). The default leaves the version strings untouched; this applies to the
+        # combat version string set above as well as the Phase 1 one.
+        self.RULES_VERSION = resolve_rules_version()
+        self.PHASE1_ENVIRONMENT_VERSION = versioned_for_rules(self.PHASE1_ENVIRONMENT_VERSION, self.RULES_VERSION)
+        self._has_diplomacy = rules_have_diplomacy(self.RULES_VERSION)
+        if self._is_combat_mode and self._has_diplomacy:
+            self.ALLOWED_ACTION_TYPES = set(self.ALLOWED_ACTION_TYPES) | set(DIPLOMACY_ACTION_TYPES)
         self.tribes_env = make_default_env()
         if self._is_combat_mode:
             self.tribes_env._env.setSoloNoOpponentMode(False)
@@ -450,6 +493,7 @@ class TribesGymWrapper(gym.Env):
             self._parse_int_env("POLYVISION_BATCH_LEGAL_FETCH_EQUIV_CHECK_EVERY_N_STEPS", default=50),
         )
         self._feature_action_meta_cache = {}
+        self._feature_static_row_cache = {}
         self._last_selected_predicted_population_delta = 0.0
         self._last_selected_predicted_spt_delta = 0.0
         self._last_selected_city_id = None
@@ -480,11 +524,12 @@ class TribesGymWrapper(gym.Env):
                 width=width,
                 height=height,
                 tech_types=vocab["TECHNOLOGY"],
-                train_unit_types=[u for u in vocab["UNIT"] if u not in ("BOAT", "SHIP", "BATTLESHIP", "SUPERUNIT")],
+                train_unit_types=[u for u in vocab["UNIT"] if u not in ("BOAT", "SHIP", "BATTLESHIP", "SUPERUNIT", "DAGGER")],
                 resource_types=[r for r in vocab["RESOURCE"] if r in ("ANIMAL", "FISH", "WHALES", "FRUIT", "CROPS", "ORE")],
                 building_types=vocab["BUILDING"],
                 levelup_choices=vocab["CITY_LEVEL_UP"],
                 enable_combat=bool(getattr(self, "_is_combat_mode", False)),
+                enable_diplomacy=bool(getattr(self, "_has_diplomacy", False)),
             )
             self._tech_name_to_obs_idx = {
                 str(name).upper(): int(i)
@@ -517,6 +562,8 @@ class TribesGymWrapper(gym.Env):
             raise RuntimeError(
                 "TribesGymWrapper failed while establishing the real PolyVision interface."
             ) from exc
+        # Fail closed if the JVM plays a different rule set from the one reported in the version strings.
+        self._verify_java_rules_version()
     
     def reset(self, seed=None, options=None):
         t_reset_start = time.perf_counter() if self._profile_sps_enabled else None
@@ -1931,7 +1978,141 @@ class TribesGymWrapper(gym.Env):
             features[slot, :] = self._compute_legal_action_feature_vector_reference(action, obs)
         return features
 
+    @staticmethod
+    def _window_counts_r1_r2(mask_i16):
+        """Per tile, the number of set tiles in the 3x3 and 5x5 windows around it, clipped at the board edge.
+
+        Separable sums over a zero-padded copy; int16 like the per-tile loops it replaces.
+        """
+        width, height = mask_i16.shape
+        p = np.zeros((width + 4, height + 4), dtype=np.int16)
+        p[2:width + 2, 2:height + 2] = mask_i16
+        rows1 = p[1:width + 1] + p[2:width + 2] + p[3:width + 3]
+        rows2 = rows1 + p[0:width] + p[4:width + 4]
+        r1 = rows1[:, 1:height + 1] + rows1[:, 2:height + 2] + rows1[:, 3:height + 3]
+        r2 = rows2[:, 1:height + 1] + rows2[:, 2:height + 2] + rows2[:, 3:height + 3]
+        r2 = r2 + rows2[:, 0:height] + rows2[:, 4:height + 4]
+        return r1, r2
+
     def _build_feature_step_context(self, obs):
+        """Per-observation lookups for legal-action features (vectorised; identical to the _loops version)."""
+        ctx = {
+            "dims": self._board_dimensions_from_obs(obs),
+            "terrain_arr": None,
+            "fog_mask": None,
+            "mountain_mask": None,
+            "adj_fog_counts": None,
+            "reveal_range1": None,
+            "reveal_range2": None,
+            "visible_villages": set(),
+            "visible_village_mask": None,
+            "has_visible_village": False,
+            "dist_to_visible_village": None,
+            "city_bounds_mask": None,
+            "capital_pos": self._get_capital_position(obs, tribe_id=0),
+            "dist_norm": 1.0,
+            "unit_info": {},
+        }
+        dims = ctx["dims"]
+        if dims is None:
+            return ctx
+        width, height = int(dims[0]), int(dims[1])
+        if width <= 0 or height <= 0:
+            return ctx
+
+        board = obs.get("board", {}) if isinstance(obs, dict) else {}
+        terrain_raw = board.get("terrain", []) if isinstance(board, dict) else []
+        try:
+            terrain_arr = np.asarray(terrain_raw, dtype=np.int16)
+        except Exception:
+            terrain_arr = np.full((width, height), -1, dtype=np.int16)
+        if terrain_arr.shape != (width, height):
+            fixed = np.full((width, height), -1, dtype=np.int16)
+            try:
+                wx = min(width, terrain_arr.shape[0])
+                hy = min(height, terrain_arr.shape[1]) if terrain_arr.ndim == 2 else 0
+                if hy > 0:
+                    fixed[:wx, :hy] = terrain_arr[:wx, :hy]
+            except Exception:
+                pass
+            terrain_arr = fixed
+        ctx["terrain_arr"] = terrain_arr
+        fog_mask = terrain_arr == 7
+        ctx["fog_mask"] = fog_mask
+        ctx["mountain_mask"] = terrain_arr == 3
+        ctx["dist_norm"] = float(max(width, height)) if max(width, height) > 0 else 1.0
+
+        fog_i16 = fog_mask.astype(np.int16)
+        reveal1, reveal2 = self._window_counts_r1_r2(fog_i16)
+        ctx["adj_fog_counts"] = reveal1 - fog_i16
+        ctx["reveal_range1"] = reveal1
+        ctx["reveal_range2"] = reveal2
+
+        visible_villages = self._get_visible_uncaptured_village_positions(obs)
+        ctx["visible_villages"] = visible_villages
+        ctx["has_visible_village"] = len(visible_villages) > 0
+        village_mask = np.zeros((width, height), dtype=np.bool_)
+        for vx, vy in visible_villages:
+            if 0 <= int(vx) < width and 0 <= int(vy) < height:
+                village_mask[int(vx), int(vy)] = True
+        ctx["visible_village_mask"] = village_mask
+
+        city_bounds = np.zeros((width, height), dtype=np.bool_)
+        city_map = obs.get("city", {}) if isinstance(obs, dict) else {}
+        if isinstance(city_map, dict):
+            for city in city_map.values():
+                if not isinstance(city, dict):
+                    continue
+                try:
+                    if int(city.get("tribeID", -1)) != 0:
+                        continue
+                    cx = int(city.get("x", -1))
+                    cy = int(city.get("y", -1))
+                    bound = int(city.get("bound", -1))
+                except Exception:
+                    continue
+                if cx < 0 or cy < 0 or bound < 0:
+                    continue
+                # The Chebyshev ball of radius `bound` is exactly the clipped square around the city.
+                city_bounds[max(0, cx - bound):min(width, cx + bound + 1), max(0, cy - bound):min(height, cy + bound + 1)] = True
+        ctx["city_bounds_mask"] = city_bounds
+
+        if ctx["has_visible_village"]:
+            villages = np.asarray([(int(vx), int(vy)) for vx, vy in visible_villages], dtype=np.int64).reshape(-1, 2)
+            xs = np.arange(width, dtype=np.int64)[:, None, None]
+            ys = np.arange(height, dtype=np.int64)[None, :, None]
+            dist = np.abs(xs - villages[:, 0]) + np.abs(ys - villages[:, 1])
+            ctx["dist_to_visible_village"] = dist.min(axis=2).astype(np.int16)
+
+        units = obs.get("unit", {}) if isinstance(obs, dict) else {}
+        if isinstance(units, dict):
+            unit_info = {}
+            for uid_s, unit in units.items():
+                if not isinstance(unit, dict):
+                    continue
+                try:
+                    uid = int(uid_s)
+                except Exception:
+                    continue
+                try:
+                    ux = int(unit.get("x", -1))
+                    uy = int(unit.get("y", -1))
+                except Exception:
+                    ux, uy = -1, -1
+                try:
+                    utype = int(unit.get("type", -1))
+                except Exception:
+                    utype = -1
+                unit_info[uid] = {
+                    "x": ux,
+                    "y": uy,
+                    "type": utype,
+                }
+            ctx["unit_info"] = unit_info
+        return ctx
+
+    def _build_feature_step_context_loops(self, obs):
+        """Original per-tile implementation of _build_feature_step_context, kept as its reference."""
         ctx = {
             "dims": self._board_dimensions_from_obs(obs),
             "terrain_arr": None,
@@ -2124,6 +2305,211 @@ class TribesGymWrapper(gym.Env):
         self._feature_action_meta_cache[gid_i] = {"sig": sig, "meta": meta}
         return meta
 
+    # Action fields that fully determine the observation-independent feature columns (0, 12-35, 42).
+    _STATIC_FEATURE_SIG_KEYS = ("type", "tech_type", "resource_type", "building_type", "levelup_choice", "repr", "star_cost")
+    _STATIC_FEATURE_MISSING = object()
+
+    def _static_legal_action_feature_entry(self, gid, action):
+        """(a_type, row) where row holds the observation-independent feature columns, cached per global id.
+
+        The cache entry is reused only when every input field (value and type) and the catalog are unchanged.
+        """
+        missing = self._STATIC_FEATURE_MISSING
+        vals = tuple(action.get(k, missing) for k in self._STATIC_FEATURE_SIG_KEYS)
+        sig = (vals, tuple(map(type, vals)))
+        cache = self.__dict__.setdefault("_feature_static_row_cache", {})
+        entry = cache.get(gid, None)
+        if entry is not None and entry[0] == sig and entry[1] is self._catalog:
+            return entry[2], entry[3]
+
+        row = [0.0] * int(self.ACTION_FEATURE_DIM)
+        a_type = str(action.get("type", "UNKNOWN")).upper()
+        is_move = a_type == "MOVE"
+        row[0] = 1.0 if is_move else 0.0
+        row[12] = 1.0 if a_type == "END_TURN" else 0.0
+        row[13] = 1.0 if a_type == "CAPTURE" else 0.0
+        row[14] = 1.0 if a_type in ("SPAWN", "TRAIN") else 0.0
+        row[15] = 1.0 if a_type == "RESEARCH_TECH" else 0.0
+        row[16] = 1.0 if a_type == "RESOURCE_GATHERING" else 0.0
+        row[17] = 1.0 if a_type == "LEVEL_UP" else 0.0
+        row[18] = 1.0 if a_type == "BUILD" else 0.0
+        row[19] = 1.0 if a_type == "CLEAR_FOREST" else 0.0
+        row[20] = 1.0 if a_type == "GROW_FOREST" else 0.0
+        known = is_move or a_type in (
+            "END_TURN", "CAPTURE", "SPAWN", "TRAIN", "RESEARCH_TECH", "RESOURCE_GATHERING",
+            "LEVEL_UP", "BUILD", "CLEAR_FOREST", "GROW_FOREST",
+        )
+        row[21] = 0.0 if known else 1.0
+
+        tech_type = self._resolve_action_tech_type(action)
+        if tech_type and self._catalog is not None:
+            row[22] = self._normalize_vocab_index(
+                self._catalog.tech_to_idx.get(tech_type, -1),
+                len(self._catalog.tech_types),
+            )
+        row[23] = 1.0 if tech_type == "ORGANIZATION" else 0.0
+        row[24] = 1.0 if tech_type == "FORESTRY" else 0.0
+
+        resource_type = self._resolve_action_resource_type(action)
+        if resource_type and self._catalog is not None:
+            row[25] = self._normalize_vocab_index(
+                self._catalog.resource_to_idx.get(resource_type, -1),
+                len(self._catalog.resource_types),
+            )
+        row[26] = 1.0 if resource_type == "ANIMAL" else 0.0
+        row[27] = 1.0 if resource_type == "FRUIT" else 0.0
+        row[28] = 1.0 if resource_type == "FISH" else 0.0
+        row[29] = 1.0 if resource_type == "CROPS" else 0.0
+        row[30] = 1.0 if resource_type == "ORE" else 0.0
+
+        building_type = self._resolve_action_building_type(action)
+        if building_type and self._catalog is not None:
+            row[31] = self._normalize_vocab_index(
+                self._catalog.building_to_idx.get(building_type, -1),
+                len(self._catalog.building_types),
+            )
+        row[32] = 1.0 if building_type == "LUMBER_HUT" else 0.0
+        row[33] = 1.0 if building_type == "SAWMILL" else 0.0
+
+        levelup_choice = self._resolve_action_levelup_choice(action)
+        if levelup_choice and self._catalog is not None:
+            row[34] = self._normalize_vocab_index(
+                self._catalog.levelup_to_idx.get(levelup_choice, -1),
+                len(self._catalog.levelup_choices),
+            )
+        row[35] = 1.0 if levelup_choice == "WORKSHOP" else 0.0
+
+        raw_star_cost = float(action.get("star_cost", 0.0) if isinstance(action, dict) else 0.0)
+        row[42] = float(raw_star_cost / float(self.ACTION_STAR_COST_SCALE))
+
+        cache[gid] = (sig, self._catalog, a_type, row)
+        return a_type, row
+
+    @staticmethod
+    def _clip_float(value, lo, hi):
+        # Same result as float(np.clip(value, lo, hi)) for a Python float, NaN included, without NumPy overhead.
+        return min(max(value, lo), hi)
+
+    def _legal_action_feature_row(self, action, obs, ctx, gid):
+        """One legal-action feature row as a list of Python floats.
+
+        Produces exactly the values of _compute_legal_action_feature_vector_cached (before the float32 cast,
+        which callers apply to the whole block at once); tools/tests/test_vectorized_legal_features.py checks
+        the two byte for byte.
+        """
+        a_type, static_row = self._static_legal_action_feature_entry(int(gid), action)
+        feat = list(static_row)
+        clip = self._clip_float
+
+        if a_type == "MOVE":
+            meta = self._get_cached_move_action_meta(gid, action)
+            unit_id = meta.get("unit_id", None)
+            src_x = meta.get("src_x", None)
+            src_y = meta.get("src_y", None)
+            dst_x = meta.get("dst_x", None)
+            dst_y = meta.get("dst_y", None)
+
+            unit_info = ctx.get("unit_info", {})
+            uinfo = unit_info.get(int(unit_id), None) if unit_id is not None else None
+            if (src_x is None or src_y is None) and isinstance(uinfo, dict):
+                sx = int(uinfo.get("x", -1))
+                sy = int(uinfo.get("y", -1))
+                if sx >= 0 and sy >= 0:
+                    src_x, src_y = sx, sy
+
+            dims = ctx.get("dims", None)
+            if dst_x is not None and dst_y is not None and dims is not None:
+                width, height = int(dims[0]), int(dims[1])
+                dx = int(dst_x)
+                dy = int(dst_y)
+                if 0 <= dx < width and 0 <= dy < height:
+                    reveal1 = ctx.get("reveal_range1", None)
+                    reveal2 = ctx.get("reveal_range2", None)
+                    mountain_mask = ctx.get("mountain_mask", None)
+                    unit_type = int(uinfo.get("type", -1)) if isinstance(uinfo, dict) else -1
+                    if unit_type == 10:
+                        revealed = int(reveal2[dx, dy]) if reveal2 is not None else 0
+                    else:
+                        on_mountain = bool(mountain_mask[dx, dy]) if mountain_mask is not None else False
+                        revealed = int(reveal2[dx, dy]) if (on_mountain and reveal2 is not None) else int(reveal1[dx, dy] if reveal1 is not None else 0)
+                    feat[1] = float(min(float(self.REVEAL_CLIP), max(0.0, float(revealed))) / max(1.0, float(self.REVEAL_CLIP)))
+
+                    adj_fog = ctx.get("adj_fog_counts", None)
+                    adj_after = int(adj_fog[dx, dy]) if adj_fog is not None else 0
+                    feat[2] = float(min(float(self.ADJ_FOG_MAX), max(0.0, float(adj_after))) / max(1.0, float(self.ADJ_FOG_MAX)))
+
+                    adj_before = 0
+                    src_in_bounds = False
+                    if src_x is not None and src_y is not None:
+                        sx = int(src_x)
+                        sy = int(src_y)
+                        src_in_bounds = 0 <= sx < width and 0 <= sy < height
+                        if src_in_bounds and adj_fog is not None:
+                            adj_before = int(adj_fog[sx, sy])
+                    adj_delta = float(adj_after - adj_before)
+                    feat[3] = float(clip(adj_delta / max(1.0, float(self.ADJ_FOG_MAX)), -1.0, 1.0))
+                    feat[4] = 1.0 if revealed == 0 else 0.0
+
+                    has_visible_village = bool(ctx.get("has_visible_village", False))
+                    feat[6] = 1.0 if has_visible_village else 0.0
+                    if has_visible_village:
+                        village_mask = ctx.get("visible_village_mask", None)
+                        if village_mask is not None and village_mask[dx, dy]:
+                            feat[5] = 1.0
+                        dist_map = ctx.get("dist_to_visible_village", None)
+                        if src_in_bounds and dist_map is not None:
+                            dist_before = int(dist_map[sx, sy])
+                            dist_after = int(dist_map[dx, dy])
+                            if dist_before >= 0 and dist_after >= 0:
+                                dist_norm = float(ctx.get("dist_norm", 1.0))
+                                if dist_norm <= 0:
+                                    dist_norm = 1.0
+                                feat[7] = float(clip((float(dist_before) - float(dist_after)) / dist_norm, -1.0, 1.0))
+
+                    if unit_id is not None:
+                        prev_tile = self._unit_previous_tiles.get(int(unit_id), None)
+                        if prev_tile is not None and (dx, dy) == (int(prev_tile[0]), int(prev_tile[1])):
+                            feat[8] = 1.0
+                        if isinstance(uinfo, dict):
+                            feat[11] = 1.0 if int(uinfo.get("type", -1)) == 0 else 0.0
+
+                    city_bounds_mask = ctx.get("city_bounds_mask", None)
+                    if city_bounds_mask is not None and city_bounds_mask[dx, dy]:
+                        feat[9] = 1.0
+
+                    capital_pos = ctx.get("capital_pos", None)
+                    if capital_pos is not None and src_x is not None and src_y is not None:
+                        sx = int(src_x)
+                        sy = int(src_y)
+                        before = abs(sx - int(capital_pos[0])) + abs(sy - int(capital_pos[1]))
+                        after = abs(dx - int(capital_pos[0])) + abs(dy - int(capital_pos[1]))
+                        dist_norm = float(ctx.get("dist_norm", 1.0))
+                        if dist_norm <= 0:
+                            dist_norm = 1.0
+                        feat[10] = float(clip((float(after) - float(before)) / dist_norm, -1.0, 1.0))
+
+        eco = self._summarize_action_economy_expectation(action, obs)
+        feat[36] = float(clip(float(eco["expected_population_delta"]) / 2.0, -1.0, 1.0))
+        feat[37] = float(clip(float(eco["expected_immediate_spt_delta"]) / 5.0, -1.0, 1.0))
+        feat[38] = 1.0 if bool(eco["makes_level_up_available"]) else 0.0
+        feat[39] = 1.0 if bool(eco["is_level_up_claim"]) else 0.0
+        feat[40] = float(clip(float(eco["progress_before"]), 0.0, 1.0))
+        feat[41] = 1.0 if bool(eco["ready_before"]) else 0.0
+
+        src_x, src_y, target_x, target_y = self._extract_action_coordinates(action, obs)
+        dims = ctx.get("dims", None)
+        if dims is not None:
+            max_x = max(1.0, float(dims[0] - 1))
+            max_y = max(1.0, float(dims[1] - 1))
+        else:
+            max_x = 1.0
+            max_y = 1.0
+        feat[43] = float(src_x / max_x) if src_x is not None else 0.0
+        feat[44] = float(src_y / max_y) if src_y is not None else 0.0
+        feat[45] = float(target_x / max_x) if target_x is not None else 0.0
+        feat[46] = float(target_y / max_y) if target_y is not None else 0.0
+        return feat
+
     def _compute_legal_action_feature_vector_cached(self, action, obs, ctx, gid):
         feat = np.zeros((int(self.ACTION_FEATURE_DIM),), dtype=np.float32)
         a_type = str(action.get("type", "UNKNOWN")).upper()
@@ -2296,6 +2682,31 @@ class TribesGymWrapper(gym.Env):
         feat[46] = float(target_y / max_y) if target_y is not None else 0.0
         return feat
 
+    def _build_legal_action_features_padded_loops(self, legal_global_ids_padded, legal_action_valid_mask, legal_id_to_raw_index, legal_actions, obs):
+        """Previous production builder (per-tile context, one float32 vector per action), kept as a reference.
+
+        The fast builder below must match it byte for byte (POLYVISION_FEATURE_EQUIV_CHECK=1 checks this
+        every step; tools/tests/test_vectorized_legal_features.py checks it offline).
+        """
+        features = np.zeros((int(self._max_legal_actions), int(self.ACTION_FEATURE_DIM)), dtype=np.float32)
+        if legal_global_ids_padded is None or legal_action_valid_mask is None:
+            return features
+        if not isinstance(legal_id_to_raw_index, dict) or not isinstance(legal_actions, list):
+            return features
+        ids = np.asarray(legal_global_ids_padded, dtype=np.int64).reshape(-1)
+        valid = np.asarray(legal_action_valid_mask, dtype=bool).reshape(-1)
+        max_slots = min(ids.shape[0], valid.shape[0], int(self._max_legal_actions))
+        ctx = self._build_feature_step_context_loops(obs)
+        for slot in range(max_slots):
+            if not bool(valid[slot]):
+                continue
+            gid = int(ids[slot])
+            raw_idx = legal_id_to_raw_index.get(gid, None)
+            if raw_idx is None or int(raw_idx) < 0 or int(raw_idx) >= len(legal_actions):
+                continue
+            features[slot, :] = self._compute_legal_action_feature_vector_cached(legal_actions[int(raw_idx)], obs, ctx, gid)
+        return features
+
     def _build_legal_action_features_padded(self, legal_global_ids_padded, legal_action_valid_mask, legal_id_to_raw_index, legal_actions, obs):
         profile = {
             "feature_alloc_zero_fill_s": 0.0,
@@ -2310,9 +2721,10 @@ class TribesGymWrapper(gym.Env):
             "feature_repr_string_s": 0.0,
             "feature_java_calls_s": 0.0,
         }
-        t_alloc0 = time.perf_counter() if self._profile_sps_enabled else None
+        profiling = bool(self._profile_sps_enabled)
+        t_alloc0 = time.perf_counter() if profiling else None
         features = np.zeros((int(self._max_legal_actions), int(self.ACTION_FEATURE_DIM)), dtype=np.float32)
-        if self._profile_sps_enabled:
+        if profiling:
             profile["feature_alloc_zero_fill_s"] += time.perf_counter() - t_alloc0
         self._last_step_feature_profile = profile
         if legal_global_ids_padded is None or legal_action_valid_mask is None:
@@ -2320,57 +2732,42 @@ class TribesGymWrapper(gym.Env):
         if not isinstance(legal_id_to_raw_index, dict) or not isinstance(legal_actions, list):
             return features
 
-        t_mask0 = time.perf_counter() if self._profile_sps_enabled else None
+        t_mask0 = time.perf_counter() if profiling else None
         ids = np.asarray(legal_global_ids_padded, dtype=np.int64).reshape(-1)
         valid = np.asarray(legal_action_valid_mask, dtype=bool).reshape(-1)
-        if self._profile_sps_enabled:
-            profile["feature_mask_construct_s"] += time.perf_counter() - t_mask0
         max_slots = min(ids.shape[0], valid.shape[0], int(self._max_legal_actions))
+        valid_slots = np.flatnonzero(valid[:max_slots]).tolist()
+        slot_gids = ids[valid_slots].tolist() if valid_slots else []
+        if profiling:
+            profile["feature_mask_construct_s"] += time.perf_counter() - t_mask0
 
-        t_ctx0 = time.perf_counter() if self._profile_sps_enabled else None
+        t_ctx0 = time.perf_counter() if profiling else None
         ctx = self._build_feature_step_context(obs)
-        if self._profile_sps_enabled:
+        if profiling:
             profile["feature_step_precompute_s"] += time.perf_counter() - t_ctx0
-        self._profile_feature_build_active = bool(self._profile_sps_enabled)
+        self._profile_feature_build_active = profiling
         self._profile_feature_build_repr_parse_s = 0.0
-        for slot in range(max_slots):
-            t_loop0 = time.perf_counter() if self._profile_sps_enabled else None
-            if not bool(valid[slot]):
-                if self._profile_sps_enabled:
-                    profile["feature_loop_iteration_s"] += time.perf_counter() - t_loop0
-                continue
-            t_gid0 = time.perf_counter() if self._profile_sps_enabled else None
-            gid = int(ids[slot])
-            if self._profile_sps_enabled:
-                profile["feature_gid_decode_s"] += time.perf_counter() - t_gid0
-            t_lookup0 = time.perf_counter() if self._profile_sps_enabled else None
+        t_loop0 = time.perf_counter() if profiling else None
+        n_actions = len(legal_actions)
+        out_slots = []
+        rows = []
+        for slot, gid in zip(valid_slots, slot_gids):
             raw_idx = legal_id_to_raw_index.get(gid, None)
-            if self._profile_sps_enabled:
-                profile["feature_canonical_lookup_s"] += time.perf_counter() - t_lookup0
-            if raw_idx is None:
-                if self._profile_sps_enabled:
-                    profile["feature_loop_iteration_s"] += time.perf_counter() - t_loop0
+            if raw_idx is None or int(raw_idx) < 0 or int(raw_idx) >= n_actions:
                 continue
-            if int(raw_idx) < 0 or int(raw_idx) >= len(legal_actions):
-                if self._profile_sps_enabled:
-                    profile["feature_loop_iteration_s"] += time.perf_counter() - t_loop0
-                continue
-            t_static0 = time.perf_counter() if self._profile_sps_enabled else None
-            action = legal_actions[int(raw_idx)]
-            _a_type = str(action.get("type", "UNKNOWN")).upper()
-            if self._profile_sps_enabled:
-                profile["feature_static_metadata_extract_s"] += time.perf_counter() - t_static0
-            t_dynamic0 = time.perf_counter() if self._profile_sps_enabled else None
-            vec = self._compute_legal_action_feature_vector_cached(action, obs, ctx, gid)
-            if self._profile_sps_enabled:
-                profile["feature_dynamic_state_extract_s"] += time.perf_counter() - t_dynamic0
-            t_write0 = time.perf_counter() if self._profile_sps_enabled else None
-            features[slot, :] = vec
-            if self._profile_sps_enabled:
-                profile["feature_padding_write_s"] += time.perf_counter() - t_write0
-                profile["feature_loop_iteration_s"] += time.perf_counter() - t_loop0
+            out_slots.append(slot)
+            rows.append(self._legal_action_feature_row(legal_actions[int(raw_idx)], obs, ctx, gid))
+        if profiling:
+            t_write0 = time.perf_counter()
+            profile["feature_dynamic_state_extract_s"] += t_write0 - t_loop0
+        if rows:
+            # One float32 cast for the whole block rounds each value exactly as per-element assignment did.
+            features[out_slots] = np.asarray(rows, dtype=np.float32)
         self._profile_feature_build_active = False
-        if self._profile_sps_enabled:
+        if profiling:
+            t_end = time.perf_counter()
+            profile["feature_padding_write_s"] += t_end - t_write0
+            profile["feature_loop_iteration_s"] += t_end - t_loop0
             profile["feature_repr_string_s"] += float(self._profile_feature_build_repr_parse_s)
             self._last_step_feature_profile = profile
 
@@ -2409,6 +2806,15 @@ class TribesGymWrapper(gym.Env):
                     "feature_equiv_value_mismatch: "
                     f"max_abs_diff={float(np.max(diff)):.8f} at_slot={int(max_idx[0])} feature_idx={int(max_idx[1])}"
                 )
+            loops = self._build_legal_action_features_padded_loops(
+                legal_global_ids_padded,
+                legal_action_valid_mask,
+                legal_id_to_raw_index,
+                legal_actions,
+                obs,
+            )
+            if features.shape != loops.shape or features.tobytes() != loops.tobytes():
+                raise RuntimeError("feature_equiv_bytes_mismatch: vectorised builder differs from the per-tile builder.")
         return features
 
     def _compute_legal_action_feature_vector_reference(self, action, obs):
@@ -2791,7 +3197,7 @@ class TribesGymWrapper(gym.Env):
         }
         for enum_name in list(out.keys()):
             out[enum_name] = self._extract_enum_names_from_types_java(types_path, enum_name)
-        return out
+        return filter_vocab_for_rules(out, getattr(self, "RULES_VERSION", DEFAULT_RULES_VERSION))
 
     def _extract_enum_names_from_types_java(self, path, enum_name):
         if not os.path.exists(path):
@@ -3603,6 +4009,20 @@ class TribesGymWrapper(gym.Env):
             gid = self._catalog.id_recover(tile)
             return gid, "missing_recover_coords" if gid is None else None
 
+        if a_type == "INFILTRATE":
+            src_x = self._action_int(action, "src_x", None)
+            src_y = self._action_int(action, "src_y", None)
+            dst_x = self._action_int(action, "dst_x", None)
+            dst_y = self._action_int(action, "dst_y", None)
+            if None in (src_x, src_y, dst_x, dst_y):
+                return None, "missing_infiltrate_coords"
+            gid = self._catalog.id_infiltrate(self._catalog.tile_id(src_x, src_y), self._catalog.tile_id(dst_x, dst_y))
+            return gid, "missing_infiltrate_coords" if gid is None else None
+
+        if a_type in DIPLOMACY_TRIBE_ACTION_TYPES:
+            gid = self._catalog.id_diplomacy(a_type, self._action_int(action, "target_tribe_id", None))
+            return gid, "missing_diplomacy_target" if gid is None else None
+
         return None, f"unsupported_action_type:{a_type}"
 
     def _apply_bardur_opening(self, obs, audit_recorder=None):
@@ -4363,12 +4783,28 @@ class TribesGymWrapper(gym.Env):
         # Conservative default for uncertain rules.
         return 0
 
+    def _verify_java_rules_version(self):
+        """Fail closed if the JVM plays a different rule set from the one this wrapper reports."""
+        try:
+            java_rules = str(self.tribes_env._jvm.core.RulesVersion.activeId())
+        except Exception as exc:  # pragma: no cover - only with stale compiled classes
+            raise RuntimeError(
+                "Java engine does not expose core.RulesVersion; recompile pol_env/Tribes/out"
+            ) from exc
+        if java_rules != self.RULES_VERSION:
+            raise RuntimeError(
+                f"Java engine plays rules {java_rules!r} but the wrapper expects {self.RULES_VERSION!r}"
+            )
+
     def _expected_immediate_spt_delta_from_action(self, action):
         a_type = str(action.get("type", "")).upper()
         if a_type == "LEVEL_UP":
             choice = self._resolve_action_levelup_choice(action)
             # Deterministic from rules: WORKSHOP grants +1 production.
             if choice == "WORKSHOP":
+                return 1.0
+            # Under the 2.15 rules a Park also grants +1 production.
+            if choice == "PARK" and self.RULES_VERSION != "tribes_2020":
                 return 1.0
         # Conservative default when uncertain.
         return 0.0
@@ -5563,7 +5999,7 @@ class TribesGymWrapper(gym.Env):
             width, height = int(dims[0]), int(dims[1])
         else:
             width, height = 0, 0
-        layout = observation_layout(width, height)
+        layout = observation_layout(width, height, getattr(self, "RULES_VERSION", None))
 
         # 1. Terrain Channel (1 channel: width x height)
         terrain_raw = np.asarray(board.get("terrain", []), dtype=np.int16)
@@ -5710,6 +6146,10 @@ class TribesGymWrapper(gym.Env):
         resource_norm[fog_mask] = 0.0  # explicit fog defense
         features.extend(resource_norm.flatten())
 
+        # 6b. 2.15 rules only: Cloak and Dagger channels (signed; an own hidden Cloak is +0.5).
+        if layout.diplomacy_units_end > layout.diplomacy_units_start:
+            features.extend(self._diplomacy_unit_channels(unit_map, fog_mask, width, height, controlled_tribe))
+
         # 7. Legacy Scalars (6 values)
         tribes_info = obs_dict.get("tribes", {})
         tribe0 = tribes_info.get(str(controlled_tribe), {}) if isinstance(tribes_info, dict) else {}
@@ -5775,6 +6215,10 @@ class TribesGymWrapper(gym.Env):
         city_slot_features = encode_owned_city_slots(canonical_cities, width=width, height=height)
         features.extend(city_slot_features)
 
+        # 11. 2.15 rules only: Diplomacy researched and the controlled tribe's relations with each tribe id.
+        if layout.diplomacy_scalar_end > layout.diplomacy_scalar_start:
+            features.extend(self._diplomacy_scalars(obs_dict, controlled_tribe, effective_techs))
+
         if len(features) != layout.expected_obs_dim:
             raise ObservationContractError(
                 f"Constructed observation vector length {len(features)} != expected {layout.expected_obs_dim}"
@@ -5782,6 +6226,47 @@ class TribesGymWrapper(gym.Env):
 
         return np.array(features, dtype=np.float32)
     
+    # Java unit-type keys of the 2.15 Diplomacy units (core.Types.UNIT).
+    DIPLOMACY_UNIT_TYPE_KEYS = {"CLOAK": 12, "DAGGER": 13}
+
+    def _diplomacy_unit_channels(self, unit_map, fog_mask, width, height, controlled_tribe):
+        channels = {name: np.zeros((width, height), dtype=np.float32) for name in DIPLOMACY_UNIT_TYPES}
+        key_to_name = {self.DIPLOMACY_UNIT_TYPE_KEYS[n]: n for n in DIPLOMACY_UNIT_TYPES}
+        if isinstance(unit_map, dict):
+            for u_rec in unit_map.values():
+                if not isinstance(u_rec, dict):
+                    continue
+                try:
+                    ux, uy = int(u_rec.get("x", -1)), int(u_rec.get("y", -1))
+                    name = key_to_name.get(int(u_rec.get("type", -1)))
+                    tribe = int(u_rec.get("tribeId", -1))
+                except Exception:
+                    continue
+                if name is None or not (0 <= ux < width and 0 <= uy < height) or fog_mask[ux, uy]:
+                    continue
+                if tribe == int(controlled_tribe):
+                    channels[name][ux, uy] = 0.5 if bool(u_rec.get("hidden", False)) else 1.0
+                else:
+                    channels[name][ux, uy] = -1.0
+        out = []
+        for name in DIPLOMACY_UNIT_TYPES:
+            chan = channels[name]
+            chan[fog_mask] = 0.0
+            out.extend(chan.flatten())
+        return out
+
+    def _diplomacy_scalars(self, obs_dict, controlled_tribe, effective_techs):
+        out = [1.0 if t in effective_techs else 0.0 for t in DIPLOMACY_TECHNOLOGIES]
+        tribes_info = obs_dict.get("tribes", {}) if isinstance(obs_dict, dict) else {}
+        me = tribes_info.get(str(int(controlled_tribe)), {}) if isinstance(tribes_info, dict) else {}
+        rel = me.get("diplomacy", {}) if isinstance(me, dict) else {}
+        for tribe_id in range(DIPLOMACY_MAX_TRIBES):
+            for feature in DIPLOMACY_RELATION_FEATURES:
+                values = rel.get(feature, []) if isinstance(rel, dict) else []
+                flag = bool(values[tribe_id]) if tribe_id < len(values) and tribe_id != int(controlled_tribe) else False
+                out.append(1.0 if flag else 0.0)
+        return out
+
     def close(self):
         """Close the underlying environment"""
         if hasattr(self.tribes_env, 'close'):

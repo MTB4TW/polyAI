@@ -71,6 +71,17 @@ You can pass environment variables directly to `sbatch`:
 NUM_ENVS=24 TOTAL_TIMESTEPS=10000000 EXP_NAME=farmshare_10m sbatch cluster/train_farmshare.sbatch
 ```
 
+Extra `ppo.py` flags go in `EXTRA_PPO_ARGS` (split on whitespace, appended last so they override the job's
+defaults). `cluster/run_experiment.sh` passes it through and records it in `outputs/experiments/NAME.json`:
+
+```bash
+EXTRA_PPO_ARGS="--norm-obs --norm-returns" cluster/run_experiment.sh resnet-local-normobs-16m-seed1 spatial_resnet_local 16000000 1
+```
+
+Phase 1 PPO options (all off by default): `--norm-obs` (running observation mean/std, saved in the checkpoint and
+applied by the evaluator), `--norm-returns` (reward scaling by the running std of discounted returns, training only),
+`--gamma-per-turn`, `--no-clip-vloss`, `--learning-rate`, `--update-epochs`, `--target-kl`, `--ent-coef`.
+
 ---
 
 ## 5. Monitoring Jobs and Learning Curves
@@ -145,6 +156,10 @@ measure timeout frequency before committing to a long training run.
 `NETWORK_ARCH=spatial_resnet_local` selects the experimental source/target
 spatial-feature architecture. Existing `spatial_resnet` checkpoints still load
 unchanged. The local variant requires a new training run and `legal_features`.
+`NETWORK_ARCH=spatial_resnet_composed` goes further and drops the per-action-ID
+embedding table (about 93% of the ResNet's parameters): actions are scored from
+an action-type embedding, the grid features at their tiles, and the legal-action
+features. It also requires a new training run and `legal_features`.
 Compare both architectures at equal budgets on validation maps. Do not tune
 against the held-out test pool or historical human reference scores.
 
