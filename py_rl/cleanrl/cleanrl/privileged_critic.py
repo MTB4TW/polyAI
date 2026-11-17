@@ -26,7 +26,7 @@ from py_rl.cleanrl.cleanrl.spatial_agent import (
     observation_sizes,
 )
 
-PRIVILEGED_CRITIC_VERSION = "privileged_critic_v1"
+PRIVILEGED_CRITIC_VERSION = "privileged_critic_v2"
 PRIVILEGED_CRITIC_SUFFIX = ".privileged_critic.pt"
 
 
@@ -65,7 +65,8 @@ class PrivilegedCritic(nn.Module):
     """V(s) from the unfogged observation: spatial ResNet + scalar MLP + value MLP (the spatial agent's critic
     shape, with its own encoder so the policy's encoder is trained by the policy loss alone)."""
 
-    def __init__(self, obs_dim: int, *, norm_obs: bool = False, hidden_channels: int = 64):
+    def __init__(self, obs_dim: int, *, norm_obs: bool = False, hidden_channels: int = 64, value_norm: bool = True,
+                 value_norm_beta: float = 0.1, value_norm_min_std: float = 1.0):
         super().__init__()
         channels, scalar_dim = observation_sizes()
         spatial_dim = channels * BOARD_WIDTH * BOARD_HEIGHT
@@ -76,7 +77,18 @@ class PrivilegedCritic(nn.Module):
         self.obs_dim = int(obs_dim)
         self.spatial_channels = channels
         self.spatial_dim = spatial_dim
+        self.hidden_channels = int(hidden_channels)
         self.obs_normalizer = RunningObsNormalizer(self.obs_dim) if norm_obs else None
+        # Value normalisation (PopArt, van Hasselt et al. 2016): the network predicts standardised returns and
+        # V = mean + std * output. Without it the head has to emit raw returns (about -25 to +100 in combat) from
+        # unit-scale activations, which drives its tanh layers into saturation and the critic goes flat.
+        self.value_norm = bool(value_norm)
+        self.value_norm_beta = float(value_norm_beta)
+        self.value_norm_min_std = float(value_norm_min_std)
+        if self.value_norm:
+            self.register_buffer("return_mean", torch.zeros((), dtype=torch.float32))
+            self.register_buffer("return_sq_mean", torch.ones((), dtype=torch.float32))
+            self.register_buffer("return_stats_initialised", torch.zeros((), dtype=torch.float32))
         self.spatial_backbone = SpatialResNetBackbone(in_channels=channels, hidden_channels=hidden_channels, out_dim=128)
         self.scalar_backbone = nn.Sequential(
             layer_init(nn.Linear(scalar_dim, 64)),
@@ -92,14 +104,97 @@ class PrivilegedCritic(nn.Module):
             layer_init(nn.Linear(64, 1), std=1.0),
         )
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """[B, obs_dim] -> [B, 1]."""
+    def extra_init_kwargs(self) -> dict:
+        return {"value_norm": self.value_norm, "value_norm_beta": self.value_norm_beta,
+                "value_norm_min_std": self.value_norm_min_std}
+
+    @staticmethod
+    def is_statistic_key(key: str) -> bool:
+        """State-dict entries that are running statistics, not learned weights."""
+        return key.startswith("obs_normalizer.") or key.startswith("return_")
+
+    def return_std(self) -> torch.Tensor:
+        if not self.value_norm:
+            return torch.ones((), device=next(self.parameters()).device)
+        var = (self.return_sq_mean - self.return_mean ** 2).clamp_min(0.0)
+        return var.sqrt().clamp_min(self.value_norm_min_std)
+
+    def normalized(self, x: torch.Tensor) -> torch.Tensor:
+        """[B, obs_dim] -> [B, 1] standardised value (the raw value when value normalisation is off)."""
         if self.obs_normalizer is not None:
             x = self.obs_normalizer(x)
         spatial = x[:, : self.spatial_dim].contiguous().view(-1, self.spatial_channels, BOARD_HEIGHT, BOARD_WIDTH)
         scalars = x[:, self.spatial_dim :].contiguous()
         h = torch.cat([self.spatial_backbone(spatial), self.scalar_backbone(scalars)], dim=-1)
         return self.value_head(h)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """[B, obs_dim] -> [B, 1] value in return units."""
+        out = self.normalized(x)
+        if self.value_norm:
+            out = self.return_mean + self.return_std() * out
+        return out
+
+    def normalize_returns(self, returns: torch.Tensor) -> torch.Tensor:
+        if not self.value_norm:
+            return returns
+        return (returns - self.return_mean) / self.return_std()
+
+    def value_loss(self, x: torch.Tensor, returns: torch.Tensor) -> torch.Tensor:
+        """0.5 * mean squared error, measured in standardised units under value normalisation."""
+        pred = self.normalized(x).view(-1)
+        return 0.5 * ((pred - self.normalize_returns(returns.view(-1))) ** 2).mean()
+
+    @torch.no_grad()
+    def update_return_stats(self, returns: torch.Tensor) -> None:
+        """Move the return statistics towards this rollout's returns and rescale the output layer so that every
+        V(s) is unchanged (PopArt's "preserving outputs"). Call once per rollout, before the PPO update."""
+        if not self.value_norm:
+            return
+        r = returns.detach().reshape(-1).double()
+        if r.numel() == 0:
+            return
+        b_mean, b_sq = r.mean().float(), (r ** 2).mean().float()
+        old_mean, old_std = self.return_mean.clone(), self.return_std().clone()
+        if float(self.return_stats_initialised) == 0.0:
+            # First rollout: take its statistics as they are, without preserving outputs. The fresh head's outputs
+            # are unit-scale noise, which is what a standardised value should start as; preserving them would turn
+            # the raw return offset (about -12 in combat) into a large standardised one the head must undo.
+            self.return_mean.copy_(b_mean)
+            self.return_sq_mean.copy_(b_sq)
+            self.return_stats_initialised.fill_(1.0)
+            return
+        beta = self.value_norm_beta
+        self.return_mean.mul_(1.0 - beta).add_(beta * b_mean)
+        self.return_sq_mean.mul_(1.0 - beta).add_(beta * b_sq)
+        new_mean, new_std = self.return_mean, self.return_std()
+        last = self.value_head[-1]
+        last.weight.mul_(old_std / new_std)
+        last.bias.mul_(old_std).add_(old_mean - new_mean).div_(new_std)
+
+    @torch.no_grad()
+    def diagnostics(self, x: torch.Tensor) -> dict:
+        """Health of the critic's features on a batch (a collapsed critic gives the same output for every state)."""
+        if self.obs_normalizer is not None:
+            x = self.obs_normalizer(x)
+        spatial = x[:, : self.spatial_dim].contiguous().view(-1, self.spatial_channels, BOARD_HEIGHT, BOARD_WIDTH)
+        s = self.spatial_backbone(spatial)
+        c = self.scalar_backbone(x[:, self.spatial_dim :].contiguous())
+        h = torch.cat([s, c], dim=-1)
+        pre1 = self.value_head[0](h)
+        a1 = torch.tanh(pre1)
+        pre2 = self.value_head[2](a1)
+        a2 = torch.tanh(pre2)
+        v = self.value_head[4](a2).view(-1) * (self.return_std() if self.value_norm else 1.0)
+        return {
+            "spatial_dead_frac": float((s.amax(dim=0) <= 0).float().mean()),
+            "scalar_dead_frac": float((c.amax(dim=0) <= 0).float().mean()),
+            "feature_std": float(h.std(dim=0).mean()),
+            "tanh1_sat_frac": float((a1.abs() > 0.99).float().mean()),
+            "tanh2_sat_frac": float((a2.abs() > 0.99).float().mean()),
+            "hidden_std": float(a2.std(dim=0).mean()),
+            "value_std": float(v.std()),
+        }
 
     @torch.no_grad()
     def values(self, x: torch.Tensor, chunk: int = 4096) -> torch.Tensor:
@@ -111,6 +206,50 @@ class PrivilegedCritic(nn.Module):
     def update_normalizer(self, x: torch.Tensor) -> None:
         if self.obs_normalizer is not None:
             self.obs_normalizer.update(x)
+
+
+class FlatCriticGuard:
+    """Detects a collapsed critic: its predictions have (almost) no spread across the rollout while the returns do.
+
+    `observe()` is called once per PPO update with the std of the rollout's value predictions and of its returns;
+    it returns True on the update where the critic has been flat for `patience` updates in a row."""
+
+    def __init__(self, patience: int, min_value_std: float = 1e-3, min_return_std: float = 1e-2):
+        self.patience = int(patience)
+        self.min_value_std = float(min_value_std)
+        self.min_return_std = float(min_return_std)
+        self.flat_updates = 0
+
+    def is_flat(self, value_std: float, return_std: float) -> bool:
+        return value_std < self.min_value_std and return_std > self.min_return_std
+
+    def observe(self, value_std: float, return_std: float) -> bool:
+        if self.patience <= 0:
+            return False
+        self.flat_updates = self.flat_updates + 1 if self.is_flat(value_std, return_std) else 0
+        if self.flat_updates >= self.patience:
+            self.flat_updates = 0
+            return True
+        return False
+
+
+def reinitialize_critic(critic: PrivilegedCritic, optimizer: torch.optim.Optimizer | None = None, seed: int | None = None) -> None:
+    """Fresh weights for every learned layer (normaliser statistics kept) and no optimiser state for them, so Adam
+    restarts its moment estimates for the critic. Parameter tensors are updated in place, so the optimiser keeps
+    pointing at them."""
+    if seed is not None:
+        torch.manual_seed(int(seed))
+    fresh = PrivilegedCritic(critic.obs_dim, norm_obs=critic.obs_normalizer is not None,
+                             hidden_channels=critic.hidden_channels, **critic.extra_init_kwargs())
+    current = critic.state_dict()
+    keep = {k: v for k, v in current.items() if critic.is_statistic_key(k)}
+    state = fresh.state_dict()
+    state.update(keep)
+    with torch.no_grad():
+        critic.load_state_dict({k: v.to(current[k].device) for k, v in state.items()})
+    if optimizer is not None:
+        for p in critic.parameters():
+            optimizer.state.pop(p, None)
 
 
 def extract_privileged_obs(infos, num_envs: int, obs_dim: int, device) -> torch.Tensor:
