@@ -2,6 +2,41 @@
 
 All notable changes to this project are documented in this file.
 
+## [Phase2-Combat_League_Opponent_Village_Capture-089] - (2026-11-18)
+
+### Problem
+- League snapshot opponents could not capture villages while they had one city.
+- The wrapper's capture rule (`_filter_allowed_raw_indices`):
+  - With fewer than 2 cities, a unit standing on a village is frozen and its CAPTURE is masked.
+  - `step()` then captures it when the tribe ends its turn.
+- `combat_selfplay.play_external_turn` drives the opponent tribe. Its `OpponentView` applied the mask but never
+  made the deferred capture. Units sat on villages for good and the opponent's economy stalled.
+- The same loop plays tribe 1 in `tools/evaluate_combat_h2h.py`.
+
+### Evidence
+- The 4M league checkpoint played against itself: one side through the wrapper (as the learner plays), the other
+  through `play_external_turn`, sampling, 200 games per seat.
+- Before the fix the wrapper side scored 0.90 moving first and 0.69 moving second, a sum of 1.59 where equal
+  paths give 1.
+- After the fix it scored 0.685 and 0.320 (sum 1.005).
+- Inputs matched exactly: observations and legal-action features, checked move by move in both seats, apart
+  from `is_immediate_backtrack`.
+
+### Fix
+- `play_deferred_village_captures`: when a snapshot opponent chooses END_TURN with queued village captures, it
+  captures them first, as `step()` does for the learner.
+- Unit tests are in `tools/tests/test_combat_selfplay.py`.
+
+### Impact
+- League runs before this trained against handicapped snapshots. Their league win rates (about 0.8 against their
+  own recent snapshots) are inflated.
+- Combat head-to-head results before this handicapped tribe 1:
+  - The "first mover scores ~0.94" was mostly this bug.
+  - With it fixed, the first mover scores about 0.68 with sampled play.
+- Evaluations against SimpleAgent are unaffected, because Java plays SimpleAgent.
+- Copies of this loop also need the fix: `tools/play_vs_agent.py` (agent as tribe 1) and
+  `tools/evaluate_search_h2h.py` on feat/play-vs-agent.
+
 ## [Phase2-Combat_Map_Pool_Version-088] - (2026-11-18)
 
 ### Scope
