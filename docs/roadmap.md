@@ -1,7 +1,8 @@
 # Roadmap: one map size, one tribe, beat every bot, then humans
 
 Written 2026-11-17 from a review of main after merging PRs #8–#27, and of the one unmerged combat branch
-(`claude/combat-critic-init-96179a`).
+(`claude/combat-critic-init-96179a`). Corrected the same day after checking Devin's league runs: the first
+version said self-play had not run and the agent trained in one seat only, which was out of date.
 "Target" throughout means **Bardur on 11×11 (Polytopia's Tiny map), 1v1**.
 
 ## Where we are
@@ -11,20 +12,25 @@ Written 2026-11-17 from a review of main after merging PRs #8–#27, and of the 
 | Phase 1 (10-turn economy, solo) | Reference 20.52 SPT (16M MLP). Recipe runs reach 24.5–24.9 at 1M CPU steps (norm-obs, no value clip, per-turn γ). Visible lookahead 21.8, full-information lookahead 27.5 (oracle). | `experiments.md`, #16, CHANGELOG 058 |
 | Combat (1v1 vs SimpleAgent, 20 turns, CAPITALS) | 76.1% (v2b) → **95.1%** with the privileged critic → **98.2%** with the tactical-search teacher. Canonical: 120 maps × 5. | #22, #23, #25 |
 | Opponents reachable from Python | `simple`, `random`, `donothing`, plus `external` (a Python seat) on the combat branch. MCTS, RHEA, OEP, pMCTS, OSLA and MC exist in Java but **are not wired to the Python env**. | `PythonEnv.setOpponentAgent` |
-| Self-play | A league exists (#22), but snapshots always played the seat they never trained in. The fix (seat swap, CHANGELOG 072) is on an unmerged branch and has not been run. | `claude/combat-critic-init-96179a` |
-| Evaluation | Seat 0 only (Bardur always moves first). SimpleAgent is the only opponent, at 95–98% it no longer separates models, and the held-out `eval_test` pool has never been run. A head-to-head evaluator exists on an unmerged branch. | #22, CHANGELOG 070 |
-| Humans | Phase 1 solo terminal UI only (17 maps; 1 completed attempt: human 27 SPT vs PPO 20). **No way for a human to play our agent in combat.** No imported human games. | `human-benchmark.md` |
-| Throughput | Combat ~35 steps/s on Farmshare with the privileged critic (2M steps ≈ 16 h). Phase 1 ~577 SPS historically. | #23 |
+| Self-play | **Running, in both seats.** The league on main (CHANGELOG 074) plays half the games against SimpleAgent and half against frozen snapshots, chosen by PFSP: the learner's own checkpoints and finished runs. Two runs so far (Devin):<br>• `combat_pcritic_s2_league_warm_2m`: 2M steps, before the seat fix (snapshots always took seat 1, which they never trained in). Canonical 96.8% vs SimpleAgent, in Devin's worktree, not yet in `experiments.md`.<br>• `combat_pcritic_t1_league_swap_4m`: 4M steps, finished 2026-11-17. Warm start from teacher seed 1, seat swap 0.5, so the learner plays tribe 1 (moving second) in half its games. Pool: its own checkpoints plus the v2b-pcritic, teacher and cap-all runs. In training games (both seats pooled, sampled play, *not canonical*) it won 96.7% of 23,258 against SimpleAgent and 78.8% of 23,164 against snapshots: 71–87% per snapshot, so PFSP has signal. The seat-swap code (CHANGELOG 072 there) is on `claude/combat-critic-init-96179a`, which has no PR. | `combat_selfplay.py`; `runs/…league_swap_4m…/league_stats.json` |
+| Evaluation | The canonical evaluator still puts the agent in seat 0 (moving first) against SimpleAgent only. At 95–98% it no longer separates models, and `eval_test` has never been run. The head-to-head evaluator (A vs B, both seats, CHANGELOG 070) is on the same unmerged branch, with no results yet. **The 4M seat-swap model has no canonical or head-to-head evaluation yet.** | #22, CHANGELOG 070 |
+| Humans | Phase 1 solo terminal UI (17 maps; 1 completed attempt: human 27 SPT vs PPO 20). For combat, `tools/play_vs_agent.py` (branch `feat/play-vs-agent`, not pushed) lets a person play any checkpoint in the browser from either seat, with a replay afterwards. No human combat games have been played or collected yet. | `human-benchmark.md`, `human-play.md` |
+| Throughput | Combat 40–78 steps/s on Farmshare with the privileged critic, node-dependent (reference 40–42; teacher runs 45–78; 2M steps ≈ 8.5–16 h). Phase 1 ~577 SPS historically. | `experiments.md` |
 | Rules | Default engine rules are ~2020. `polytopia_2_15` covers most of the current game except the 2.8 naval rework. The combat maps are all land (land fraction 1.0), so naval rules are irrelevant there. | `rules-parity.md` |
 
-The honest summary: we have a very good **20-turn, seat-0 capital-rush agent against one scripted
-bot that cheats** (SimpleAgent reads the unfogged live state). That is a strong base, but not yet
-evidence of strength against search bots, against itself from the other seat, or in a full game.
+The honest summary: we have a strong **20-turn capital-rush agent**. It now trains in both seats against
+SimpleAgent and frozen copies of itself and of earlier runs. It is *measured* canonically only from seat 0,
+against one scripted bot that cheats (SimpleAgent reads the unfogged live state). There is no evidence yet of its
+strength against search bots, of its canonical seat-1 strength, or of how it does in a full game.
 
 ## The gaps that matter most
 
-1. **Measurement is saturated and one-sided.** At 98% against SimpleAgent, a better model and a
-   lucky seed look the same. We never test seat 1, and real 1v1 games alternate who starts.
+1. **Measurement lags training.** At 98% against SimpleAgent, a better model and a lucky seed look
+   the same.
+   - The league trains in both seats, but the canonical number is seat 0 only.
+   - The only both-seat numbers are the league's own training-game logs: `league/win_rate_seat{0,1}`
+     in TensorBoard and W&B, not yet read.
+   - Real 1v1 games alternate who starts.
 2. **No strong opponents.** The Tribes framework's search bots (MCTS, RHEA, OEP, portfolio MCTS)
    are the "pre-existing models" a paper would compare against, and we cannot play them yet.
 3. **The task is not the real game.**
@@ -32,12 +38,14 @@ evidence of strength against search bots, against itself from the other seat, or
    - The economy is learnt separately in a 10-turn solo task, and combat starts from scratch.
    - Humans play Domination or Perfection over 30+ turns, so a capital rush that fails on turn 12
      has no plan B.
-4. **Self-play has not really run.** The league bug meant the learner beat its snapshots 95–98%
-   of the time, so PFSP had nothing to weight.
-5. **Compute.** At 35 SPS each experiment costs a day, and three seeds cost three GPU-days. Every
+4. **Self-play is running but not yet judged.** The 4M seat-swap league finished. Whether it beats the
+   98.2% teacher reference has not been measured.
+   - The 2M league run before the seat fix scored 96.8% canonically (one seed). Its starting checkpoint,
+     pcritic seed 2, scored 96.3%. No paired comparison has been run.
+5. **Compute.** At 40–78 steps/s a 2M-step experiment takes 8–16 hours, and three seeds triple it. Every
    item below gets cheaper if this improves.
-6. **No human loop.** We cannot collect a single human game against the agent, so "beat humans"
-   is unmeasurable today.
+6. **The human loop has only just started.** The play tool exists, but no human combat games have been played, so
+   "beat humans" is still unmeasured.
 
 ## Plan
 
@@ -46,7 +54,12 @@ Ordered by dependency. Each step has an exit test that decides whether we move o
 ### Stage 0: land and stabilise what exists (days)
 
 - The PR stack is merged (CHANGELOG 052–081). Still to land: the seat-swap league fix, the privileged-critic
-  warm start and the head-to-head evaluator from `claude/combat-critic-init-96179a`, which has no PR yet.
+  warm start and the head-to-head evaluator from `claude/combat-critic-init-96179a`, which has no PR yet,
+  although the 4M league run already used it. Renumber its CHANGELOG entries (069–072 there) when it lands.
+- Judge the league runs:
+  - canonical evaluation of `combat_pcritic_t1_league_swap_4m` (final model);
+  - head-to-head against `combat_pcritic_teacher_2m` seed 2 (98.2% reference) from both seats;
+  - record `combat_pcritic_s2_league_warm_2m` (96.8%) in `experiments.md`.
 - Fix the three leftovers from the #22 review:
   - `compare_combat_evals.py` silently pairs a subset when the map lists differ;
   - the league RNG is seeded from the process id, so league runs are not reproducible;
@@ -73,7 +86,8 @@ Ordered by dependency. Each step has an exit test that decides whether we move o
    - Build it on the head-to-head evaluator (CHANGELOG 070). Report "Elo vs anchor pool" as the
      headline from now on, with SimpleAgent win rate as a sanity check.
 3. **Seat and opponent coverage.**
-   - Add a seat-1 copy of the eval maps, where Bardur moves second.
+   - The seat-swap code already lets the learner play tribe 1. Add a seat-1 option to the canonical
+     SimpleAgent evaluation, so every model gets a seat-0 and a seat-1 number on the same maps.
    - Keep the three opponent tribes and report per-tribe results.
 4. Run `eval_test` **once** per milestone, only when a human asks, to confirm we have not
    overfitted validation.
@@ -85,8 +99,9 @@ Ordered by dependency. Each step has an exit test that decides whether we move o
 ### Stage 2: become strong against bots (2–4 weeks)
 
 1. **Throughput first.** Three changes, smallest first:
-   - (a) Profile the 35 SPS. The privileged critic and fog memory added most of the cost (10.8 h
-     → 16 h), so batch the critic's privileged observation and drop unused info keys.
+   - (a) Profile throughput: 40–78 steps/s, and node-dependent. The privileged critic added most of the
+     cost (10.8 h → 16 h for the reference), so batch the critic's privileged observation and drop
+     unused info keys.
    - (b) Run many CPU-node actor jobs instead of one GPU job.
    - (c) **Decoupled actors with the game store.** Actor processes play games and write them to
      a shared store directory. The learner trains on them with `vtrace` (IMPALA), which corrects
@@ -94,9 +109,11 @@ Ordered by dependency. Each step has an exit test that decides whether we move o
      The pieces exist now: action-list records, persistence and V-trace. What is missing is the
      actor loop and checkpoint broadcast.
    - Target: at least 300 SPS aggregate.
-2. **Real self-play league.** Run it with the seat-swap fix.
-   - PFSP over past snapshots.
-   - Search bots and SimpleAgent stay in the pool at a fixed share, about 25%, to prevent forgetting.
+2. **Grow the league that is already running** (PFSP, seat swap, own and earlier-run snapshots).
+   - Add the search bots to the pool once they are wired (Stage 1). SimpleAgent already keeps a fixed
+     50% share.
+   - Keep the fixed opponents for the whole run (`LEAGUE_MAX_SELF`). Otherwise long runs drop them by
+     file age.
    - Add a **main exploiter** (AlphaStar): an agent trained only against the current main policy,
      whose snapshots join the pool. It finds blind spots cheaply.
    - Save every league game with `--game-store-selector upset|win` so wins against hard opponents
@@ -134,8 +151,8 @@ Ordered by dependency. Each step has an exit test that decides whether we move o
    - Keep per-turn γ, plus a value head on game outcome (PopArt-normalised).
    - Over 30–50 turns, raise γ per turn to ≈0.995 and rely on the privileged critic.
 4. **Memory.** The policy is feed-forward with hand-built fog memory (`FogMemory.java`).
-   - Before adding an RNN, measure what fog memory buys over 30+ turns. In the ablation it cost
-     3.6 points over 20 turns.
+   - Before adding an RNN, measure what fog memory buys over 30+ turns. Over 20 turns the ablation found
+     no measurable gain: −1.4 [−3.9, +1.1] on the two seeds whose critic did not collapse.
    - A small GRU over per-turn summaries is the next step only if fogged-information errors show
      up in replays.
 - **Exit:**
@@ -145,15 +162,14 @@ Ordered by dependency. Each step has an exit test that decides whether we move o
 
 ### Stage 4: humans (start the tooling in Stage 1, play in Stage 3)
 
-1. **A human-vs-agent interface.** This is the critical path, so start it early.
-   - The cheapest route is the existing Java Swing GUI (`HumanAgent`), with the PPO policy as an
-     `external` player served from Python.
-   - Alternatively, extend the combat replay viewer (#27) into a turn-based web UI over the
-     `external` seat.
-   - The human must see exactly the fogged information a Polytopia player sees.
+1. **A human-vs-agent interface. Built:** `tools/play_vs_agent.py` (`docs/human-play.md`).
+   - A browser game against any checkpoint, from either seat, under the engine's fog.
+   - Afterwards, a replay in the shared combat replay viewer, with both players' views.
+   - Records that replay exactly.
+   - Next: play real games, and convert seat-0 human moves, which are already in the agent's action
+     space, into `bc` data.
 2. **A human protocol.**
-   - Fixed maps from `eval_test`, both seats, recorded with the game store (action lists replay
-     exactly).
+   - Fixed maps from `eval_test`, both seats, recorded by the play tool (records replay exactly).
    - Volunteers with a known Polytopia multiplayer rating where possible.
    - Report wins with a CI, and never tune on these maps.
 3. **Learn from human games.** Store them with a `bc` or `awr` learner:
@@ -180,7 +196,7 @@ Ordered by dependency. Each step has an exit test that decides whether we move o
 
 - **SimpleAgent reads the unfogged state.** All our combat numbers are against a cheating
   opponent. That is fine as an opponent, but note it, and make the search bots fog-correct.
-- **The canonical eval plays seat 0 only**, which inflates numbers. Fix in Stage 1.
+- **The canonical eval plays seat 0 only**, while the league now trains in both seats. Fix in Stage 1.
 - **Fog memory follows watched enemy moves into fog by default** (SEE_MOVES). Check that a human
   really gets that information in the real game before counting it as parity.
 - **Legal-action overflow:** Phase 1 runs crashed at 261–263 actions with a limit of 256, so use
