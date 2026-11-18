@@ -102,6 +102,27 @@ Baselines on the same 250 validation maps: visible greedy 7.93, random legal 6.6
 | 2026-11-15 | combat_v2b_s1_pcritic_warm_2m | 2M | 1, 2 (3 pending) | Devin (Claude agent) | `outputs/evaluations/20261115_combat_v2b_s1_pcritic_warm_2m_seed{1,2}_combat_eval_validation_canonical` | 84.3% (80.0 [74.7, 85.0], 88.5 [84.0, 92.5]) | 3.5% | 12.3% | 84.3% (81.0, 87.7) | Warm start from v2b seed 1 with `--privileged-critic --critic-warmup-steps 150000 --learning-rate 1e-4 --target-kl 0.015 --ent-coef 0.005`. Paired vs v2b seed 1: win −4.5 [−10.5, +1.3] and +4.0 [−1.3, +9.3] points, so no measurable change; the warm start keeps the policy near its source. Seed 3 trained (job 1986036) but its evaluation (job 1987832) had not run when this was recorded. Commit `11bcd1c`, W&B `ewyc9la3`, `ywdiu3qi` (seed 3 `4cll3jee`). |
 | 2026-11-14 | combat_cap_all_v2b_2m | 2M | 1, 2, 3 | Devin | `outputs/evaluations/20261114_combat_cap_all_v2b_2m_seed{1,2,3}_combat_eval_validation_canonical` | **76.1%** (84.5 [79.5, 89.3], 73.5 [67.7, 79.2], 70.2 [64.3, 75.7]) | 5.3% | 18.7% | 48.7% (65.3, 40.0, 40.8) | 2.15 rules, `spatial_resnet_composed`, `cluster/combat_cap_all_v2.env` (win 60, loss −15, timeout −10, early win 60, rider potential). First canonical combat result; no earlier checkpoint exists to pair against (Kevin's cap_all checkpoints are not shared; the 2.15 cap_all runs saved none). Paired vs `random_legal` (0.3%): +84.2, +73.2, +69.8 points, no map worse. Training-game diagnostic (last 500 games, final 250k steps): 60.2 / 37.0 / 37.2% win. W&B `eeocxup2`, `97zognmo`, `5m7758zh`. |
 
+### Play-time tactical search (`ppo_search`), diagnostic
+
+Protocol: the canonical one (eval_validation, 120 maps × 5, seed 42, vs SimpleAgent, agent in seat 0), with
+`ppo_search` added to the three canonical policies. The evaluator labels any run with a fourth policy
+non-canonical, so these folders are diagnostics. The teacher's `ppo_argmax` games are identical, game for game
+(600/600), to its canonical run `20261115_combat_pcritic_teacher_2m_seed2_combat_eval_validation_canonical`. Run by
+Kevin (Claude agent), 2026-11-17, jobs 1994801/1994802, commit `5ea9532`.
+
+| Checkpoint | Evaluation | argmax win | `ppo_search` win | search − argmax (paired, 95% CI) | maps better / equal / worse |
+|---|---|---:|---:|---|---|
+| `combat_pcritic_teacher_2m` seed 2 (final) | `outputs/evaluations/20261117_combat_pcritic_teacher_2m_seed2_search_combat_eval_validation_with_search_diagnostic` | 99.0% | 97.3% | **−1.7 [−3.0, −0.5]** points | 2 / 107 / 11 |
+| `combat_pcritic_t1_league_swap_4m` (final, Devin's league run) | `outputs/evaluations/20261117_combat_pcritic_t1_league_swap_4m_search_combat_eval_validation_with_search_diagnostic` | **100.0%** (600/600) | 99.7% | −0.3 [−0.8, 0.0] points | 0 / 118 / 2 |
+
+- Against SimpleAgent, play-time search does not help, and it costs 1.7 points on the teacher model. At
+  99–100% there is almost nothing left to gain, and the search's depth-3 lines sometimes replace a sounder
+  policy move.
+- The same search found the winning turn-10 line against a human that the policy missed
+  (`docs/human-games.md`). Its value shows against opponents who defend, not against SimpleAgent.
+- The 4M league model wins all 600 games from seat 0 at argmax. Its sampled play reaches 99.0%. This is in
+  line with SimpleAgent being saturated as an opponent.
+
 ### Training-game diagnostics (before the canonical evaluation)
 
 Combat is judged by win rate against SimpleAgent (11×11, 1v1, CAPITALS mode, 20 turns). The canonical combat
