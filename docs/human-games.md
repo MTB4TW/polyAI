@@ -29,11 +29,27 @@ probabilities at every decision. It finds the following:
     damaged Riders far away, at (1,0) with 4 HP and (9,9) with 6 HP.
   - The agent's forces: Warriors adjacent or able to reach, at (6,3) 5 HP, (6,4) 9 HP and (6,5) 6 HP, plus two
     Riders.
-  - What it did: it attacked the defender with only two units. The 9 HP Warrior next to the capital chose
-    RECOVER (p 0.42) over attacking (p 0.09). Two Warriors spent the turn on moves.
-  - The defender survived, so no unit could step onto the capital to capture it next turn.
-  - Killing the defender and moving in was almost certainly decisive, given how far away and weak Kevin's
-    other units were.
+  - What it did, checked in the engine: it attacked with its two weakest Warriors first, and both died to
+    retaliation.
+    - The 5 HP Warrior took the defender from 10 to 8 HP.
+    - The 6 HP Warrior then took it from 8 to 5 HP.
+  - The 9 HP Warrior next to the capital had chosen RECOVER (p 0.42) earlier in the turn. Attacking had p 0.005.
+    Recovering used up its turn, so by the time the defender was on 5 HP, it could no longer attack.
+  - Counterfactuals played in the engine from the same position (scratch replays; the actions are legal in
+    the record's position):
+    - **Kevin's line:** the 9 HP Warrior skips RECOVER and attacks after the 6 HP one. It kills the 5 HP
+      defender. A melee kill moves the attacker onto the tile (`AttackCommand`: `tryPush`), so it would have
+      stood on the capital, ready to capture next turn. The policy gave that attack p 0.003.
+    - **Strongest first** (9, then 6, then 5 HP): 10 → 7 → 4 → killed on the third attack. The 6 HP Warrior
+      dies to retaliation.
+    - Attacking with the 9 HP Warrior while the defender was still on 8 HP takes it only to 4. The order of
+      the attacks matters, not just their number.
+    - **Policy + tactical search** (`ppo_search`, the play-time option of `tools/evaluate_combat.py`), playing
+      turn 10 itself: the policy makes the same first seven moves. The search then plays the 9 HP attack
+      (8 → 4) and the 6 HP attack, which kills the defender and moves the Warrior onto the capital.
+      **The search finds the winning line** that the policy alone missed.
+  - Kevin's other units were far away and damaged, so occupying the capital on turn 10 was very likely
+    decisive.
 - **No capture was ever legal.** The engine allows CAPTURE only for a unit on the city that has not moved or
   attacked this turn (`Capture.isFeasible`: the unit must be fresh). In practice, that is a unit that moved in
   on the previous turn. So the failure is in the setup (kill, then occupy), not in a refusal to press CAPTURE.
@@ -57,9 +73,12 @@ probabilities at every decision. It finds the following:
     defender on it at the start of the turn.
 - **Critical-position restarts** (roadmap Stage 2.4). The start of turn 10 in this game is exactly the kind of
   position to restart training from. The record replays to it.
-- **Play-time search** (`ppo_search` in `tools/evaluate_combat.py`). The tactical search plans
-  kill-then-occupy sequences. Check whether it finds the turn-10 line from this position. If it does, the human
-  games should be played with policy + search, which is what the evaluator already offers.
+- **Play-time search** (`ppo_search` in `tools/evaluate_combat.py`). It found the turn-10 kill-and-occupy
+  line from this position. Human games should offer the agent with search. Distilling the search back into
+  the policy (roadmap Stage 2.3) is the longer-term fix.
+- **The policy undervalues finishing blows and the order of attacks:** p 0.003 for the killing attack, and
+  weak units sent in first to die on retaliation. A capital defender standing on the tile is what SimpleAgent
+  rarely presents.
 - **League.** The 4M league run wins 71–87% against snapshots. A human who keeps a defender on the capital
   exposes a weakness that frozen copies of the agent may not.
 
