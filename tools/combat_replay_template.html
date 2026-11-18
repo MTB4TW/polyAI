@@ -75,17 +75,14 @@
       <button id="play">▶ Play</button>
       <button id="next" title="Next step (→)">▶</button>
       <button id="nturn" title="Next turn (↓)">Turn ⏭</button>
-      <div class="seg" role="group" aria-label="View">
-        <button id="v-true" class="on">True board</button>
-        <button id="v-bot">Bot's view</button>
-      </div>
+      <div class="seg" role="group" aria-label="View" id="views"></div>
     </div>
     <div class="now" id="now"></div>
     <div class="legend">
-      <span><b class="ours">●</b> ours (Bardur)</span><span><b class="theirs">●</b> opponent</span>
+      <span id="legend-players"></span>
       <span>■ city, ♛ capital, number = level</span><span>W warrior · R rider · D defender · S swordsman · A archer · C catapult · K knight</span>
       <span>bar = HP, ★ veteran</span><span>arrows = this step's moves, ✕ = killed</span>
-      <span><kbd>←</kbd><kbd>→</kbd> step · <kbd>↑</kbd><kbd>↓</kbd> turn · <kbd>F</kbd> fog view</span>
+      <span><kbd>←</kbd><kbd>→</kbd> step · <kbd>↑</kbd><kbd>↓</kbd> turn · <kbd>F</kbd> next view</span>
     </div>
   </section>
   <div class="twocol">
@@ -105,16 +102,28 @@ const F = D.frames;
 const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 const $ = id => document.getElementById(id);
 const canvas = $("board"), ctx = canvas.getContext("2d");
-let cur = 0, botView = false, timer = null;
+let cur = 0, timer = null;
+// Players and points of view. Older replays (export_combat_replay.py) have one fogged view per frame (`seen`, the
+// bot's, tribe 0) and no player names; play_vs_agent.py replays carry `views` per tribe and `players`.
+const P = D.players || { 0: `${D.tribes[0]} (bot)`, 1: `${D.tribes[1]} (SimpleAgent)` };
+const SHORT = D.short_names || { 0: "Bot", 1: "Enemy" };
+const POVS = F[0].views ? Object.keys(F[0].views).map(Number) : [0];
+const MARK = D.mark_pov ?? 0;      // the true board marks what this tribe could not see
+const BLUE = D.blue_tribe ?? 0;    // drawn in the "ours" colour
+let pov = null;                    // null = true board, else the tribe whose fogged view is shown
+const seenOf = (f, t) => (f.views ? f.views[t] : f.seen);
+const col = o => (o === BLUE ? css("--ours") : css("--theirs"));
+const cls = o => (o === BLUE ? "ours" : "theirs");
 const N = F[0].full.terrain.length;
 const PAD = 40, CELL = (canvas.width - PAD) / N;
 const TERRAIN = { 0: "#b7d98b", 1: "#8fd0ea", 2: "#3f86c6", 3: "#9b9488", 4: "#d9bf7f", 5: "#c9b48a", 6: "#5e9a4f", 7: "#333" };
 const TNAME = D.terrain_names;
-const outcomeWord = { win: "Win", loss: "Loss", timeout: "Timeout" }[D.outcome] || D.outcome;
+const outcomeWord = D.outcome_text || { win: "Win", loss: "Loss", timeout: "Timeout" }[D.outcome] || D.outcome;
 
-$("title").innerHTML = `${D.tribes[0]} (bot) vs ${D.tribes[1]} (SimpleAgent) <span class="badge ${D.outcome}">${outcomeWord} · turn ${D.end_turn}</span>`;
+$("title").innerHTML = `${P[0]} vs ${P[1]} <span class="badge ${D.outcome}">${outcomeWord} · turn ${D.end_turn}</span>`;
+$("legend-players").innerHTML = `<b class="${cls(0)}">●</b> ${P[0]} &nbsp; <b class="${cls(1)}">●</b> ${P[1]}`;
 $("meta").textContent = `${D.title} · ${D.map} · episode seed ${D.episode_seed} · ${D.policy} · ${D.model} · ${D.settings.rules}, ${D.settings.max_turns}-turn limit, capitals mode`;
-document.title = `Combat Replay ${D.map}`;
+document.title = D.page_title || `Combat Replay ${D.map}`;
 
 function px(x, y) { return [PAD + y * CELL, PAD + x * CELL]; }  // board arrays are [x][y]: x = row, y = column
 
@@ -123,7 +132,7 @@ function drawUnit(u, faded) {
   const r = CELL * 0.3, mx = cx + CELL / 2, my = cy + CELL / 2;
   ctx.globalAlpha = faded ? 0.35 : 1;
   ctx.beginPath(); ctx.arc(mx, my, r, 0, Math.PI * 2);
-  ctx.fillStyle = u.o === 0 ? css("--ours") : css("--theirs"); ctx.fill();
+  ctx.fillStyle = col(u.o); ctx.fill();
   ctx.lineWidth = 3; ctx.strokeStyle = "#fff"; ctx.stroke();
   ctx.fillStyle = "#fff"; ctx.font = `bold ${CELL * 0.28}px sans-serif`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
   ctx.fillText(D.unit_letters[u.t] || "?", mx, my + 1);
@@ -150,7 +159,7 @@ function arrow(from, to, color) {
 }
 
 function draw() {
-  const f = F[cur], full = f.full, seen = f.seen;
+  const f = F[cur], full = f.full, viewT = pov === null ? MARK : pov, seen = seenOf(f, viewT), fogged = pov !== null;
   const vis = seen.visible, seenUnits = new Set(seen.units), seenCities = new Set(seen.cities);
   ctx.fillStyle = css("--card"); ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.fillStyle = css("--muted"); ctx.font = "20px sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
@@ -167,29 +176,31 @@ function draw() {
     ctx.strokeStyle = "rgba(0,0,0,.15)"; ctx.lineWidth = 1; ctx.strokeRect(cx, cy, CELL, CELL);
   }
   for (const [id, c] of Object.entries(full.cities)) {
-    if (botView && !seenCities.has(id) && c.o !== 0) continue;
+    if (fogged && !seenCities.has(id) && c.o !== viewT) continue;
     const [cx, cy] = px(c.x, c.y);
-    ctx.fillStyle = c.o === 0 ? css("--ours-soft") : css("--theirs-soft");
-    ctx.strokeStyle = c.o === 0 ? css("--ours") : css("--theirs"); ctx.lineWidth = c.cap ? 7 : 4;
+    ctx.fillStyle = c.o === BLUE ? css("--ours-soft") : css("--theirs-soft");
+    ctx.strokeStyle = col(c.o); ctx.lineWidth = c.cap ? 7 : 4;
     ctx.fillRect(cx + 5, cy + 5, CELL - 10, CELL - 10); ctx.strokeRect(cx + 5, cy + 5, CELL - 10, CELL - 10);
     ctx.fillStyle = ctx.strokeStyle; ctx.font = `bold ${CELL * 0.22}px sans-serif`; ctx.textAlign = "left"; ctx.textBaseline = "top";
     ctx.fillText((c.cap ? "♛" : "") + c.lvl, cx + 9, cy + 8);
   }
   for (let x = 0; x < N; x++) for (let y = 0; y < N; y++) if (!vis[x][y]) {
     const [cx, cy] = px(x, y);
-    ctx.fillStyle = botView ? "rgba(30,32,38,.93)" : "rgba(30,32,38,.28)"; ctx.fillRect(cx, cy, CELL, CELL);
+    ctx.fillStyle = fogged ? "rgba(30,32,38,.93)" : "rgba(30,32,38,.28)"; ctx.fillRect(cx, cy, CELL, CELL);
   }
   for (const [id, u] of Object.entries(full.units)) {
-    const hidden = u.o !== 0 && !seenUnits.has(id);
-    if (botView && hidden) continue;
+    const hidden = u.o !== viewT && !seenUnits.has(id);
+    if (fogged && hidden) continue;
     drawUnit(u, false);
-    if (!botView && hidden) {  // true board: mark enemy units the bot cannot see
+    if (!fogged && hidden) {  // true board: mark enemy units the MARK tribe cannot see
       const [cx, cy] = px(u.x, u.y); ctx.setLineDash([6, 5]); ctx.strokeStyle = "#fff"; ctx.lineWidth = 2;
       ctx.strokeRect(cx + 3, cy + 3, CELL - 6, CELL - 6); ctx.setLineDash([]);
     }
   }
   for (const e of f.events) {
-    const color = e.side === 0 ? css("--ours") : css("--theirs");
+    if (fogged && e.at && !vis[e.at[0]][e.at[1]] && e.side !== viewT) continue;  // no hints from inside the fog
+    if (fogged && e.kind === "move" && !vis[e.to[0]][e.to[1]] && e.side !== viewT) continue;
+    const color = col(e.side);
     if (e.kind === "move") arrow(e.from, e.to, color);
     if (e.kind === "killed") { const [cx, cy] = px(e.at[0], e.at[1]); ctx.strokeStyle = color; ctx.lineWidth = 7;
       ctx.beginPath(); ctx.moveTo(cx + CELL * .2, cy + CELL * .2); ctx.lineTo(cx + CELL * .8, cy + CELL * .8);
@@ -205,17 +216,17 @@ function count(full, side) {
            stars: (full.tribes[side] || {}).stars, kills: (full.tribes[side] || {}).kills };
 }
 
-const SIDE = s => s === 0 ? '<span class="ours">Ours</span>' : '<span class="theirs">Enemy</span>';
+const SIDE = s => `<span class="${cls(s)}">${SHORT[s]}</span>`;
 function render() {
   const f = F[cur];
   $("slider").value = cur;
   const a = count(f.full, 0), b = count(f.full, 1);
-  $("stats").innerHTML = `<span class="h">Turn ${f.turn} · step ${cur}/${F.length - 1}</span><span class="h ours">Bot (${D.tribes[0]})</span><span class="h theirs">Opponent (${D.tribes[1]})</span>
+  $("stats").innerHTML = `<span class="h">Turn ${f.turn} · step ${cur}/${F.length - 1}</span><span class="h ${cls(0)}">${P[0]}</span><span class="h ${cls(1)}">${P[1]}</span>
     <span>Units (total HP)</span><span>${a.units} (${a.hp})</span><span>${b.units} (${b.hp})</span>
     <span>Cities</span><span>${a.cities}${a.cap ? "" : " · capital lost"}</span><span>${b.cities}${b.cap ? "" : " · capital lost"}</span>
     <span>Kills</span><span>${a.kills}</span><span>${b.kills}</span>
     <span>Stars</span><span>${a.stars}</span><span>${b.stars}</span>`;
-  let head = f.opponent ? "Opponent's turn" : f.label;
+  let head = f.opponent ? "Opponent's turn" : f.actor != null ? `${SHORT[f.actor]}: ${f.label}` : f.label;
   if (cur === F.length - 1) head += ` — game over: ${outcomeWord} on turn ${D.end_turn}`;
   $("now").textContent = head;
   $("events").innerHTML = f.events.map(e => `<li class="s${e.side} ${["killed", "capture"].includes(e.kind) ? "big" : ""}">${SIDE(e.side)} ${e.text}</li>`).join("")
@@ -230,6 +241,7 @@ function buildLog() {
   let html = "", lastTurn = null;
   F.forEach((f, i) => {
     if (i === 0) return;
+    const actor = f.actor != null ? f.actor : f.opponent ? 1 : 0;
     if (f.turn !== lastTurn && !f.opponent) { html += `<div class="turn-h">Turn ${f.turn}</div>`; lastTurn = f.turn; }
     if (f.opponent) {
       const notable = f.events.filter(e => e.kind !== "heal" && e.kind !== "grow");
@@ -237,7 +249,7 @@ function buildLog() {
                                                        : `${e.side === 0 ? "our " : ""}${e.text}`).join("; ") || "no visible changes";
       html += `<div class="row" id="r${i}" data-i="${i}"><span class="who theirs">Enemy</span><span>${txt}</span></div>`;
     } else if (f.label !== "End turn") {
-      html += `<div class="row" id="r${i}" data-i="${i}"><span class="who ours">Bot</span><span>${f.label}</span></div>`;
+      html += `<div class="row" id="r${i}" data-i="${i}"><span class="who ${cls(actor)}">${SHORT[actor]}</span><span>${f.label}</span></div>`;
     }
   });
   html += `<div class="turn-h">Result: ${outcomeWord} on turn ${D.end_turn}</div>`;
@@ -251,12 +263,16 @@ function turnStart(dir) {
   if (dir > 0) { let i = cur; while (i < F.length - 1 && (F[i].turn === t)) i++; go(i); }
   else { let i = cur; while (i > 0 && F[i - 1].turn === t) i--; if (i === cur && i > 0) { const pt = F[i - 1].turn; i--; while (i > 0 && F[i - 1].turn === pt) i--; } go(i); }
 }
-function setView(bot) { botView = bot; $("v-bot").classList.toggle("on", bot); $("v-true").classList.toggle("on", !bot); draw(); }
+const VIEWS = [null, ...POVS];
+$("views").innerHTML = VIEWS.map((t, k) => `<button data-k="${k}">${t === null ? "True board" : F[0].views ? `${SHORT[t]}'s view` : "Bot's view"}</button>`).join("");
+$("views").addEventListener("click", e => { const b = e.target.closest("button"); if (b) setView(VIEWS[+b.dataset.k]); });
+function setView(t) {
+  pov = t; $("views").querySelectorAll("button").forEach(b => b.classList.toggle("on", VIEWS[+b.dataset.k] === t)); draw();
+}
 $("slider").max = F.length - 1;
 $("slider").oninput = e => go(+e.target.value);
 $("prev").onclick = () => go(cur - 1); $("next").onclick = () => go(cur + 1);
 $("pturn").onclick = () => turnStart(-1); $("nturn").onclick = () => turnStart(1);
-$("v-true").onclick = () => setView(false); $("v-bot").onclick = () => setView(true);
 $("play").onclick = () => {
   if (timer) { clearInterval(timer); timer = null; $("play").textContent = "▶ Play"; return; }
   $("play").textContent = "⏸ Pause";
@@ -267,10 +283,10 @@ document.addEventListener("keydown", e => {
   if (e.key === "ArrowLeft") { go(cur - 1); e.preventDefault(); }
   if (e.key === "ArrowDown") { turnStart(1); e.preventDefault(); }
   if (e.key === "ArrowUp") { turnStart(-1); e.preventDefault(); }
-  if (e.key === "f" || e.key === "F") setView(!botView);
+  if (e.key === "f" || e.key === "F") setView(VIEWS[(VIEWS.indexOf(pov) + 1) % VIEWS.length]);
 });
 matchMedia("(prefers-color-scheme: dark)").addEventListener("change", render);
-buildLog(); render();
+buildLog(); setView(D.initial_pov ?? null); render();
 </script>
 </body>
 </html>

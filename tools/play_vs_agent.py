@@ -1,42 +1,67 @@
 #!/usr/bin/env python
-"""Play a combat (Phase 2) game against a trained agent in the browser.
+"""Play a combat (Phase 2) game against a trained agent in the browser, then watch the replay.
 
-    python tools/play_vs_agent.py --model-path runs/.../NAME.cleanrl_model
-    # then open http://127.0.0.1:8765  (on Farmshare: ssh -L 8765:127.0.0.1:8765 <host>, then the same URL)
+    python tools/play_vs_agent.py --models '/home/users/devinlai/polyAI-wt/*/runs/*/*.cleanrl_model'
+    # then open http://127.0.0.1:8765   (from a laptop: ssh -L 8765:127.0.0.1:8765 <you>@<this host> first)
 
-The game is the one the agent is evaluated on (`tools/evaluate_combat.py`): rules, turn limit and fog memory come
-from the checkpoint's environment version, capitals mode, validation maps. The agent plays tribe 0 and moves first,
-exactly as in evaluation; you play tribe 1, the seat SimpleAgent normally takes. You see only what tribe 1 sees (the
-engine's fogged observation for the active tribe) and may take any action the engine allows tribe 1, the same action
-set SimpleAgent chooses from. Win by taking the agent's capital; the agent wins by taking yours; at the turn limit
-the game is a timeout (the agent did not win).
+Choosing the opponent: the page lists every combat checkpoint found under this checkout's `runs/` and the --models
+globs (or POLYAI_MODEL_GLOBS, ':'-separated), newest first and grouped by run. Each entry shows the run, the
+training step, when it was saved, its environment version and network, and its canonical evaluation if this
+checkout has one. The game shows the first 12 characters of the file's SHA-256, so it is always clear which
+weights you are playing. --model-path picks the default.
 
-How it works: the Java engine's opponent is set to "external" (as for self-play snapshots, combat_selfplay.py), so
-when the agent ends its turn the wrapper calls back into Python and the game thread waits for your moves from the
-browser. Only the game thread talks to the engine; the web server only reads published state and queues commands.
+The game: the setup is `tools/evaluate_combat.py`'s:
+- validation maps;
+- capitals mode;
+- rules, turn limit and fog memory from the checkpoint's environment version.
 
-Every finished game is written as JSON (map, episode seed, checkpoint, every action of both sides in order, outcome)
-to --record-dir. The engine is deterministic given (map, seed, actions), so `--verify-record FILE` replays a record
-and checks it reproduces the same outcome. Only the validation pool is offered; eval_test needs --confirm-test.
+You pick your seat:
+- **Second (tribe 1, SimpleAgent's seat in evaluation).** The agent plays tribe 0 through the wrapper exactly as
+  in evaluation. You play through the engine's "external" opponent hook and may take any action the engine
+  allows tribe 1 (SimpleAgent's action set).
+- **First (tribe 0).** You act through the wrapper, so you choose from the agent's own legal-action interface
+  (the same moves it may choose from in that seat). The agent plays tribe 1 the way frozen league snapshots do
+  (`combat_selfplay.OpponentView`: its own fogged view relabelled so it appears as tribe 0, with its turn count
+  the number of turns it has finished, as in seat-swap training). Checkpoints trained without seat swap have
+  never played this seat.
+
+Fog and results:
+- You see only your tribe's fogged observation.
+- You win by taking the agent's capital; it wins by taking yours. At the turn limit the game is a timeout.
+
+After the game:
+- The replay opens in the combat replay viewer (`tools/combat_replay_template.html`, the same viewer as
+  `tools/export_combat_replay.py`), with the true board and each player's own fogged view, step by step.
+- Each player's view is rebuilt from the true board and the tiles that tribe had explored, which is exactly how
+  the engine fogs an observation.
+
+Records:
+- Every finished game is saved to --record-dir as JSON (`human_game_v2`): map, seed, checkpoint and its SHA-256,
+  settings, seats, every action of both sides in order, and the outcome. The replay HTML is saved next to it.
+- `--verify-record FILE` replays a record and checks every action and the outcome.
+- Only the validation pool is offered; eval_test needs --confirm-test.
 """
 
 from __future__ import annotations
 
 import argparse
+import glob
+import hashlib
 import json
 import os
 import queue
 import random
+import re
 import sys
 import threading
-import time
 import traceback
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Callable, Dict, List, Optional
-from urllib.parse import parse_qs, urlparse
+from typing import Any, Callable, Dict, List, Optional, Tuple
+from urllib.parse import urlparse
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
@@ -49,18 +74,130 @@ if _jdks and not os.environ.get("JAVA_HOME"):
     os.environ["JAVA_HOME"] = str(_jdks[0])
     os.environ["PATH"] = str(_jdks[0] / "bin") + os.pathsep + os.environ.get("PATH", "")
 
-RECORD_VERSION = "human_game_v1"
-HUMAN_TRIBE = 1
-AGENT_TRIBE = 0
+import numpy as np  # noqa: E402
+
+from tools.export_combat_replay import (  # noqa: E402  (shared with the replay exporter)
+    TERRAIN_NAMES, UNIT_LETTERS, UNIT_NAMES, describe_action, diff_events, snapshot as full_snapshot,
+)
+
+RECORD_VERSION = "human_game_v2"
 # Diplomacy actions the engine lists but no combat player uses (the agent's catalog has none of them).
 HIDDEN_ACTION_TYPES = {"SEND_STARS", "DECLARE_WAR"}
-UNIT_NAMES = ["Warrior", "Rider", "Defender", "Swordsman", "Archer", "Catapult", "Knight", "Mind Bender",
-              "Boat", "Ship", "Battleship", "Giant", "Cloak", "Dagger"]
 FOG = 7
+RUN_DIR_RE = re.compile(r"^Tribes-v0__(?P<name>.+?)__(?P<seed>\d+)__(?P<ts>\d+)$")
+STEP_RE = re.compile(r"^model_checkpoint_(\d+)\.cleanrl_model$")
 
 
 class GameAborted(Exception):
-    """Raised inside the engine callback to abandon a game (new game, resign or server shutdown)."""
+    """Raised on the game thread to abandon a game (new game, resign or server shutdown)."""
+
+
+# --- the model catalogue ------------------------------------------------------------------------------------
+
+def _sha256(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+@dataclass
+class ModelInfo:
+    path: Path
+    run: str
+    seed: Optional[int]
+    step: Optional[int]          # None = the run's final model
+    saved: str
+    mtime: float
+    env_version: str
+    rules: str
+    max_turns: int
+    arch: str
+    init_from: Optional[str] = None
+    evaluation: Optional[dict] = None
+    _sha: Optional[str] = field(default=None, repr=False)
+
+    @property
+    def key(self) -> str:
+        return hashlib.sha1(str(self.path).encode()).hexdigest()[:12]
+
+    @property
+    def sha256(self) -> str:
+        if self._sha is None:
+            self._sha = _sha256(self.path)
+        return self._sha
+
+    def label(self) -> str:
+        step = f"step {self.step:,}" if self.step is not None else "final"
+        ev = f" · eval {self.evaluation['win']:.1%}" if self.evaluation and self.evaluation.get("win") is not None else ""
+        return f"{step} · saved {self.saved}{ev}"
+
+    def public(self, with_sha: bool = False) -> dict:
+        d = {"key": self.key, "run": self.run, "seed": self.seed, "step": self.step, "saved": self.saved,
+             "file": self.path.name, "path": str(self.path), "env_version": self.env_version, "rules": self.rules,
+             "max_turns": self.max_turns, "arch": self.arch, "init_from": self.init_from,
+             "evaluation": self.evaluation, "label": self.label()}
+        if with_sha:
+            d["sha256"] = self.sha256
+        return d
+
+
+def load_evaluations(root: Path = REPO_ROOT) -> Dict[Tuple[str, str], dict]:
+    """(run directory name, checkpoint file name) -> canonical combat evaluation in this checkout."""
+    out: Dict[Tuple[str, str], dict] = {}
+    for cfg in glob.glob(str(root / "outputs" / "evaluations" / "*" / "config.json")):
+        try:
+            config = json.loads(Path(cfg).read_text(encoding="utf-8"))
+            summary = json.loads((Path(cfg).parent / "summary.json").read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        model = config.get("model_path")
+        if not model or "combat" not in str(summary.get("evaluation_schema_version", "")):
+            continue
+        argmax = (summary.get("policies") or {}).get("ppo_argmax") or {}
+        p = Path(model)
+        out[(p.parent.name, p.name)] = {"id": Path(cfg).parent.name, "win": argmax.get("win_rate"),
+                                       "canonical": bool(summary.get("canonical")),
+                                       "against": "SimpleAgent, agent in seat 0"}
+    return out
+
+
+def find_models(patterns: List[str]) -> List[ModelInfo]:
+    """Combat checkpoints matching the globs (both checkpoint files present), newest first."""
+    from py_rl.cleanrl.cleanrl.init_from import rules_of_version
+    from tools.evaluate_combat import HORIZON_RE
+
+    evaluations = load_evaluations()
+    seen, models = set(), []
+    for pattern in patterns:
+        for name in glob.glob(os.path.expanduser(pattern), recursive=True):
+            path = Path(name).resolve()
+            sidecar = Path(str(path) + ".action_interface.json")
+            if path in seen or not sidecar.is_file():
+                continue
+            seen.add(path)
+            try:
+                meta = json.loads(sidecar.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            version = str(meta.get("phase1_environment_version", ""))
+            horizon = HORIZON_RE.search(version)
+            if not version.startswith("combat_") or not horizon:
+                continue
+            m = RUN_DIR_RE.match(path.parent.name)
+            step = STEP_RE.match(path.name)
+            mtime = path.stat().st_mtime
+            init = (meta.get("init_from") or {}).get("path")
+            models.append(ModelInfo(
+                path=path, run=m.group("name") if m else path.parent.name, seed=int(m.group("seed")) if m else None,
+                step=int(step.group(1)) if step else None,
+                saved=datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M"), mtime=mtime, env_version=version,
+                rules=rules_of_version(version), max_turns=int(horizon.group(1)),
+                arch=str(meta.get("network_arch", "mlp")), init_from=Path(init).parent.name if init else None,
+                evaluation=evaluations.get((path.parent.name, path.name))))
+    models.sort(key=lambda x: (-x.mtime, x.run, -(x.step or 10**12)))
+    return models
 
 
 # --- environment set-up -------------------------------------------------------------------------------------
@@ -74,8 +211,8 @@ def configure_environment(checkpoint_meta: Optional[dict], pool: str, rules: str
     if checkpoint_meta is not None:
         from pol_env.Tribes.py.environment_contract import fog_memory_of_version
         fog_memory = bool(fog_memory_of_version(checkpoint_meta.get("phase1_environment_version")))
-    for key in [k for k in os.environ if k.startswith("POLYVISION_COMBAT_REWARD_") or k.startswith("POLYVISION_COMBAT_LEAGUE")
-                or k.startswith("POLYVISION_COMBAT_TEACHER") or k.startswith("POLYVISION_PRIVILEGED")]:
+    for key in [k for k in os.environ if k.startswith(("POLYVISION_COMBAT_REWARD_", "POLYVISION_COMBAT_LEAGUE",
+                                                        "POLYVISION_COMBAT_TEACHER", "POLYVISION_PRIVILEGED"))]:
         del os.environ[key]
     settings = {
         "POLYVISION_PHASE": "2", "POLYVISION_COMBAT_MODE": "1", "POLYVISION_SOLO_NO_OPPONENT_MODE": "0",
@@ -88,17 +225,32 @@ def configure_environment(checkpoint_meta: Optional[dict], pool: str, rules: str
     return {"rules": rules, "max_turns": int(max_turns), "fog_memory": fog_memory, "max_legal_actions": int(max_legal)}
 
 
-class AgentPlayer:
-    """The trained checkpoint (argmax or sampled), or a uniformly random legal action without one."""
+def make_env(model_path: Optional[Path], pool: str, rules: str, max_turns: int, recorded: Optional[dict] = None):
+    from pol_env.Tribes.py.environment_contract import read_checkpoint_metadata
 
-    def __init__(self, model_path: Optional[Path], env, sampled: bool, seed: int):
+    meta = read_checkpoint_metadata(str(model_path)) if model_path else None
+    settings = configure_environment(meta, pool, rules, max_turns)
+    if recorded:  # replaying a record: play under exactly the recorded settings
+        os.environ["POLYVISION_RULES"] = str(recorded.get("rules", settings["rules"]))
+        os.environ["POLYVISION_MAX_TURNS"] = str(recorded.get("max_turns", settings["max_turns"]))
+        os.environ["POLYVISION_FOG_MEMORY"] = "1" if recorded.get("fog_memory") else "0"
+        os.environ["POLYVISION_MAX_LEGAL_ACTIONS"] = str(recorded.get("max_legal_actions", settings["max_legal_actions"]))
+        settings.update({k: recorded[k] for k in ("rules", "max_turns", "fog_memory", "max_legal_actions") if k in recorded})
+    from pol_env.Tribes.py.register_env import TribesGymWrapper
+    return TribesGymWrapper(), settings
+
+
+class AgentPlayer:
+    """A checkpoint (argmax or sampled), or uniformly random legal actions without one."""
+
+    def __init__(self, info: Optional[ModelInfo], env, sampled: bool, seed: int):
         import torch
 
-        from tools.phase1_eval_core import PPOPolicy, RandomLegalPolicy
-
-        self.model = model_path.name if model_path else None
-        if model_path is None:
-            self.policy, self.name = RandomLegalPolicy(seed), "random_legal"
+        self.info, self.sampled, self._torch = info, bool(sampled), torch
+        self.generator = torch.Generator().manual_seed(int(seed))
+        self.rng = np.random.default_rng(int(seed))
+        self.agent = None
+        if info is None:
             return
         from pol_env.Tribes.py.environment_contract import (
             environment_compatibility_metadata, read_checkpoint_metadata, validate_checkpoint_compatibility,
@@ -106,21 +258,51 @@ class AgentPlayer:
         from py_rl.cleanrl.cleanrl.agent_factory import make_agent
         from py_rl.cleanrl.cleanrl.obs_normalization import observation_normalization_from_metadata
 
-        meta = read_checkpoint_metadata(str(model_path))
+        meta = read_checkpoint_metadata(str(info.path))
         env_meta = environment_compatibility_metadata(env, actor_mode=meta["actor_mode"], max_legal_actions=meta["max_legal_actions"])
         validate_checkpoint_compatibility(meta, env_meta)
         adapter = SimpleNamespace(single_observation_space=env.observation_space, single_action_space=env.action_space)
         agent = make_agent(adapter, network_arch=meta.get("network_arch", "mlp"), actor_mode=meta["actor_mode"],
                            max_legal_actions=meta["max_legal_actions"], legal_action_feature_dim=meta["legal_action_feature_dim"],
                            observation_normalization=observation_normalization_from_metadata(meta))
-        agent.load_state_dict(torch.load(model_path, map_location="cpu", weights_only=True))
+        agent.load_state_dict(torch.load(info.path, map_location="cpu", weights_only=True))
         agent.eval()
-        self.policy = PPOPolicy(agent, torch.device("cpu"), sampled, seed if sampled else None)
-        self.name = self.policy.name
+        self.agent = agent
+
+    @property
+    def name(self) -> str:
+        if self.agent is None:
+            return "random_legal"
+        return "ppo_sampled" if self.sampled else "ppo_argmax"
+
+    def reseed(self, seed: int):
+        self.generator.manual_seed(int(seed) % (2**31 - 1))
+        self.rng = np.random.default_rng(int(seed))
+
+    def act(self, vec, ids, valid, feats) -> int:
+        ids, valid = np.asarray(ids).reshape(-1), np.asarray(valid, dtype=bool).reshape(-1)
+        if self.agent is None:
+            return int(ids[int(self.rng.choice(np.flatnonzero(valid)))])
+        torch = self._torch
+        with torch.inference_mode():
+            dist = self.agent.get_action_distribution(
+                torch.as_tensor(vec, dtype=torch.float32).reshape(1, -1),
+                legal_global_ids=torch.as_tensor(ids, dtype=torch.long).reshape(1, -1),
+                legal_action_valid_mask=torch.as_tensor(valid, dtype=torch.bool).reshape(1, -1),
+                legal_action_features=torch.as_tensor(np.asarray(feats, dtype=np.float32)).reshape(1, ids.size, -1),
+            )
+            if self.sampled:
+                slot = int(torch.multinomial(dist.probs[0], 1, generator=self.generator).item())
+            else:
+                slot = int(torch.argmax(dist.logits[0]).item())
+        if not valid[slot]:
+            raise RuntimeError("The agent picked an invalid legal slot")
+        return int(ids[slot])
 
     def choose(self, obs, info) -> int:
-        gid, _slot = self.policy.choose_action(obs, info)
-        return int(gid)
+        from tools.phase1_eval_core import legal_tensors
+        ids, valid, feats = legal_tensors(info)
+        return self.act(obs, ids, valid, feats)
 
 
 # --- what the human sees ------------------------------------------------------------------------------------
@@ -152,20 +334,26 @@ def board_view(obs: dict) -> dict:
             "units": units, "cities": cities, "tribes": tribes}
 
 
-def legal_view(actions: List[dict]) -> List[dict]:
+def legal_view(pairs) -> List[dict]:
+    """Browser list of (index the server accepts, engine action dict) pairs, minus unused diplomacy actions."""
     out = []
-    for i, a in enumerate(actions):
-        if int(a.get("idx", i)) != i:
-            raise RuntimeError("Engine action list is not indexed by position")
+    for i, a in pairs:
         if a.get("type") in HIDDEN_ACTION_TYPES:
             continue
-        item = {"i": i, "type": a.get("type"), "text": describe(a), "cost": int(a.get("star_cost", 0) or 0)}
+        item = {"i": int(i), "type": a.get("type"), "text": describe(a), "cost": int(a.get("star_cost", 0) or 0)}
         if "src_x" in a:
             item["src"] = [int(a["src_x"]), int(a["src_y"])]
         if "target_x" in a:
             item["dst"] = [int(a["target_x"]), int(a["target_y"])]
         out.append(item)
     return out
+
+
+def raw_pairs(actions: List[dict]):
+    for i, a in enumerate(actions):
+        if int(a.get("idx", i)) != i:
+            raise RuntimeError("Engine action list is not indexed by position")
+        yield i, a
 
 
 def describe(a: dict) -> str:
@@ -192,38 +380,52 @@ def describe(a: dict) -> str:
     return pretty(kind) if kind != "?" else str(a.get("repr", kind))
 
 
-def seen_changes(before: Optional[dict], after: dict) -> List[str]:
-    """What the human can see changed over the agent's turn (fogged views; units leaving sight are not deaths)."""
+def seen_changes(before: Optional[dict], after: dict, me: int) -> List[str]:
+    """What tribe `me` can see changed over the other side's turn (units leaving sight are not deaths)."""
     if before is None:
         return []
     visible = lambda x, y: 0 <= x < len(after["terrain"]) and int(after["terrain"][x][y]) != FOG
     name = lambda u: UNIT_NAMES[u["t"]] if 0 <= u["t"] < len(UNIT_NAMES) else f"unit {u['t']}"
-    whose = lambda u: "Your" if u["o"] == HUMAN_TRIBE else "Enemy"
+    whose = lambda u: "Your" if u["o"] == me else "Enemy"
     b_units = {u["id"]: u for u in before["units"]}
     a_units = {u["id"]: u for u in after["units"]}
     lines = []
     for uid, u in b_units.items():
         v = a_units.get(uid)
         if v is None:
-            if u["o"] == HUMAN_TRIBE or visible(u["x"], u["y"]):
+            if u["o"] == me or visible(u["x"], u["y"]):
                 lines.append(f"{whose(u)} {name(u)} at ({u['x']},{u['y']}) was killed")
             continue
         if v["hp"] < u["hp"]:
             lines.append(f"{whose(u)} {name(u)} at ({v['x']},{v['y']}) took {u['hp'] - v['hp']} damage (HP {v['hp']})")
-        if (v["x"], v["y"]) != (u["x"], u["y"]) and v["o"] != HUMAN_TRIBE:
+        if (v["x"], v["y"]) != (u["x"], u["y"]) and v["o"] != me:
             lines.append(f"Enemy {name(v)} moved ({u['x']},{u['y']}) → ({v['x']},{v['y']})")
     for uid, v in a_units.items():
-        if uid not in b_units and v["o"] != HUMAN_TRIBE:
+        if uid not in b_units and v["o"] != me:
             lines.append(f"Enemy {name(v)} seen at ({v['x']},{v['y']})")
     b_cities = {c["id"]: c for c in before["cities"]}
     for c in after["cities"]:
         old = b_cities.get(c["id"])
         if old is not None and old["o"] != c["o"]:
             what = "capital" if (c["cap"] or old["cap"]) else "city"
-            lines.append(f"{'You lost' if old['o'] == HUMAN_TRIBE else 'Enemy lost'} the {what} at ({c['x']},{c['y']})")
-        elif old is None and c["o"] != HUMAN_TRIBE:
+            lines.append(f"{'You lost' if old['o'] == me else 'Enemy lost'} the {what} at ({c['x']},{c['y']})")
+        elif old is None and c["o"] != me:
             lines.append(f"Enemy city seen at ({c['x']},{c['y']})")
     return lines
+
+
+def visible_mask(obs: dict) -> List[List[int]]:
+    return [[0 if int(t) == FOG else 1 for t in row] for row in obs.get("board", {}).get("terrain", [])]
+
+
+def view_of(full: dict, mask: Optional[List[List[int]]], tribe: int) -> dict:
+    """A tribe's fogged view of a true-board snapshot: what the engine shows is every actor on an explored tile."""
+    if mask is None:
+        mask = [[0] * len(row) for row in full["terrain"]]
+    on = lambda x, y: 0 <= x < len(mask) and 0 <= y < len(mask[x]) and bool(mask[x][y])
+    return {"units": sorted(uid for uid, u in full["units"].items() if u["o"] == tribe or on(u["x"], u["y"])),
+            "cities": sorted(cid for cid, c in full["cities"].items() if c["o"] == tribe or on(c["x"], c["y"])),
+            "visible": mask}
 
 
 # --- one game -----------------------------------------------------------------------------------------------
@@ -231,24 +433,35 @@ def seen_changes(before: Optional[dict], after: dict) -> List[str]:
 class GameSession:
     """Runs one game on a game thread. The web server reads `snapshot()` and calls `submit()`."""
 
-    def __init__(self, env, agent: AgentPlayer, map_path: str, episode_seed: int, settings: dict,
-                 record_dir: Optional[Path], player: str = "", human_policy: Optional[Callable] = None,
-                 move_timeout_s: Optional[float] = None):
-        self.env, self.agent, self.map_path, self.episode_seed = env, agent, map_path, int(episode_seed)
+    def __init__(self, env, agent: AgentPlayer, map_info, episode_seed: int, settings: dict,
+                 record_dir: Optional[Path], player: str = "", human_tribe: int = 1,
+                 human_policy: Optional[Callable] = None, move_timeout_s: Optional[float] = None):
+        self.env, self.agent, self.map_info, self.episode_seed = env, agent, map_info, int(episode_seed)
+        self.map_path = str(map_info.path)
         self.settings, self.record_dir, self.player = settings, record_dir, player
-        self.human_policy = human_policy           # tests: f(state) -> action index, instead of the browser
+        self.human, self.agent_tribe = int(human_tribe), 1 - int(human_tribe)
+        self.human_policy = human_policy           # tests and record replay: f(state) -> index, instead of the browser
         self.move_timeout_s = move_timeout_s
         self.commands: "queue.Queue[dict]" = queue.Queue()
         self.lock = threading.Lock()
-        self.state: Dict[str, Any] = {"version": 0, "phase": "starting", "map": Path(map_path).name,
-                                      "episode_seed": self.episode_seed, "agent": agent.name, "model": agent.model,
-                                      "settings": settings, "log": []}
+        tribes = [map_info.our_tribe, map_info.opponent_tribe]
+        model = agent.info.public(with_sha=True) if agent.info else None
+        self.state: Dict[str, Any] = {
+            "version": 0, "phase": "starting", "map": Path(self.map_path).name, "episode_seed": self.episode_seed,
+            "agent": agent.name, "model": model, "settings": settings, "log": [], "human_tribe": self.human,
+            "tribes": tribes, "you": tribes[self.human], "opponent": tribes[self.agent_tribe],
+            "you_move": "first" if self.human == 0 else "second"}
         self.history: List[dict] = []
-        self.agent_moves: List[dict] = []          # revealed only when the game is over (they include fogged moves)
+        self.frames: List[dict] = []
+        self.masks: Dict[int, Optional[List[List[int]]]] = {0: None, 1: None}
         self.record_path: Optional[Path] = None
+        self.replay_path: Optional[Path] = None
         self.error: Optional[str] = None
         self._abort = threading.Event()
         self._last_human_view: Optional[dict] = None
+        self._need_changes = False
+        self._opp_view = None
+        self._end_frame_done = False
         self.thread = threading.Thread(target=self._run, name="game", daemon=True)
 
     # server side ----------------------------------------------------------------
@@ -273,9 +486,10 @@ class GameSession:
     def abort(self):
         self._abort.set()
         self.commands.put({"abort": True})
-        self.thread.join(timeout=30)
+        if self.thread.is_alive():
+            self.thread.join(timeout=60)
 
-    # game thread ---------------------------------------------------------------
+    # game thread: bookkeeping ----------------------------------------------------
     def _publish(self, **fields):
         with self.lock:
             self.state.update(fields)
@@ -285,154 +499,349 @@ class GameSession:
         with self.lock:
             self.state["log"].append({"side": side, "text": text, "turn": turn})
 
-    def _human_turn(self):
-        te = self.env.tribes_env
-        java = te._env
-        changes_logged = False
-        while not bool(java.isDone()) and int(java.getActiveTribeID()) != AGENT_TRIBE:
-            if self._abort.is_set():
-                raise GameAborted()
-            obs = te.get_observation()
-            actions = te.list_actions()
-            view = board_view(obs)
-            turn = int(getattr(self.env, "_turn_count", 0))
-            if not changes_logged:
-                for line in seen_changes(self._last_human_view, view) or ["(nothing you can see changed)"]:
-                    self._log("agent", line, turn)
-                changes_logged = True
-            legal = legal_view(actions)
-            self._publish(phase="your_turn", board=view, legal=legal, turn=turn, tribe=HUMAN_TRIBE)
-            if self.human_policy is not None:
-                command = {"act": int(self.human_policy(self.snapshot()))}
-            else:
-                try:
-                    command = self.commands.get(timeout=self.move_timeout_s)
-                except queue.Empty:
-                    raise GameAborted("timed out waiting for a move")
-            if command.get("abort"):
-                raise GameAborted()
-            if command.get("resign"):
-                self.history.append({"side": HUMAN_TRIBE, "resign": True})
-                raise GameAborted("resigned")
-            idx = int(command["act"])
-            if not any(item["i"] == idx for item in legal):
-                self._publish(notice=f"Action {idx} is not legal now")
+    def _round(self) -> int:
+        """1-based round number. The wrapper counts tribe 0's finished turns (bumped before its END_TURN runs)."""
+        n = int(getattr(self.env, "_turn_count", 0))
+        java = self.env.tribes_env._env
+        try:
+            if bool(java.isDone()) or int(java.getActiveTribeID()) != 0:
+                return max(1, n)
+        except Exception:
+            return max(1, n)
+        return n + 1
+
+    def _refresh_mask(self, tribe: int) -> dict:
+        """Observation of the active tribe (must be `tribe`); records the tiles it has explored."""
+        obs = self.env.tribes_env.get_observation()
+        mask = visible_mask(obs)
+        if self.masks[tribe] is None:  # back-fill earlier frames: a tribe's explored area only grows on its own turn
+            for f in self.frames:
+                f["_masks"][tribe] = mask
+        self.masks[tribe] = mask
+        return obs
+
+    def _capture(self, actor: Optional[int], raw: Optional[dict] = None, label: Optional[str] = None):
+        full = full_snapshot(self.env.tribes_env.get_observation(full_visibility=True))
+        before = self.frames[-1]["full"] if self.frames else None
+        events = diff_events(before, full) if before is not None else []
+        if raw is not None:
+            label = describe_action(raw, before, events) if before is not None else str(raw.get("repr"))
+        self.frames.append({"turn": self._round(), "label": label or "", "events": events, "full": full,
+                            "actor": actor, "action": raw.get("type") if raw else None,
+                            "raw": raw.get("repr") if raw else None, "_masks": dict(self.masks)})
+
+    def _check_abort(self):
+        if self._abort.is_set():
+            raise GameAborted()
+
+    # game thread: the human -------------------------------------------------------
+    def _wait_for_human(self, obs: dict, legal: List[dict]) -> dict:
+        view = board_view(obs)
+        turn = self._round()
+        if self._need_changes:
+            for line in seen_changes(self._last_human_view, view, self.human) or ["(nothing you can see changed)"]:
+                self._log("agent", line, turn)
+            self._need_changes = False
+        self._current_view = view
+        self._publish(phase="your_turn", board=view, legal=legal, turn=turn, notice=None)
+        if self.human_policy is not None:
+            return {"act": int(self.human_policy(self.snapshot()))}
+        try:
+            command = self.commands.get(timeout=self.move_timeout_s)
+        except queue.Empty:
+            raise GameAborted("timed out waiting for a move")
+        if command.get("abort"):
+            raise GameAborted()
+        if command.get("resign"):
+            self.history.append({"side": self.human, "resign": True})
+            raise GameAborted("resigned")
+        if not any(item["i"] == int(command["act"]) for item in legal):
+            self._publish(notice=f"Action {command['act']} is not legal now")
+            return {}
+        return command
+
+    def _human_turn_raw(self):
+        """Human as tribe 1: any engine action, stepped directly (the agent's turn resumes when this returns)."""
+        java = self.env.tribes_env._env
+        while not bool(java.isDone()) and int(java.getActiveTribeID()) == self.human:
+            self._check_abort()
+            obs = self._refresh_mask(self.human)
+            actions = self.env.tribes_env.list_actions()
+            command = self._wait_for_human(obs, legal_view(raw_pairs(actions)))
+            if "act" not in command:
                 continue
+            idx = int(command["act"])
             raw = actions[idx]
-            self.history.append({"side": HUMAN_TRIBE, "raw": idx, "repr": raw.get("repr"), "type": raw.get("type")})
-            self._log("you", describe(raw) + (f" — {raw['repr']}" if raw.get("type") not in ("END_TURN", "RESEARCH_TECH") else ""), turn)
+            self.history.append({"side": self.human, "raw": idx, "type": raw.get("type"), "repr": raw.get("repr")})
+            self._log("you", describe(raw), self._round())
             java.stepByIndex(idx)
+            if not bool(java.isDone()) and int(java.getActiveTribeID()) == self.human:
+                self._refresh_mask(self.human)
+            self._capture(self.human, raw)
             if raw.get("type") == "END_TURN":
-                self._last_human_view = view  # after stepping, the active tribe (and so the observation) is the agent's
+                self._last_human_view, self._need_changes = self._current_view, True
         self._publish(phase="agent_turn", legal=[])
 
+    def _human_pick_wrapper(self, obs_vec, info) -> int:
+        """Human as tribe 0: one of the wrapper's legal actions (the agent's own action interface)."""
+        while True:
+            self._check_abort()
+            obs = self._refresh_mask(self.human)
+            id_to_raw = self.env._current_legal_id_to_raw_index
+            actions = self.env._current_legal_actions
+            command = self._wait_for_human(obs, legal_view((int(g), actions[r]) for g, r in id_to_raw.items()))
+            if "act" in command:
+                return int(command["act"])
+
+    # game thread: the agent as tribe 1 ----------------------------------------------
+    def _agent_turn_external(self):
+        """The agent as tribe 1, the way league snapshots play (combat_selfplay.OpponentView)."""
+        from pol_env.Tribes.py.combat_selfplay import OpponentView, swap_tribes
+
+        te = self.env.tribes_env
+        java = te._env
+        if self._opp_view is None:
+            self._opp_view = OpponentView(self.env)
+        v = self._opp_view.view
+        while not bool(java.isDone()) and int(java.getActiveTribeID()) == self.agent_tribe:
+            self._check_abort()
+            obs = self._refresh_mask(self.agent_tribe)
+            actions = te.list_actions()
+            s_obs, s_actions = swap_tribes(obs, actions, 0, self.agent_tribe)
+            # Its turn count is the number of turns it has finished (seat-swap training): one less than the
+            # wrapper's, which already counts the turn tribe 0 just ended.
+            v._turn_count = max(0, int(getattr(self.env, "_turn_count", 0)) - 1)
+            mask, id_to_raw, _diag = v._build_action_mask_and_mapping(s_actions, obs=s_obs)
+            ids, valid, _count = v._build_legal_slot_tensors(mask)
+            feats = v._build_legal_action_features_padded(ids, valid, id_to_raw, s_actions, s_obs)
+            vec = v._dict_to_array(s_obs)
+            gid = self.agent.act(vec, np.asarray(ids), np.asarray(valid, dtype=bool), np.asarray(feats, dtype=np.float32))
+            idx = id_to_raw.get(int(gid))
+            if idx is None:
+                raise RuntimeError(f"The agent chose global id {gid} with no engine action")
+            raw = actions[int(idx)]
+            self.history.append({"side": self.agent_tribe, "gid": int(gid), "raw": int(idx), "type": raw.get("type"),
+                                 "repr": raw.get("repr")})
+            java.stepByIndex(int(idx))
+            if not bool(java.isDone()) and int(java.getActiveTribeID()) == self.agent_tribe:
+                self._refresh_mask(self.agent_tribe)
+            self._capture(self.agent_tribe, raw)
+
+    def _tribe1_turn(self):
+        """Engine callback after tribe 0 ends its turn: tribe 1 is played from Python."""
+        self._capture(0, label="End turn")
+        self._end_frame_done = True
+        if self.human == 1:
+            self._human_turn_raw()
+        else:
+            self._agent_turn_external()
+
+    # game thread: main loop (tribe 0 through the wrapper) -----------------------------
     def _run(self):
         env = self.env
-        outcome, resigned = None, False
+        outcome = None
         try:
             from pol_env.Tribes.py.combat_selfplay import EXTERNAL_OPPONENT
 
             def select_opponent():  # replaces the league hook for this game: tribe 1 is played from Python
                 env.tribes_env._env.setOpponentAgent(EXTERNAL_OPPONENT, 0)
-                env.tribes_env.opponent_turn_hook = self._human_turn
+                env.tribes_env.opponent_turn_hook = self._tribe1_turn
 
             env._select_combat_opponent = select_opponent
             env._level_pool, env._level_pool_size = [self.map_path], 1
+            self.agent.reseed(self.episode_seed * 31 + 7)
             obs, info = env.reset(seed=self.episode_seed)
+            self._refresh_mask(0)
+            self._capture(None, label="Start")
             self._publish(phase="agent_turn")
             terminated = truncated = False
             while not (terminated or truncated):
-                if self._abort.is_set():
-                    raise GameAborted()
-                gid = self.agent.choose(obs, info)
-                raw_index = env._current_legal_id_to_raw_index[int(gid)]
-                raw = env._current_legal_actions[raw_index]
-                turn = int(info.get("turn_count", 0))
-                self.history.append({"side": AGENT_TRIBE, "gid": int(gid), "type": raw.get("type"), "repr": raw.get("repr")})
-                if raw.get("type") != "END_TURN":
-                    self.agent_moves.append({"side": "agent", "turn": turn, "text": describe(raw) + f" — {raw.get('repr')}"})
+                self._check_abort()
+                if self.agent_tribe == 0:
+                    gid = self.agent.choose(obs, info)
+                else:
+                    gid = self._human_pick_wrapper(obs, info)
+                raw = env._current_legal_actions[env._current_legal_id_to_raw_index[int(gid)]]
+                entry = {"side": 0, "gid": int(gid), "type": raw.get("type"), "repr": raw.get("repr")}
+                self.history.append(entry)
+                if self.human == 0:
+                    self._log("you", describe(raw), self._round())
+                    if raw.get("type") == "END_TURN":
+                        self._last_human_view, self._need_changes = self._current_view, True
+                self._end_frame_done = False
                 obs, _r, terminated, truncated, info = env.step(int(gid))
-            outcome = str(info.get("combat_outcome"))
+                if raw.get("type") != "END_TURN":
+                    if not (terminated or truncated):
+                        self._refresh_mask(0)
+                    self._capture(0, raw)
+                elif not self._end_frame_done:  # the game ended without tribe 1 moving again
+                    self._capture(0, label="End turn")
+            outcome = str(info.get("combat_outcome"))  # tribe 0's result
         except GameAborted as exc:
-            resigned = str(exc) == "resigned"
-            outcome = "human_resigned" if resigned else "aborted"
+            outcome = "resigned" if str(exc) == "resigned" else "aborted"
         except Exception:
             self.error = traceback.format_exc()
             outcome = "error"
         finally:
             env.tribes_env.opponent_turn_hook = None
-        human_result = {"win": "loss", "loss": "win", "timeout": "timeout", "human_resigned": "loss"}.get(outcome, outcome)
+        if outcome == "resigned":
+            human_result = "loss"
+        elif outcome in ("win", "loss"):
+            human_result = outcome if self.human == 0 else {"win": "loss", "loss": "win"}[outcome]
+        else:
+            human_result = outcome
+        self.outcome, self.result = outcome, human_result
         final = None
-        try:
-            if outcome not in ("aborted", "error"):
+        if outcome not in ("aborted", "error"):
+            try:
                 final = board_view(env.tribes_env.get_observation(full_visibility=True))
-        except Exception:
-            pass
-        self._save(outcome)
-        self._publish(phase="over", agent_outcome=outcome, result=human_result, legal=[], error=self.error,
-                      final_board=final, turn=int(getattr(env, "_turn_count", 0)),
-                      record=str(self.record_path) if self.record_path else None, agent_moves=self.agent_moves)
+            except Exception:
+                pass
+        self._save()
+        self._publish(phase="over", tribe0_outcome=outcome, result=human_result, legal=[], error=self.error,
+                      final_board=final, turn=self._round(), has_replay=bool(self.frames) and outcome not in ("aborted", "error"),
+                      record=str(self.record_path) if self.record_path else None,
+                      replay=str(self.replay_path) if self.replay_path else None)
 
-    def _save(self, outcome: str):
-        if self.record_dir is None or outcome in ("aborted", "error"):
+    # replay and record ------------------------------------------------------------
+    def replay_payload(self) -> dict:
+        frames = []
+        for f in self.frames:
+            g = {k: v for k, v in f.items() if k != "_masks"}
+            g["views"] = {str(t): view_of(f["full"], f["_masks"].get(t) or self.masks.get(t), t) for t in (0, 1)}
+            frames.append(g)
+        tribes = self.state["tribes"]
+        who = self.player or "Human"
+        model = self.state.get("model") or {}
+        model_name = f"{model.get('run')} {('step ' + format(model['step'], ',')) if model.get('step') else 'final'}" if model else "random legal"
+        players = {str(self.human): f"{who} ({tribes[self.human]})", str(self.agent_tribe): f"Agent ({tribes[self.agent_tribe]})"}
+        word = {"win": f"{who} won", "loss": "Agent won", "timeout": "Timeout"}.get(self.result, self.result)
+        if self.outcome == "resigned":
+            word = f"{who} resigned"
+        return {
+            "title": f"{who} vs {model_name}", "page_title": f"Replay {Path(self.map_path).name}",
+            "map": Path(self.map_path).name, "episode_seed": self.episode_seed, "pool": "eval_validation",
+            "policy": self.agent.name, "model": f"{model.get('file')} (sha256 {model.get('sha256', '')[:12]})" if model else "random legal",
+            "environment_version": model.get("env_version") if model else None, "settings": self.settings,
+            "tribes": tribes, "players": players,
+            "short_names": {str(self.human): "You" if not self.player else self.player, str(self.agent_tribe): "Agent"},
+            "outcome": self.result if self.result in ("win", "loss", "timeout") else "loss",
+            "outcome_text": word, "end_turn": self._round(), "decisions": len(self.history),
+            "mark_pov": self.human, "blue_tribe": self.human,
+            "unit_names": UNIT_NAMES, "unit_letters": UNIT_LETTERS, "terrain_names": TERRAIN_NAMES, "frames": frames,
+        }
+
+    def replay_html(self) -> str:
+        template = (REPO_ROOT / "tools/combat_replay_template.html").read_text(encoding="utf-8")
+        data = json.dumps(self.replay_payload(), separators=(",", ":")).replace("</", "<\\/")
+        return template.replace("/*REPLAY_DATA*/null", data)
+
+    def _save(self):
+        if self.record_dir is None or self.outcome in ("aborted", "error"):
             return
         self.record_dir.mkdir(parents=True, exist_ok=True)
         stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-        self.record_path = self.record_dir / f"{stamp}_{Path(self.map_path).stem}_{self.episode_seed}.json"
+        base = self.record_dir / f"{stamp}_{Path(self.map_path).stem}_{self.episode_seed}_human{self.human}"
+        model = self.state.get("model")
         record = {"record_version": RECORD_VERSION, "created_utc": stamp, "player": self.player,
                   "map": Path(self.map_path).name, "map_path": self.map_path, "episode_seed": self.episode_seed,
-                  "agent": self.agent.name, "model": self.agent.model, "agent_tribe": AGENT_TRIBE, "human_tribe": HUMAN_TRIBE,
-                  "settings": self.settings, "agent_outcome": outcome, "turns": int(getattr(self.env, "_turn_count", 0)),
-                  "actions": self.history}
+                  "agent": self.agent.name, "model": model, "agent_tribe": self.agent_tribe, "human_tribe": self.human,
+                  "settings": self.settings, "tribe0_outcome": self.outcome, "human_result": self.result,
+                  "turns": self._round(), "actions": self.history}
+        self.record_path = base.with_suffix(".json")
         self.record_path.write_text(json.dumps(record, indent=1), encoding="utf-8")
+        self.replay_path = base.with_suffix(".html")
+        self.replay_path.write_text(self.replay_html(), encoding="utf-8")
 
 
-def replay_record(env, record: dict) -> str:
-    """Replay a saved game action by action; returns the agent's outcome (raises if an action no longer fits)."""
+def replay_record(env, record: dict, map_info) -> Tuple[str, List[dict]]:
+    """Replay a saved game action by action. Returns (tribe 0's outcome, replayed history)."""
     actions = [a for a in record["actions"] if not a.get("resign")]
-    human = iter([a for a in actions if a["side"] == HUMAN_TRIBE])
-    agent = [a for a in actions if a["side"] == AGENT_TRIBE]
-    picks = iter(agent)
+    human_t = int(record["human_tribe"])
+    human = iter([a for a in actions if a["side"] == human_t])
+    agent = iter([a for a in actions if a["side"] != human_t])
 
-    class Scripted:
-        name, model = record.get("agent"), record.get("model")
+    class Scripted(AgentPlayer):
+        def __init__(self):
+            self.info, self.agent, self.sampled = None, None, False
+
+        def reseed(self, seed):
+            pass
+
+        def act(self, *args):
+            return int(next(agent)["gid"])
 
         def choose(self, obs, info):
-            return next(picks)["gid"]
+            return int(next(agent)["gid"])
 
     def human_policy(state):
         step = next(human, None)
         if step is None:  # the human resigned here
             raise GameAborted("resigned")
-        match = [item for item in state["legal"] if item["i"] == step["raw"]]
-        if not match or env.tribes_env.list_actions()[step["raw"]].get("repr") != step["repr"]:
-            raise RuntimeError(f"Recorded human action {step['repr']!r} is not legal on replay")
-        return step["raw"]
+        return int(step["gid"] if human_t == 0 else step["raw"])
 
-    session = GameSession(env, Scripted(), record["map_path"], record["episode_seed"], record.get("settings", {}),
-                          None, human_policy=human_policy)
+    session = GameSession(env, Scripted(), map_info, record["episode_seed"], record.get("settings", {}), None,
+                          human_tribe=human_t, human_policy=human_policy)
     session._run()
     if session.error:
         raise RuntimeError(session.error)
-    if any(a.get("resign") for a in record["actions"]):
-        return "human_resigned"
-    return session.state["agent_outcome"]
+    return session.outcome, session.history
 
 
 # --- web server ---------------------------------------------------------------------------------------------
 
 class Server:
-    def __init__(self, env, agent, maps: List[Any], settings: dict, record_dir: Path, player: str, seed: Optional[int]):
-        self.env, self.agent, self.maps, self.settings = env, agent, maps, settings
-        self.record_dir, self.player = record_dir, player
+    def __init__(self, models: List[ModelInfo], maps: List[Any], pool: str, record_dir: Path, player: str,
+                 seed: Optional[int], rules: str, max_turns: int, policy_seed: int = 0):
+        self.models, self.maps, self.pool = models, maps, pool
+        self.by_key = {m.key: m for m in models}
+        self.record_dir, self.player, self.rules, self.max_turns = record_dir, player, rules, max_turns
+        self.policy_seed = policy_seed
         self.rng = random.Random(seed)
+        self.env = None
+        self.env_settings: Optional[dict] = None
+        self.agent: Optional[AgentPlayer] = None
+        self.agent_id: Optional[tuple] = None
         self.session: Optional[GameSession] = None
         self.lock = threading.Lock()
 
-    def new_game(self, map_name: Optional[str] = None, episode_seed: Optional[int] = None) -> GameSession:
+    def close(self):
+        if self.session is not None:
+            self.session.abort()
+        if self.env is not None:
+            self.env.close()
+            self.env = None
+
+    def _prepare(self, info: Optional[ModelInfo], sampled: bool):
+        """An environment set up for this checkpoint (rebuilt only when its settings differ) and the agent."""
+        from pol_env.Tribes.py.environment_contract import read_checkpoint_metadata
+        from tools.evaluate_combat import environment_settings
+
+        meta = read_checkpoint_metadata(str(info.path)) if info else None
+        wanted = environment_settings(meta, self.rules, self.max_turns) + (info.env_version if info else None,)
+        if self.env is None or self.env_settings.get("_wanted") != wanted:
+            if self.env is not None:
+                self.env.close()
+                self.env, self.agent, self.agent_id = None, None, None
+            self.env, settings = make_env(info.path if info else None, self.pool, self.rules, self.max_turns)
+            self.env_settings = dict(settings, _wanted=wanted)
+        agent_id = (info.key if info else None, bool(sampled))
+        if self.agent is None or self.agent_id != agent_id:
+            self.agent = AgentPlayer(info, self.env, sampled, self.policy_seed)
+            self.agent_id = agent_id
+        return {k: v for k, v in self.env_settings.items() if k != "_wanted"}
+
+    def new_game(self, model_key: Optional[str] = None, map_name: Optional[str] = None,
+                 episode_seed: Optional[int] = None, seat: str = "second", sampled: bool = False) -> GameSession:
         with self.lock:
             if self.session is not None:
                 self.session.abort()
+            if model_key in (None, "", "random"):
+                info = None if model_key == "random" or not self.models else self.models[0]
+            else:
+                info = self.by_key.get(model_key)
+                if info is None:
+                    raise ValueError("Unknown model")
             if map_name:
                 matches = [m for m in self.maps if m.filename == Path(map_name).name]
                 if not matches:
@@ -440,10 +849,14 @@ class Server:
                 game_map = matches[0]
             else:
                 game_map = self.rng.choice(self.maps)
+            if seat == "random":
+                seat = self.rng.choice(["first", "second"])
+            if seat not in ("first", "second"):
+                raise ValueError("seat must be first, second or random")
             seed = int(episode_seed) if episode_seed is not None else self.rng.randrange(1, 2**31 - 1)
-            self.session = GameSession(self.env, self.agent, str(game_map.path), seed, self.settings, self.record_dir,
-                                       self.player)
-            self.session.state["tribes"] = {"agent": game_map.our_tribe, "you": game_map.opponent_tribe}
+            settings = self._prepare(info, sampled)
+            self.session = GameSession(self.env, self.agent, game_map, seed, settings, self.record_dir, self.player,
+                                       human_tribe=0 if seat == "first" else 1)
             return self.session.start()
 
     def handler(self):
@@ -471,10 +884,16 @@ class Server:
                     return self._send(200, page, "text/html; charset=utf-8")
                 if path == "/api/state":
                     s = server.session
-                    state = s.snapshot() if s else {"phase": "none", "version": 0}
-                    state["maps"] = [m.filename for m in server.maps]
-                    state["unit_names"], state["techs"] = UNIT_NAMES, tech_names()
-                    return self._json(200, state)
+                    return self._json(200, s.snapshot() if s else {"phase": "none", "version": 0})
+                if path == "/api/catalog":
+                    return self._json(200, {"models": [m.public() for m in server.models],
+                                            "maps": [m.filename for m in server.maps],
+                                            "unit_names": UNIT_NAMES, "player": server.player})
+                if path == "/replay":
+                    s = server.session
+                    if s is None or s.state.get("phase") != "over" or not s.state.get("has_replay"):
+                        return self._send(409, b"The replay is available once the game is over.", "text/plain")
+                    return self._send(200, s.replay_html().encode("utf-8"), "text/html; charset=utf-8")
                 self._json(404, {"error": "not found"})
 
             def do_POST(self):
@@ -486,9 +905,12 @@ class Server:
                     return self._json(400, {"error": "bad request"})
                 if path == "/api/new":
                     try:
-                        server.new_game(body.get("map") or None, body.get("seed"))
+                        server.new_game(body.get("model") or None, body.get("map") or None, body.get("seed"),
+                                        str(body.get("seat") or "second"), bool(body.get("sampled")))
                     except (ValueError, TypeError) as exc:
                         return self._json(400, {"error": str(exc)})
+                    except Exception as exc:  # e.g. a checkpoint that does not fit this environment
+                        return self._json(500, {"error": f"{type(exc).__name__}: {exc}"})
                     return self._json(200, {"ok": True})
                 if path in ("/api/act", "/api/resign"):
                     s = server.session
@@ -512,72 +934,78 @@ def load_maps(pool: str):
 
 def parse_args():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--model-path", type=Path, help="Combat checkpoint to play against (omit: a random-legal opponent)")
+    p.add_argument("--models", action="append", default=[],
+                   help="Glob of checkpoints to offer (repeatable; quote it). This checkout's runs/ is always searched.")
+    p.add_argument("--model-path", type=Path, help="Checkpoint for the first game (default: the newest found)")
+    p.add_argument("--seat", default="second", choices=["first", "second", "random"], help="Your seat in the first game")
     p.add_argument("--sampled", action="store_true", help="The agent samples its actions instead of playing argmax")
     p.add_argument("--policy-seed", type=int, default=0)
-    p.add_argument("--map", help="Map file name to start with (default: a random validation map)")
+    p.add_argument("--map", help="Map file name for the first game (default: a random validation map)")
     p.add_argument("--episode-seed", type=int)
-    p.add_argument("--seed", type=int, help="Seed for choosing maps and episode seeds")
+    p.add_argument("--seed", type=int, help="Seed for choosing maps, seeds and random seats")
     p.add_argument("--pool", default="eval_validation", choices=["eval_validation", "eval_test"])
     p.add_argument("--confirm-test", action="store_true", help="Required with --pool eval_test (human protocol only)")
-    p.add_argument("--rules", default="tribes_2020", help="Without --model-path: rules to play")
-    p.add_argument("--max-turns", type=int, default=20, help="Without --model-path: turn limit")
+    p.add_argument("--rules", default="tribes_2020", help="Random opponent only: rules to play")
+    p.add_argument("--max-turns", type=int, default=20, help="Random opponent only: turn limit")
     p.add_argument("--player", default="", help="Alias stored in the game records (no real names needed)")
     p.add_argument("--record-dir", type=Path, default=REPO_ROOT / "runs" / "human_games")
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=8765)
-    p.add_argument("--verify-record", type=Path, help="Replay a saved game and check its outcome, then exit")
+    p.add_argument("--verify-record", type=Path, help="Replay a saved game and check every action and the outcome")
     return p.parse_args()
 
 
-def make_env(args, recorded: Optional[dict] = None):
-    from pol_env.Tribes.py.environment_contract import read_checkpoint_metadata
-
-    meta = read_checkpoint_metadata(str(args.model_path)) if args.model_path else None
-    settings = configure_environment(meta, args.pool, args.rules, args.max_turns)
-    if recorded:  # replaying a record: play under exactly the recorded settings
-        os.environ["POLYVISION_FOG_MEMORY"] = "1" if recorded.get("fog_memory") else "0"
-        os.environ["POLYVISION_MAX_LEGAL_ACTIONS"] = str(recorded.get("max_legal_actions", settings["max_legal_actions"]))
-        settings.update(recorded)
-    from pol_env.Tribes.py.register_env import TribesGymWrapper
-    env = TribesGymWrapper()
-    return env, settings
+def verify(record_path: Path, pool: str) -> bool:
+    record = json.loads(record_path.read_text(encoding="utf-8"))
+    s = record.get("settings", {})
+    env, _ = make_env(None, pool, s.get("rules", "tribes_2020"), int(s.get("max_turns", 20)), recorded=s)
+    try:
+        game_map = [m for m in load_maps(pool) if m.filename == record["map"]][0]
+        outcome, history = replay_record(env, record, game_map)
+    finally:
+        env.close()
+    strip = lambda h: [(a.get("side"), a.get("gid"), a.get("raw"), a.get("repr")) for a in h if not a.get("resign")]
+    same_moves = strip(history) == strip(record["actions"])
+    ok = same_moves and outcome == record["tribe0_outcome"]
+    print(f"{record_path.name}: recorded {record['tribe0_outcome']}, replayed {outcome}, "
+          f"{'same' if same_moves else 'DIFFERENT'} actions — {'OK' if ok else 'MISMATCH'}")
+    return ok
 
 
 def main():
     args = parse_args()
     if args.pool == "eval_test" and not args.confirm_test:
         raise SystemExit("eval_test maps are for the human protocol only: pass --confirm-test when a human asked for it")
-
     if args.verify_record:
-        record = json.loads(args.verify_record.read_text(encoding="utf-8"))
-        s = record.get("settings", {})
-        args.rules, args.max_turns = s.get("rules", args.rules), s.get("max_turns", args.max_turns)
-        args.model_path = None  # the agent's recorded moves are replayed, not recomputed
-        env, _ = make_env(args, recorded=s)
-        try:
-            outcome = replay_record(env, record)
-        finally:
-            env.close()
-        ok = outcome == record["agent_outcome"]
-        print(f"{args.verify_record.name}: recorded {record['agent_outcome']}, replayed {outcome} — {'OK' if ok else 'MISMATCH'}")
-        sys.exit(0 if ok else 1)
+        sys.exit(0 if verify(args.verify_record, args.pool) else 1)
 
-    env, settings = make_env(args)
-    agent = AgentPlayer(args.model_path.resolve() if args.model_path else None, env, args.sampled, args.policy_seed)
-    maps = load_maps(args.pool)
-    server = Server(env, agent, maps, settings, args.record_dir, args.player, args.seed)
-    server.new_game(args.map, args.episode_seed)
+    patterns = [str(REPO_ROOT / "runs" / "**" / "*.cleanrl_model")] + args.models
+    patterns += [g for g in os.environ.get("POLYAI_MODEL_GLOBS", "").split(":") if g]
+    if args.model_path:
+        patterns.append(str(args.model_path))
+    models = find_models(patterns)
+    first = None
+    if args.model_path:
+        first = next((m for m in models if m.path == args.model_path.resolve()), None)
+        if first is None:
+            raise SystemExit(f"{args.model_path} is not a combat checkpoint with its .action_interface.json sidecar")
+    elif models:
+        first = models[0]
+    print(f"Found {len(models)} combat checkpoints" + ("" if models else " — the opponent will play random legal moves"))
+
+    server = Server(models, load_maps(args.pool), args.pool, args.record_dir, args.player, args.seed,
+                    args.rules, args.max_turns, args.policy_seed)
+    server.new_game(first.key if first else "random", args.map, args.episode_seed, args.seat, args.sampled)
     try:
         httpd = ThreadingHTTPServer((args.host, args.port), server.handler())
     except OSError as exc:
-        server.session.abort()
-        env.close()
+        server.close()
         raise SystemExit(f"Cannot listen on {args.host}:{args.port} ({exc.strerror}). Another program (or an "
                          f"`ssh -L {args.port}:...` tunnel started on this machine) is using it: pick another --port. "
                          "The ssh tunnel belongs on your laptop, not on the machine running this server.")
-    print(f"Playing {agent.name}{' (' + agent.model + ')' if agent.model else ''}: {settings['rules']}, "
-          f"{settings['max_turns']}-turn limit, {args.pool} maps. Records go to {args.record_dir}")
+    if first:
+        print(f"First game against {first.run} ({first.label()}), {first.path}")
+    print(f"Records go to {args.record_dir}")
     print(f"Open http://{args.host}:{args.port}  (Ctrl-C to stop)")
     try:
         httpd.serve_forever()
@@ -585,9 +1013,7 @@ def main():
         pass
     finally:
         httpd.server_close()
-        if server.session is not None:
-            server.session.abort()
-        env.close()
+        server.close()
 
 
 if __name__ == "__main__":

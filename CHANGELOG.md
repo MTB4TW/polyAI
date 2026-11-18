@@ -10,22 +10,42 @@ All notable changes to this project are documented in this file.
   - validation maps;
   - capitals mode;
   - rules, turn limit and fog memory from the checkpoint's environment version.
-- Seats:
-  - The agent plays tribe 0 and moves first.
-  - The human plays tribe 1 (SimpleAgent's seat) through the engine's "external" opponent hook that self-play
-    already uses. The human sees only tribe 1's fogged observation.
-  - The agent's full move list is shown only when the game ends.
-- Every finished game is saved as JSON (`human_game_v1`) under `runs/human_games/`: map, seed, checkpoint,
-  settings and every action of both sides. `--verify-record` replays a record and checks the outcome.
+- Model picker in the page: every combat checkpoint under `runs/` and `--models` globs, grouped by run, newest
+  first, with step, save time and canonical evaluation. The banner names the run, step, file, SHA-256 prefix,
+  network, environment version and warm-start source, so it is always clear which weights are playing.
+  Switching models rebuilds the environment only when the rules or turn limit differ.
+- Either seat:
+  - **Human second (tribe 1):** the agent plays through the wrapper as in evaluation, and the human acts
+    through the engine's "external" opponent hook.
+  - **Human first (tribe 0):** the human acts through the wrapper (the agent's legal-action list), and the
+    agent plays tribe 1 the way league snapshots do (`combat_selfplay.OpponentView`, turn count = turns it
+    has finished, as in seat-swap training).
+  - The human sees only their tribe's fogged observation.
+- Replay after the game in `tools/combat_replay_template.html`, now shared by both tools:
+  - one frame per action;
+  - the true board plus each player's fogged view, rebuilt from the true board and that tribe's explored tiles;
+  - player names and colours.
+  - The template change is backward compatible: `export_combat_replay.py` files (`seen`, no `views`) render
+    as before.
+- Every finished game is saved under `runs/human_games/`:
+  - a JSON record (`human_game_v2`): map, seed, checkpoint with SHA-256, settings, seats and every action of
+    both sides;
+  - the replay HTML file.
+  - `--verify-record` replays a record and checks every action and the outcome.
 - `eval_test` maps are refused without `--confirm-test`. Guide: `docs/human-play.md`.
 - No environment, reward, observation or action change: the tool drives the existing wrapper and engine, and
   training and evaluation are unchanged. No contract version change.
 
 ### Validation
-- `tools/tests/test_play_vs_agent.py`:
-  - the action list and the change log the human sees;
-  - a full scripted game against the random opponent that is recorded and replays to the same outcome;
-  - the browser API over HTTP: new game, a stale move is rejected, end turn, resign, and the resigned record replays.
+- `tools/tests/test_play_vs_agent.py` (9 tests with the exporter's):
+  - helpers: action list, change log, fogged view, checkpoint catalogue;
+  - a full scripted game in each seat against the random opponent, with both views on every frame, the
+    opponent hidden by fog at the start, and the record replaying to identical actions and outcome;
+  - the browser API over HTTP: catalogue, first seat, the replay withheld during the game, a stale move
+    rejected, end turn, resign, the replay served afterwards, and the resigned record replays.
+- Diagnostic: `combat_pcritic_t1_league_swap_4m` step 3.8M, against a side that only ended its turn, won on
+  turn 10 when the human moved first and on turn 9 when the human moved second. Both records verified.
+- Not checked: the pages' JavaScript was not run here (no browser or JS runtime on the node).
 
 ## [Phase2-Combat_Star_Hoard_Penalty-081] - (2026-11-15)
 

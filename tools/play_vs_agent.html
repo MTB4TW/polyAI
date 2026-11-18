@@ -54,6 +54,13 @@
   .row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
   details summary { cursor: pointer; color: var(--muted); font-size: 13px; }
   .techs { font-size: 12px; color: var(--muted); }
+  .banner { max-width: 1240px; margin: 0 auto; padding: 0 16px 6px; }
+  .banner .card { display: grid; gap: 2px; border-left: 4px solid var(--bot); }
+  .banner .who { font-size: 16px; font-weight: 700; }
+  .banner .det { color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+  .newgrid { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 10px; align-items: center; margin-top: 8px; }
+  .newgrid label { color: var(--muted); font-size: 13px; }
+  #modelsel { width: 100%; }
 </style>
 </head>
 <body>
@@ -61,6 +68,11 @@
   <h1>Play the agent</h1>
   <span class="sub" id="meta">connecting…</span>
 </header>
+<div class="banner"><div class="card">
+  <div class="who" id="opp">Opponent: …</div>
+  <div class="det" id="oppdet"></div>
+  <div class="det" id="seatdet"></div>
+</div></div>
 <main>
   <section class="card">
     <canvas id="board" width="1100" height="1100" aria-label="Game board"></canvas>
@@ -78,7 +90,9 @@
       <div class="notice" id="notice"></div>
       <div class="stats" id="stats"></div>
       <div class="techs" id="techs"></div>
-      <div class="acts"><button class="primary" id="end" disabled>End turn</button><button id="resign" disabled>Resign</button></div>
+      <div class="acts"><button class="primary" id="end" disabled>End turn</button><button id="resign" disabled>Resign</button>
+        <button class="primary" id="replay" hidden>Watch the replay</button></div>
+      <div class="sub" id="saved"></div>
     </section>
     <section class="card">
       <h2 id="selh">Selected</h2>
@@ -94,12 +108,17 @@
     </section>
     <section class="card">
       <h2>New game</h2>
-      <div class="row" style="margin-top:8px">
-        <select id="mapsel" aria-label="Map"><option value="">Random map</option></select>
-        <input id="seedin" type="number" placeholder="seed (optional)" aria-label="Episode seed" style="width:150px">
-        <button id="newgame">Start</button>
+      <div class="newgrid">
+        <label for="modelsel">Opponent</label><select id="modelsel"></select>
+        <label for="seatsel">Your seat</label>
+        <select id="seatsel"><option value="second">Second (tribe 1, SimpleAgent's seat in evaluation)</option>
+          <option value="first">First (tribe 0, the agent's usual seat)</option><option value="random">Random</option></select>
+        <label for="mapsel">Map</label><select id="mapsel"><option value="">Random validation map</option></select>
+        <label for="seedin">Seed</label><input id="seedin" type="number" placeholder="random" aria-label="Episode seed">
+        <label for="sampled">Agent</label><label><input type="checkbox" id="sampled"> samples its moves (default: always its top choice)</label>
       </div>
-      <div class="sub" style="margin-top:6px">Starting a new game abandons the current one.</div>
+      <div class="row" style="margin-top:8px"><button class="primary" id="newgame">Start</button>
+        <span class="sub">Starting a new game abandons the current one.</span></div>
     </section>
   </div>
 </main>
@@ -110,8 +129,8 @@ const canvas = $("board"), ctx = canvas.getContext("2d");
 const TERRAIN = { 0: "#b7d98b", 1: "#8fd0ea", 2: "#3f86c6", 3: "#9b9488", 4: "#d9bf7f", 5: "#c9b48a", 6: "#5e9a4f", 7: "#2a2c33" };
 const LETTERS = ["W", "R", "D", "S", "A", "C", "K", "M", "B", "Sh", "Bs", "G", "Cl", "Dg"];
 const RES = { 0: "h", 1: "f", 2: "a", 3: "w", 5: "o", 6: "c", 7: "r" };
-const HUMAN = 1;
-let S = null, version = -1, sel = null, pending = false, mapsFilled = false;
+let HUMAN = 1, CAT = null;
+let S = null, version = -1, sel = null, pending = false;
 const PAD = 40;
 
 function N() { return S && S.board ? S.board.terrain.length : 0; }
@@ -182,7 +201,7 @@ function tileOf(ev) {
 }
 
 canvas.addEventListener("click", ev => {
-  const t = tileOf(ev); if (!t || S.phase !== "your_turn") return;
+  const t = tileOf(ev); if (!t || !S || S.phase !== "your_turn") return;
   const toHere = fromSel().filter(a => a.dst && same(a.dst, t) && !same(a.dst, a.src));
   if (toHere.length === 1) return act(toHere[0].i);
   if (toHere.length > 1) { renderSel(toHere, `Actions on (${t[0]},${t[1]})`); return; }
@@ -200,7 +219,7 @@ function renderSel(list, head) {
   const box = $("selacts"); box.innerHTML = "";
   if (!sel || S.phase !== "your_turn") { $("selh").textContent = "Selected"; box.innerHTML = '<span class="sub">Click one of your units or cities.</span>'; return; }
   const board = S.board, u = board.units.find(u => u.x === sel[0] && u.y === sel[1]), c = board.cities.find(c => c.x === sel[0] && c.y === sel[1]);
-  const what = [u ? `${S.unit_names[u.t] || "Unit"} HP ${u.hp}${u.vet ? " ★" : ""}` : null,
+  const what = [u ? `${(CAT ? CAT.unit_names[u.t] : "") || "Unit"} HP ${u.hp}${u.vet ? " ★" : ""}` : null,
                 c ? `${c.cap ? "Capital" : "City"} level ${c.lvl}, pop ${c.pop}/${c.need}, +${c.prod}★` : null].filter(Boolean).join(" · ");
   $("selh").textContent = head || `(${sel[0]},${sel[1]}) ${what}`;
   const items = list || fromSel().filter(a => !a.dst || same(a.dst, a.src));
@@ -220,11 +239,28 @@ async function act(i) {
   if (!ok) pending = false;
 }
 
+function stepText(m) { return m.step != null ? `step ${m.step.toLocaleString("en-US")}` : "final model"; }
+function banner(s) {
+  const m = s.model;
+  $("opp").textContent = m ? `Opponent: ${m.run} — ${stepText(m)}` : "Opponent: random legal moves (no checkpoint)";
+  $("opp").title = m ? m.path : "";
+  const ev = m && m.evaluation && m.evaluation.win != null
+    ? `canonical eval ${(m.evaluation.win * 100).toFixed(1)}% wins vs ${m.evaluation.against} (${m.evaluation.id})` : "no evaluation in this checkout";
+  $("oppdet").textContent = m ? `${m.file} · saved ${m.saved} · sha256 ${m.sha256.slice(0, 12)} · ${m.arch} · ${m.env_version}` +
+    `${m.init_from ? " · warm-started from " + m.init_from : ""} · ${ev} · plays ${s.agent === "ppo_sampled" ? "sampled" : "argmax"}` : "";
+  $("seatdet").textContent = `You play ${s.you} (tribe ${s.human_tribe}) and move ${s.you_move}; the agent plays ${s.opponent}. ` +
+    `${s.map} · seed ${s.episode_seed} · ${s.settings.rules}, ${s.settings.max_turns}-turn limit · take the agent's capital to win.` +
+    (s.human_tribe === 0 ? " In the first seat you choose from the agent's own legal-action list." : "");
+}
+
 function render() {
-  const s = S, mine = s.board && s.board.tribes[String(HUMAN)], theirs = s.board && s.board.tribes["0"];
-  const tribes = s.tribes ? ` · you: ${s.tribes.you}, agent: ${s.tribes.agent}` : "";
-  $("meta").textContent = s.map ? `${s.map} · seed ${s.episode_seed} · agent ${s.agent}${s.model ? " (" + s.model + ")" : ""}${tribes} · ` +
-    `${s.settings.rules}, ${s.settings.max_turns}-turn limit · take the agent's capital to win; the agent moves first` : "no game";
+  const s = S;
+  HUMAN = s.human_tribe ?? 1;
+  const mine = s.board && s.board.tribes[String(HUMAN)], theirs = s.board && s.board.tribes[String(1 - HUMAN)];
+  $("meta").textContent = s.map ? `${s.you} vs ${s.opponent}` : "no game";
+  if (s.map) banner(s);
+  $("replay").hidden = !(s.phase === "over" && s.has_replay);
+  $("saved").textContent = s.phase === "over" && s.record ? `Saved: ${s.record}` : "";
   const st = $("status");
   if (s.phase === "your_turn") { st.className = "status"; st.textContent = `Your turn — turn ${s.turn}`; }
   else if (s.phase === "over") {
@@ -235,10 +271,10 @@ function render() {
   if (s.notice) $("notice").textContent = s.notice;
   if (mine) {
     const cnt = (o) => { const us = s.board.units.filter(u => u.o === o); return [us.length, us.reduce((a, u) => a + u.hp, 0)]; };
-    const [yu, yh] = cnt(HUMAN), [bu, bh] = cnt(0);
+    const [yu, yh] = cnt(HUMAN), [bu, bh] = cnt(1 - HUMAN);
     $("stats").innerHTML = `<span class="h"></span><span class="h you">You</span><span class="h bot">Agent (what you see)</span>
       <span>Stars</span><span>${mine.stars}</span><span>—</span>
-      <span>Cities</span><span>${mine.cities}</span><span>${s.board.cities.filter(c => c.o === 0).length} seen</span>
+      <span>Cities</span><span>${mine.cities}</span><span>${s.board.cities.filter(c => c.o !== HUMAN).length} seen</span>
       <span>Units (HP)</span><span>${yu} (${yh})</span><span>${bu} (${bh}) seen</span>
       <span>Kills</span><span>${mine.kills}</span><span>${theirs ? theirs.kills : "—"}</span>`;
     $("techs").textContent = "Your tech: " + (mine.techs.map(t => t.replace(/_/g, " ").toLowerCase()).join(", ") || "none");
@@ -250,37 +286,63 @@ function render() {
   L.filter(a => !a.src && a.type !== "END_TURN").forEach(a => g.appendChild(button(a)));
   if (!g.children.length) g.innerHTML = `<span class="sub">${s.phase === "your_turn" ? "None available." : "—"}</span>`;
   let html = "", lastT = null;
-  const entries = (s.log || []).concat(s.phase === "over" && s.agent_moves && s.agent_moves.length ? [{ side: "t", text: "Everything the agent did (revealed now the game is over):" }].concat(s.agent_moves) : []);
+  const entries = (s.log || []).concat(s.phase === "over" && s.has_replay ? [{ side: "t", text: "Game over: watch the replay for the full board, both players' views and every move." }] : []);
   for (const e of entries) {
     if (e.side === "t") { html += `<div class="t">${e.text}</div>`; lastT = null; continue; }
     if (e.turn !== lastT) { html += `<div class="t">Turn ${e.turn}</div>`; lastT = e.turn; }
     html += `<div class="${e.side === "you" ? "you" : "agent"}">${e.side === "you" ? "You" : "Agent"}: ${e.text}</div>`;
   }
   $("log").innerHTML = html; $("log").scrollTop = $("log").scrollHeight;
-  if (!mapsFilled && s.maps) { mapsFilled = true; for (const m of s.maps) $("mapsel").insertAdjacentHTML("beforeend", `<option>${m}</option>`); }
   if (sel && !legal().some(a => same(a.src, sel))) sel = null;
   renderSel(); draw();
+}
+
+const esc = t => String(t).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+async function loadCatalog() {
+  try { CAT = await (await fetch("/api/catalog")).json(); } catch (e) { return; }
+  for (const m of CAT.maps) $("mapsel").insertAdjacentHTML("beforeend", `<option>${esc(m)}</option>`);
+  const groups = new Map();
+  for (const m of CAT.models) { if (!groups.has(m.run)) groups.set(m.run, []); groups.get(m.run).push(m); }
+  let html = "";
+  for (const [run, ms] of groups) {
+    html += `<optgroup label="${esc(run)}">` + ms.map(m => `<option value="${m.key}">${esc(run)} · ${esc(m.label)}</option>`).join("") + "</optgroup>";
+  }
+  html += `<optgroup label="No checkpoint"><option value="random">Random legal moves</option></optgroup>`;
+  $("modelsel").innerHTML = html;
+  syncPicker();
+}
+function syncPicker() {  // the picker starts on the model being played
+  if (!CAT || !S) return;
+  $("modelsel").value = S.model ? S.model.key : "random";
+  $("seatsel").value = S.human_tribe === 0 ? "first" : "second";
+  $("sampled").checked = S.agent === "ppo_sampled";
 }
 
 async function poll() {
   try {
     const r = await fetch("/api/state"); const s = await r.json();
-    if (s.version !== version || (S && s.map !== S.map)) { S = s; version = s.version; pending = false; render(); }
+    const fresh = !S || s.episode_seed !== S.episode_seed || s.map !== S.map;
+    if (s.version !== version || fresh) { S = s; version = s.version; pending = false; render(); if (fresh) syncPicker(); }
   } catch (e) { $("status").textContent = "Lost connection to the game server"; }
   setTimeout(poll, S && S.phase === "your_turn" ? 500 : 300);
 }
 $("resign").onclick = () => { if (confirm("Resign this game?")) post("/api/resign"); };
 $("newgame").onclick = async () => {
   const seed = $("seedin").value.trim();
-  if (await post("/api/new", { map: $("mapsel").value || null, seed: seed ? parseInt(seed, 10) : null })) { sel = null; version = -1; $("notice").textContent = ""; }
+  $("newgame").disabled = true; $("status").textContent = "Loading the model…";
+  const ok = await post("/api/new", { model: $("modelsel").value, seat: $("seatsel").value, sampled: $("sampled").checked,
+                                      map: $("mapsel").value || null, seed: seed ? parseInt(seed, 10) : null });
+  $("newgame").disabled = false;
+  if (ok) { sel = null; version = -1; S = null; $("notice").textContent = ""; }
 };
+$("replay").onclick = () => window.open("/replay", "_blank");
 document.addEventListener("keydown", e => {
   if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT") return;
   if (e.key === "Escape") { sel = null; renderSel(); draw(); }
   if ((e.key === "e" || e.key === "E") && !$("end").disabled) $("end").click();
 });
 matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => S && draw());
-poll();
+loadCatalog().then(poll);
 </script>
 </body>
 </html>
