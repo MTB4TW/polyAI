@@ -2,6 +2,47 @@
 
 All notable changes to this project are documented in this file.
 
+## [Eval-Search_Variants_H2H-084] - (2026-11-17)
+
+### Scope
+- Ways to combine the policy with the combat tactical search at play time, for evaluation and human play only;
+  training is unchanged. `tools/search_variants.py`, `SearchPlayer`. Each mode plays the policy's top move
+  unless its rule lets the search override it:
+  - `none`: never;
+  - `search`: the existing `ppo_search` rule;
+  - `order`: only the order of the policy's own plan. Any attack on the target the policy attacks may go
+    first, a killing attack is always allowed, and an attack the policy rates at 5% or more may go before a
+    RECOVER or END_TURN;
+  - `decisive`: only lines that win, capture, put a unit on an enemy city or remove a threat to our capital;
+  - `decisive_kills`: `decisive`, plus lines that kill an enemy unit;
+  - `plan`: lines that beat the policy's own move by a margin of 0.5, searched at depth 4 and scored after the
+    opponent's tactical reply.
+- Java (read-only, used only by these tools):
+  - `CombatTactics.analyze`, through `PythonEnv.tacticalAnalyze`: the best line, its value, the stop value,
+    the value of the line forced to start with the policy's move, what each line achieves, and an optional
+    opponent-reply lookahead;
+  - `PythonEnv.attackPreviews`: damage, retaliation, kill and attacker-dies for every ATTACK, from the
+    engine's damage formula.
+  - `chooseIndex`, the teacher and `ppo_search` are unchanged.
+- `tools/evaluate_search_h2h.py` and `cluster/eval_search_h2h.sbatch`: head-to-head games of a variant against
+  a frozen checkpoint (policy only):
+  - both seats, canonical episode seeds, eval_validation;
+  - seat 0 through the wrapper, seat 1 through the league-snapshot path;
+  - `--summarize` pairs each variant with `none` against the same opponent, game by game, with a map
+    bootstrap.
+  - Diagnostics only: no SimpleAgent, not canonical.
+- No contract change: what a checkpoint sees and does in training and canonical evaluation is unchanged.
+
+### Validation
+- `tools/tests/test_search_variants.py`:
+  - attack previews line up with the action list;
+  - the analysis returns 18 finite values, also with a non-tactical forced move and with the reply lookahead;
+  - END_TURN forced gives no line;
+  - the live game is unchanged after analysis.
+- Core CI and `test_combat_tactics`, `test_teacher_kickstart` and `test_combat_selfplay` (live engine) pass.
+- Smoke run: the 4M league model in each mode against its 3M snapshot, 2 maps × 2 seats. Every mode ran, and
+  the search decided 6–14% of the moves.
+
 ## [Tools-Play_Vs_Agent-083] - (2026-11-17)
 
 ### Scope

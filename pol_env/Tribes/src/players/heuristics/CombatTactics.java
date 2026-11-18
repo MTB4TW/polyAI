@@ -256,6 +256,177 @@ public class CombatTactics {
         return bestIndex;
     }
 
+    // ---- play-time analysis (tools/search_variants.py); chooseIndex above is unchanged --------------------------
+
+    /** Number of analysis outputs: see {@link #analyze}. */
+    public static final int ANALYSIS_LENGTH = 18;
+    /** Offsets of the per-line effect block (7 values) inside the analysis output. */
+    public static final int EFFECTS_BEST = 4, EFFECTS_FORCED = 11;
+
+    /**
+     * Search like chooseIndex, but report what the lines achieve, so the caller can decide whether to override the
+     * policy, and optionally compare against the policy's own move and look at the opponent's reply.
+     *
+     * @param forced       raw index of the policy's planned move (searched even if not tactical), or -1
+     * @param replyActions if > 0, the top lines (and stopping now) are re-scored after ending our turn and letting
+     *                     the opponent play up to this many tactical actions chosen by its own tactical search
+     *                     (depth 2, beam 4) on our fogged view: a one-turn-deeper look
+     * @return {bestIndex (-1: stopping now is best), bestValue, stopValue, forcedValue (NaN without forced),
+     *          then for the best line and for the best line starting with the forced move, 7 effects each:
+     *          won, cities gained, sieges gained (non-capital), capital sieges gained, enemy units killed,
+     *          our units lost, threats to our capital removed}
+     */
+    public double[] analyze(GameState root, ArrayList<Action> rootActs, int[] allowed, int forced, int depth, int beam,
+                            long seed, int replyActions) {
+        double[] out = new double[ANALYSIS_LENGTH];
+        java.util.Arrays.fill(out, 0.0);
+        out[0] = -1;
+        out[3] = Double.NaN;
+        Set<Integer> allowedSet = new HashSet<>();
+        for (int i : allowed) allowedSet.add(i);
+        List<Node> frontier = new ArrayList<>();
+        for (int i = 0; i < rootActs.size(); i++) {
+            Action a = rootActs.get(i);
+            boolean isForced = i == forced;
+            if (!isForced && (!allowedSet.contains(i) || !isTactical(root, a))) continue;
+            if (a.getActionType() == Types.ACTION.END_TURN) continue;  // "stopping now" is scored separately
+            Node n = apply(root, a, i, seed * 1000003L + i);
+            if (n != null) frontier.add(n);
+        }
+        List<Node> leaves = new ArrayList<>(frontier);
+        for (int d = 1; d < depth && !frontier.isEmpty(); d++) {
+            frontier.sort(Comparator.comparingDouble((Node n) -> -n.quick));
+            List<Node> kept = new ArrayList<>(frontier.subList(0, Math.min(beam, frontier.size())));
+            // Keep the forced move's best line in the beam even when it scores low, so it is compared fairly.
+            if (forced >= 0) {
+                Node bestForced = null;
+                for (Node n : frontier) if (n.rootIndex == forced && (bestForced == null || n.quick > bestForced.quick)) bestForced = n;
+                if (bestForced != null && !kept.contains(bestForced)) kept.add(bestForced);
+            }
+            List<Node> next = new ArrayList<>();
+            for (Node parent : kept) {
+                if (parent.state.isGameOver() || parent.state.getActiveTribeID() != me) continue;
+                ArrayList<Action> acts = parent.state.getAllAvailableActions();
+                for (int j = 0; j < acts.size(); j++) {
+                    Action a = acts.get(j);
+                    if (!isTactical(parent.state, a)) continue;
+                    Node n = apply(parent.state, a, parent.rootIndex, seed * 1000003L + (d + 1) * 7919L + j);
+                    if (n != null) next.add(n);
+                }
+            }
+            leaves.addAll(next);
+            frontier = next;
+        }
+        double stopValue = value(root);
+        // Full value for the best leaves by quick value, plus the forced move's leaves.
+        leaves.sort(Comparator.comparingDouble((Node n) -> -n.quick));
+        List<Node> scored = new ArrayList<>(leaves.subList(0, Math.min(Math.max(beam * 2, 8), leaves.size())));
+        int forcedCount = 0;
+        for (Node n : leaves) if (n.rootIndex == forced && !scored.contains(n) && forcedCount++ < 8) scored.add(n);
+        java.util.Map<Node, Double> val = new java.util.HashMap<>();
+        for (Node n : scored) val.put(n, value(n.state));
+        if (replyActions > 0) {  // one turn deeper: the opponent's tactical reply, for the most promising lines
+            stopValue = valueAfterReply(root, replyActions, seed);
+            List<Node> top = new ArrayList<>(scored);
+            top.sort(Comparator.comparingDouble((Node n) -> -val.get(n)));
+            List<Node> deep = new ArrayList<>(top.subList(0, Math.min(4, top.size())));
+            Node bf = null;
+            for (Node n : top) if (n.rootIndex == forced) { bf = n; break; }
+            if (bf != null && !deep.contains(bf)) deep.add(bf);
+            val.clear();
+            for (Node n : deep) val.put(n, valueAfterReply(n.state, replyActions, seed + 17));
+        }
+        Node best = null, bestForcedLeaf = null;
+        double bestValue = stopValue + 1e-6, forcedValue = Double.NEGATIVE_INFINITY;
+        for (java.util.Map.Entry<Node, Double> e : val.entrySet()) {
+            Node n = e.getKey();
+            double v = e.getValue();
+            if (allowedSet.contains(n.rootIndex) && v > bestValue) { bestValue = v; best = n; }
+            if (n.rootIndex == forced && v > forcedValue) { forcedValue = v; bestForcedLeaf = n; }
+        }
+        out[2] = stopValue;
+        if (best != null) {
+            out[0] = best.rootIndex;
+            out[1] = bestValue;
+            effects(root, best.state, out, EFFECTS_BEST);
+        } else {
+            out[1] = stopValue;
+        }
+        if (forced >= 0) {
+            out[3] = bestForcedLeaf != null ? Math.max(forcedValue, Double.NEGATIVE_INFINITY) : Double.NaN;
+            if (bestForcedLeaf != null) effects(root, bestForcedLeaf.state, out, EFFECTS_FORCED);
+        }
+        return out;
+    }
+
+    /** Our value after ending our turn and letting the opponent play its best tactical actions (on our fogged view). */
+    private double valueAfterReply(GameState s, int replyActions, long seed) {
+        try {
+            GameState c = s.copy();
+            c.getRandomGenerator().setSeed(seed);
+            if (!c.isGameOver() && c.getActiveTribeID() == me) c.advance(new core.actions.tribeactions.EndTurn(me), true);
+            if (c.isGameOver() || c.getActiveTribeID() == me) return quickValue(c);
+            int opp = c.getActiveTribeID();
+            // The copy carries our fog: let the opponent move wherever we can see (as value() does).
+            boolean[][] mine = c.getTribe(me).getObsGrid(), theirs = c.getTribe(opp).getObsGrid();
+            for (int x = 0; x < theirs.length && x < mine.length; x++) System.arraycopy(mine[x], 0, theirs[x], 0, Math.min(theirs[x].length, mine[x].length));
+            CombatTactics them = new CombatTactics(opp, null, tacticalRadius);
+            for (int k = 0; k < replyActions && !c.isGameOver() && c.getActiveTribeID() == opp; k++) {
+                ArrayList<Action> acts = c.getAllAvailableActions();
+                int[] all = new int[acts.size()];
+                for (int i = 0; i < all.length; i++) all[i] = i;
+                int idx = them.chooseIndex(c, acts, all, 2, 4, seed * 31L + k);
+                if (idx < 0) break;
+                Action a = acts.get(idx);
+                if (!a.isFeasible(c)) break;
+                c.advance(a, true);
+            }
+            return quickValue(c);
+        } catch (RuntimeException e) {
+            return value(s);
+        }
+    }
+
+    /** What a line changed between root and leaf (see analyze). */
+    private void effects(GameState root, GameState leaf, double[] out, int at) {
+        out[at] = holdsAllCapitals(leaf) || (leaf.isGameOver() && leaf.getTribe(me).getWinner() == Types.RESULT.WIN) ? 1 : 0;
+        out[at + 1] = cities(leaf, true).size() - cities(root, true).size();
+        int[] sr = sieges(root), sl = sieges(leaf);
+        out[at + 2] = sl[0] - sr[0];
+        out[at + 3] = sl[1] - sr[1];
+        out[at + 4] = units(root, false).size() - units(leaf, false).size();
+        out[at + 5] = units(root, true).size() - units(leaf, true).size();
+        out[at + 6] = capitalThreats(root) - capitalThreats(leaf);
+    }
+
+    /** {our units on enemy non-capital city centres, on enemy capitals}. */
+    private int[] sieges(GameState s) {
+        int[] n = new int[2];
+        Board b = s.getBoard();
+        for (City c : cities(s, false)) {
+            Unit on = b.getUnitAt(c.getPosition().x, c.getPosition().y);
+            if (on != null && on.getTribeId() == me) n[c.isCapital() ? 1 : 0]++;
+        }
+        return n;
+    }
+
+    /** Enemy units that could reach our undefended capital next turn (as in value()). */
+    private int capitalThreats(GameState s) {
+        Board b = s.getBoard();
+        List<City> caps = new ArrayList<>();
+        for (City c : cities(s, true)) if (c.isCapital() && b.getUnitAt(c.getPosition().x, c.getPosition().y) == null) caps.add(c);
+        if (caps.isEmpty()) return 0;
+        int n = 0;
+        for (Unit e : units(s, false)) {
+            try {
+                Pathfinder pf = new Pathfinder(e.getPosition(), new core.actions.unitactions.StepMove(s, e));
+                for (PathNode p : pf.findPaths())
+                    for (City c : caps) if (p.getPosition().equals(c.getPosition())) n++;
+            } catch (RuntimeException ignored) { }
+        }
+        return n;
+    }
+
     private Node apply(GameState s, Action a, int rootIndex, long seed) {
         try {
             GameState c = s.copy();
