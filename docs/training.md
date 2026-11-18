@@ -113,6 +113,31 @@ tensorboard --logdir runs
 
 For W&B, install/configure `wandb`, then add `--track --wandb-project-name <project>`. Training summary values are useful diagnostics but are not substitutes for a fixed evaluation protocol.
 
+## Stopping and resuming a run
+
+Every checkpoint (`X.cleanrl_model`, every `--save-frequency` steps and at the end) now also writes
+`X.cleanrl_model.resume.pt`. That file holds the optimizer state, the completed iteration and global step, the
+return-normalisation state, the random states and the run's arguments. `runs/<run>/LATEST_RESUME.json` points
+at the newest one (`py_rl/cleanrl/cleanrl/resume.py`).
+
+| To | Do |
+|---|---|
+| Stop for good, keeping everything | `touch runs/<run>/STOP`: saves at the end of the current iteration and exits |
+| Stop from SLURM (graceful) | `scancel --signal=USR1 --batch <job>` |
+| Stop now | `scancel <job>` (SIGTERM): saves immediately; the weights may be part-way through that iteration's update |
+| Continue exactly | `--resume runs/<run>` (or a checkpoint), or `RESUME_FROM=runs/<run> sbatch cluster/train_combat_cpu.sbatch` |
+| Chain across the 48 h limit | `AUTO_RESUME=1 sbatch ...`: SLURM signals ten minutes before the limit (`--signal=B:USR1@600`), the trainer saves, and the job resubmits itself with `RESUME_FROM` |
+
+What a resume restores and what it doesn't:
+- **Same run:** it continues in the same run directory, with the same TensorBoard log, checkpoint numbering
+  and league snapshot folder.
+- **Changing settings:** structural settings (network, action interface, `num_envs`, `num_steps`, `gamma`, ...)
+  must match. Schedule settings (learning rate, total timesteps, epochs) may change, with a warning.
+- **Not restored:** episodes in progress restart, and the self-play league's per-opponent statistics (kept in
+  the env workers) start again.
+- **Changing the model** (new features, a different network): use `--init-from` instead, which is a warm start
+  with a fresh optimizer and schedule.
+
 ## Parallel JVMs and profiling
 
 Each vector worker starts its own JVM. Startup jitter defaults to 0.1–2.0 seconds to avoid a process-creation burst. If workers fail or memory pressure is high, reduce `--num-envs` before changing rollout or optimization settings.

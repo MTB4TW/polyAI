@@ -2,6 +2,43 @@
 
 All notable changes to this project are documented in this file.
 
+## [Train-Stop_And_Resume-085] - (2026-11-18)
+
+### Scope
+- `ppo.py --resume <checkpoint or run dir>` continues a stopped run exactly (`py_rl/cleanrl/cleanrl/resume.py`).
+  - Every checkpoint gets a `.resume.pt` bundle holding the optimizer state, the iteration and global step (so
+    the learning-rate schedule, the teacher decay and the checkpoint numbering continue), the return
+    normalisation, the RNG states, the privileged-critic guard state and the arguments.
+  - Structural argument changes are refused; schedule changes are warned about.
+  - A resumed run writes into the same run directory. Env episodes restart with an offset seed.
+  - `--resume` and `--init-from` are exclusive.
+- **Stopping:**
+  - `runs/<run>/STOP` or SIGUSR1: save and stop at the end of the iteration.
+  - SIGTERM (`scancel`): save immediately, then exit 143.
+  - An early stop writes no "final" model, so a stopped run is never mistaken for a finished one.
+- **Cluster:** `cluster/trainer_signals.sh` is used by `train_combat_cpu.sbatch`, `train_farmshare_combat.sbatch`
+  and `train_farmshare.sbatch`.
+  - SLURM sends SIGUSR1 ten minutes before the time limit, and the batch shell forwards it to the trainer.
+  - `RESUME_FROM` passes `--resume`.
+  - `AUTO_RESUME=1` resubmits the job after a time-limit stop, so a run chains across the 48 h limit.
+- SPS and ETA in a resumed run count only the steps since the resume.
+- No contract change: checkpoints are unchanged, and the bundle is an extra file.
+
+### Validation
+- `tools/tests/test_resume.py`:
+  - a bundle round trip (Adam moments, return normaliser, RNG streams, the LATEST pointer);
+  - finding the newest bundle in a run directory;
+  - structural changes refused and schedule changes warned;
+  - the STOP file and SIGUSR1.
+- `tools/tests/test_ppo_experiment_options.py`, `test_training_autoreset.py` and core CI pass.
+- Live combat smoke test (2 envs, 640 steps, privileged critic, `--norm-returns`):
+  1. A STOP file stops it after iteration 1 (step 128).
+  2. `--resume` continues from step 128 in the same directory.
+  3. SIGTERM in iteration 5 saves at once (marked "resumes after iteration 4").
+  4. A second `--resume` finishes at step 640 and writes the final model.
+- The job-script test: SIGUSR1 to the batch shell reaches the trainer, and AUTO_RESUME resubmits with
+  `RESUME_FROM` set.
+
 ## [Phase2-Combat_Star_Hoard_Penalty-081] - (2026-11-15)
 
 ### Scope
