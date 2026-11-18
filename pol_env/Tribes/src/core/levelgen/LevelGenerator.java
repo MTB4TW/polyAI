@@ -855,9 +855,12 @@ public class LevelGenerator {
 
         ArrayList<Integer> plainCells = getOwnedCellsByTerrainBand(villageMap, tileOwner, tribe, PLAIN.getMapChar(), bandState);
         if (!plainCells.isEmpty()) {
+            // Wiki (Map Generation, spawn rates): field 48% of tiles; inner city fruit 18 / crop 18 / empty 12, outer
+            // 6 / 6 / 36. Tribe modifiers multiply the resource rates directly, and the empty share takes up the
+            // difference (Bardur's 0x crop leaves inner fields 18 fruit / 30 empty, not more fruit).
             double fruitWeight = (inner ? 18.0 : 6.0) * getTribeProb("FRUIT", tribe);
             double cropWeight = (inner ? 18.0 : 6.0) * getTribeProb("CROPS", tribe);
-            double emptyWeight = inner ? 12.0 : 36.0;
+            double emptyWeight = Math.max(0.0, 48.0 - fruitWeight - cropWeight);
             int[] counts = allocateCountsByWeights(plainCells.size(), new double[]{fruitWeight, cropWeight, emptyWeight});
             assignResourceCounts(plainCells, new char[]{FRUIT.getMapChar(), CROPS.getMapChar()}, new int[]{counts[0], counts[1]});
         }
@@ -865,7 +868,7 @@ public class LevelGenerator {
         ArrayList<Integer> forestCells = getOwnedCellsByTerrainBand(villageMap, tileOwner, tribe, FOREST.getMapChar(), bandState);
         if (!forestCells.isEmpty()) {
             double animalWeight = (inner ? 19.0 : 6.0) * getTribeProb("ANIMAL", tribe);
-            double emptyWeight = inner ? 19.0 : 32.0;
+            double emptyWeight = Math.max(0.0, 38.0 - animalWeight);  // forest 38%: inner 19 / 19, outer 6 / 32
             int[] counts = allocateCountsByWeights(forestCells.size(), new double[]{animalWeight, emptyWeight});
             assignResourceCounts(forestCells, new char[]{ANIMAL.getMapChar()}, new int[]{counts[0]});
         }
@@ -873,7 +876,7 @@ public class LevelGenerator {
         ArrayList<Integer> mountainCells = getOwnedCellsByTerrainBand(villageMap, tileOwner, tribe, MOUNTAIN.getMapChar(), bandState);
         if (!mountainCells.isEmpty()) {
             double oreWeight = (inner ? 11.0 : 3.0) * getTribeProb("ORE", tribe);
-            double emptyWeight = inner ? 3.0 : 11.0;
+            double emptyWeight = Math.max(0.0, 14.0 - oreWeight);  // mountain 14%: inner 11 / 3, outer 3 / 11
             int[] counts = allocateCountsByWeights(mountainCells.size(), new double[]{oreWeight, emptyWeight});
             assignResourceCounts(mountainCells, new char[]{ORE.getMapChar()}, new int[]{counts[0]});
         }
@@ -1086,8 +1089,17 @@ public class LevelGenerator {
         return (int) Math.floor(min + rnd.nextDouble() * (max - min));
     }
 
+    /** Ruins per map size (wiki, Map Generation): Tiny 4, Small 5, Normal 7, Large 9, Huge 11, Massive 23. */
     static int ruinTargetForMapSize(int mapSize) {
-        return (int) Math.round((mapSize * mapSize) / 40.0);
+        switch (mapSize) {
+            case 11: return 4;
+            case 14: return 5;
+            case 16: return 7;
+            case 18: return 9;
+            case 20: return 11;
+            case 30: return 23;
+            default: return (int) Math.round((mapSize * mapSize) / 40.0);
+        }
     }
 
     /**
