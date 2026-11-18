@@ -212,7 +212,8 @@ function draw() {
       const [cx, cy] = px(lx, ly), foundBy = POVS.filter(t => { const v = seenOf(f, t); return v && v.visible && v.visible[lx][ly]; });
       ctx.globalAlpha = (fogged ? foundBy.includes(viewT) : foundBy.length) ? 1 : 0.35;
       glyph("🗼", cx + CELL - 3, cy + 3, CELL * 0.28, "right", "top"); ctx.globalAlpha = 1;
-      if (!fogged) foundBy.forEach((t, k) => { ctx.beginPath(); ctx.arc(cx + CELL * (0.55 - k * 0.14), cy + CELL * 0.14, CELL * 0.06, 0, 7);
+      // True board: every finder. A player's view: every finder, but only on lighthouses that player has found (as in the game).
+      if (!fogged || foundBy.includes(viewT)) foundBy.forEach((t, k) => { ctx.beginPath(); ctx.arc(cx + CELL * (0.55 - k * 0.14), cy + CELL * 0.14, CELL * 0.06, 0, 7);
         ctx.fillStyle = col(t); ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = "#fff"; ctx.stroke(); });
     }
   }

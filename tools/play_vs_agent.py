@@ -620,7 +620,15 @@ class GameSession:
         view = board_view(obs, max_hp_by_unit(self.env.tribes_env))
         if self.settings.get("rules") == "polytopia_2_15":
             n = len(view["terrain"])
-            view["lighthouses"] = [{"at": p, "found": int(view["terrain"][p[0]][p[1]]) != FOG} for p in lighthouses(n)]
+            agent_mask = self.masks[self.agent_tribe]
+            view["lighthouses"] = []
+            for p in lighthouses(n):
+                found = int(view["terrain"][p[0]][p[1]]) != FOG
+                # As in the game: on a lighthouse you have found, you also see whether the opponent has found it.
+                by = [self.human] if found else []
+                if found and agent_mask is not None and agent_mask[p[0]][p[1]]:
+                    by.append(self.agent_tribe)
+                view["lighthouses"].append({"at": p, "found": found, "found_by": by})
         turn = self._round()
         if self._steps_from is not None:  # a new turn: hand the agent's visible moves to the browser to animate
             mask = self.masks[self.human]

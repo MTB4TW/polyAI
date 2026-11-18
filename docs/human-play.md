@@ -47,7 +47,8 @@ taking yours. At the turn limit the game is a timeout.
   you can see from the agent's turn.
 - **On the board:**
   - resources (🍒🦌🐟🐋🌾🪨🏛️) and buildings, with monuments ringed in gold;
-  - lighthouses (🗼, faint until you have found them);
+  - lighthouses (🗼, faint until you have found them). As in the game, a lighthouse you have found also shows
+    whether the agent has found it (coloured dots);
   - HP bars against true max HP, with the number on each unit.
   - Click any tile to inspect it, including the exact HP of an enemy unit you can see.
 - **The agent's turn:** its moves are animated one at a time at the start of your turn, as far as you can

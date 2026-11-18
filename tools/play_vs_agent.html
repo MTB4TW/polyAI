@@ -85,7 +85,7 @@
       <span>W warrior · R rider · D defender · S swordsman · A archer · C catapult · K knight · G giant</span>
       <span>Resources (bottom right): 🍒 fruit · 🦌 wild animal · 🐟 fish · 🐋 whale · 🌾 crops · 🪨 ore · 🏛️ ruins</span>
       <span>Buildings (bottom left): 🌽 farm · ⛏️ mine · ⚓ port · 🪵 lumber hut · 🔨 forge · 🌬️ windmill · 🪚 sawmill · 💰 customs house · ⛩️ temple · gold ring = monument</span>
-      <span>🗼 lighthouse (map corners; faint = not found yet)</span>
+      <span>🗼 lighthouse (map corners; faint = not found yet; dots on found ones = who has found it)</span>
       <span>Click any tile to inspect it; click your unit or city, then a highlighted tile, to act. <kbd>E</kbd> end turn · <kbd>Esc</kbd> deselect</span>
     </div>
   </section>
@@ -232,6 +232,10 @@ function drawBoard(board, overlay) {
   for (const l of board.lighthouses || []) {
     const [cx, cy] = px(l.at[0], l.at[1]); ctx.globalAlpha = l.found ? 1 : 0.35;
     glyph("🗼", cx + C - 3, cy + 3, C * 0.28, "right", "top"); ctx.globalAlpha = 1;
+    (l.found_by || []).forEach((t, k) => {  // who has found it (shown once you have found it, as in the game)
+      ctx.beginPath(); ctx.arc(cx + C * (0.55 - k * 0.14), cy + C * 0.14, C * 0.06, 0, 7);
+      ctx.fillStyle = sideCol(t); ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = "#fff"; ctx.stroke();
+    });
   }
   for (const u of board.units) drawUnit(u, C, px);
   if (inspectTile && !overlay) { const [cx, cy] = px(inspectTile[0], inspectTile[1]); ctx.setLineDash([6, 4]); ctx.strokeStyle = css("--text");
@@ -292,7 +296,8 @@ function renderInspect() {
   if (t !== 7 && RES[r]) lines.push(`<span class="k">Resource:</span> ${RES[r][0]} ${RES[r][1]}`);
   if (t !== 7 && BUILD[b]) lines.push(`<span class="k">Building:</span> ${BUILD[b][0]} ${BUILD[b][1]}`);
   const lh = (board.lighthouses || []).find(l => same(l.at, inspectTile));
-  if (lh) lines.push(`<span class="k">Lighthouse:</span> ${lh.found ? "found by you" : "not found yet"}`);
+  if (lh) lines.push(`<span class="k">Lighthouse:</span> ${!lh.found ? "not found by you yet"
+    : (lh.found_by || []).includes(1 - HUMAN) ? "found by you and by the agent" : "found by you; the agent has not found it"}`);
   const c = board.cities.find(c => c.x === x && c.y === y);
   if (c) lines.push(`<span class="k">${c.o === HUMAN ? "Your" : "Agent's"} ${c.cap ? "capital" : "city"}:</span> level ${c.lvl}` +
     (c.pop !== undefined ? `, population ${c.pop}/${c.need}, +${c.prod}★ per turn` : "") + (c.walls ? ", walls" : ""));

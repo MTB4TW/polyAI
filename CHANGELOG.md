@@ -50,7 +50,9 @@ All notable changes to this project are documented in this file.
 ### Update (same day, after the first human games)
 - **The board, in the game and in replays:**
   - resources and buildings as distinct icons, with monuments ringed in gold;
-  - lighthouses at the map corners: found or not for the player, and in replays, which player found each;
+  - lighthouses at the map corners: found or not for the player. As in the game, a lighthouse the player has
+    found also shows whether the opponent has found it. Replays mark every finder on the true board, and in a
+    player's view only on lighthouses that player has found;
   - health bars against each unit's true max HP, from `PythonEnv.combatStateJson`. The observation JSON has no
     max HP, so the bars were always full before. The HP number is drawn on every unit.
 - **Click any tile to inspect it:** terrain, resource, building, lighthouse, city, and unit with exact

@@ -150,6 +150,11 @@ class EngineGameTests(unittest.TestCase):
         board = states[0]["board"]
         self.assertTrue(all(u["maxhp"] >= u["hp"] and u["maxhp"] >= 10 for u in board["units"] if u["t"] in (0, 1)))
         self.assertEqual(len(board["lighthouses"]), 4)
+        for st in states:  # the opponent's discovery is shown only on lighthouses the human has found
+            for l in st["board"]["lighthouses"]:
+                self.assertEqual(l["found"], session.human in l["found_by"])
+                if not l["found"]:
+                    self.assertEqual(l["found_by"], [])
         steps = [st["agent_steps"] for st in states if st.get("agent_steps")]
         self.assertTrue(steps, "agent moves are handed to the browser")
         for batch in steps:
