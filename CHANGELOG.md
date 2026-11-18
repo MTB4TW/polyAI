@@ -2,6 +2,45 @@
 
 All notable changes to this project are documented in this file.
 
+## [Train-Saved_Game_Engine-082] - (2026-11-17)
+
+### Scope
+New opt-in saved-game engine, `py_rl/cleanrl/cleanrl/game_store/` (see `docs/game-store.md`). It records
+finished games, keeps them according to a pluggable selector, and trains on them again with a pluggable
+learner after each PPO update.
+
+- **Selectors:** `all`, `win`, `outcome`, `top_return`, `surprise`, `upset`, `reservoir`, `short_win` and
+  `field`. They combine with `|` (keep if any) and `&` (keep if all).
+- **Learners:**
+  - `sil`: self-imitation.
+  - `awr`: advantage-weighted regression.
+  - `bc`: behaviour cloning.
+  - `value`: value-only replay.
+  - `replay_ppo`: clipped PPO with the stored behaviour ratio.
+  - `vtrace`: IMPALA V-trace on whole games.
+- **Storage:**
+  - A record is the map, the episode seed and the action list, plus an optional training payload:
+    observations, the valid legal rows only, the chosen slot, the behaviour log-probability, the value and
+    the reward.
+  - Large arrays are XOR-delta + zlib compressed.
+  - Measured in a combat run: 637 bytes per step, against about 128 KB per step for the padded rollout buffer.
+  - A byte budget demotes low-priority games to action-only records, a game cap drops the lowest, and an
+    optional half-life makes priorities decay with age.
+  - Stores are saved to and loaded from pickle shards.
+- **Trainer:** 18 `--game-store*` flags in `ppo.py`, all off by default. Without `--game-store` nothing is
+  recorded and training is unchanged. Recording cost 0.05 s per iteration in the smoke run.
+- **Environment:** new opt-in `POLYVISION_EPISODE_IDENTITY_INFO=1`, which `ppo.py --game-store` sets for its env
+  workers. On the terminal step it adds `map_path`, `map_id` and `episode_seed` to `info`, so stored games can
+  be replayed. It is off by default, so observations, rewards, the default `info` and trajectory hashes are
+  unchanged, and no contract version is bumped.
+- **Replay:** `game_store/replay.py` re-plays a stored action list in the engine, optionally re-scoring it with
+  the current network (reanalyse). `tools/verify_game_store_replay.py` checks stored games against the engine.
+  In a 3,072-step combat smoke run, 25/25 games replayed with identical observations, legal sets, slots,
+  rewards and outcomes.
+- **Tests:** `tools/tests/test_game_store.py`, 18 tests, no JVM needed.
+- **Roadmap:** `docs/roadmap.md` is the review and plan towards one map size and one tribe that beats every bot,
+  then humans.
+
 ## [Phase2-Combat_Star_Hoard_Penalty-081] - (2026-11-15)
 
 ### Scope
