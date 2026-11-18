@@ -43,6 +43,9 @@ RESUME_VERSION = "resume_bundle_v1"
 RESUME_SUFFIX = ".resume.pt"
 STOP_FILE = "STOP"
 LATEST_FILE = "LATEST_RESUME.json"
+# Exit code of a run that stopped before its last iteration (it saved a checkpoint and resume bundle). Nonzero so
+# that dependent SLURM jobs (`--dependency=afterok`) do not start as if the run had finished.
+EXIT_STOPPED_EARLY = 3
 
 # Settings that change what the network is or how a rollout is shaped: resuming with different values is refused.
 STRUCTURAL_ARGS = ("env_id", "network_arch", "actor_mode", "num_envs", "num_steps", "max_legal_actions",

@@ -5,6 +5,8 @@
 # - RESUME_FROM=<run dir or checkpoint> continues a run exactly (ppo.py --resume).
 # - AUTO_RESUME=1: after a time-limit stop (SIGUSR1), the job resubmits itself (TRAIN_SCRIPT) with RESUME_FROM set,
 #   so a long run chains across the 48 h limit. A STOP file (runs/<run>/STOP) or a plain scancel stops for good.
+# - An early stop exits with status 3, so jobs chained with --dependency=afterok (segments) never start from an
+#   unfinished run. Use AUTO_RESUME for one long run; use afterok chains only for runs that finish normally.
 
 run_trainer() {
     local args=("$@")
@@ -28,7 +30,9 @@ run_trainer() {
     done
     trap - USR1 TERM
     local marker="logs/resume_${SLURM_JOB_ID:-none}.txt"
-    if [ "$status" -eq 0 ] && [ -f "$marker" ]; then
+    # 3 = the trainer stopped before its last iteration and saved (py_rl/cleanrl/cleanrl/resume.py); the job keeps
+    # that nonzero status so `afterok` dependents (e.g. chained segments) do not start from an unfinished run.
+    if [ "$status" -eq 3 ] && [ -f "$marker" ]; then
         local run_dir reason
         run_dir=$(sed -n 1p "$marker")
         reason=$(sed -n 2p "$marker")

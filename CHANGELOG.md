@@ -21,6 +21,8 @@ All notable changes to this project are documented in this file.
   - SLURM sends SIGUSR1 ten minutes before the time limit, and the batch shell forwards it to the trainer.
   - `RESUME_FROM` passes `--resume`.
   - `AUTO_RESUME=1` resubmits the job after a time-limit stop, so a run chains across the 48 h limit.
+- An early stop exits with status 3 (`resume.EXIT_STOPPED_EARLY`), so `afterok` chains (such as segmented league
+  runs) never start the next segment from an unfinished run.
 - SPS and ETA in a resumed run count only the steps since the resume.
 - No contract change: checkpoints are unchanged, and the bundle is an extra file.
 

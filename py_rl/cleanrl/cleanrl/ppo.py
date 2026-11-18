@@ -3255,3 +3255,7 @@ if __name__ == "__main__":
 
     envs.close()
     writer.close()
+    if stopped_early is not None:
+        # Not a finished run: a nonzero exit keeps SLURM `afterok` chains from starting the next segment from a
+        # final model that does not exist (cluster/trainer_signals.sh resubmits with AUTO_RESUME=1).
+        sys.exit(resume_lib.EXIT_STOPPED_EARLY)

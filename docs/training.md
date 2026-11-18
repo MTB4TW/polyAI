@@ -128,6 +128,18 @@ at the newest one (`py_rl/cleanrl/cleanrl/resume.py`).
 | Continue exactly | `--resume runs/<run>` (or a checkpoint), or `RESUME_FROM=runs/<run> sbatch cluster/train_combat_cpu.sbatch` |
 | Chain across the 48 h limit | `AUTO_RESUME=1 sbatch ...`: SLURM signals ten minutes before the limit (`--signal=B:USR1@600`), the trainer saves, and the job resubmits itself with `RESUME_FROM` |
 
+A run that stops early exits with status **3**, so a job chained with `--dependency=afterok` never starts from an
+unfinished run.
+
+Two ways to train for longer than one job allows:
+- **One long run with `AUTO_RESUME=1`.** It keeps the optimizer state and the learning-rate schedule, and its own
+  snapshots stay in the league pool.
+- **Segments**, as in Devin's `league8m_segment.sh`: separate 2M runs chained with `afterok`. Each warm-starts from
+  the previous final model (`INIT_FROM`, `--no-anneal-lr`) and adds earlier segments as fixed league opponents.
+  - Resume can protect a segment that is cut short: restart it with `RESUME_FROM`, then release the chain.
+  - Do not combine `AUTO_RESUME` with an `afterok` chain: the resubmitted job is not the one the next segment waits
+    for.
+
 What a resume restores and what it doesn't:
 - **Same run:** it continues in the same run directory, with the same TensorBoard log, checkpoint numbering
   and league snapshot folder.
