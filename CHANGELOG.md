@@ -2,6 +2,23 @@
 
 All notable changes to this project are documented in this file.
 
+## [Phase2-Combat_External_Tribe_Village_Capture-089] - (2026-11-18)
+
+### Problem and fix
+- The agent playing tribe 1 outside the wrapper's `step()` never made the wrapper's deferred village captures. Three
+  places play it that way:
+  - league snapshots (`combat_selfplay.play_external_turn`);
+  - `tools/play_vs_agent.py`, with the agent as tribe 1;
+  - `tools/evaluate_search_h2h.py`.
+- With fewer than 2 cities, a unit on a village is frozen and its CAPTURE is masked; `step()` captures it at
+  END_TURN. So in those three places tribe 1 could never take a village with one city.
+- Evidence: the same checkpoint against itself scored 0.90 / 0.69 by seat through the two paths before the fix,
+  and 0.685 / 0.320 after.
+- Fix: `combat_selfplay.play_deferred_village_captures`, called on END_TURN by all three.
+- `play_vs_agent` stores `settings.deferred_village_captures`. Games saved before this replay without the
+  captures, so their records still verify; all 5 saved games were checked.
+- The same fix is on exp/league-unitstatus-wikimaps (PR #33).
+
 ## [Eval-Search_Variants_H2H-084] - (2026-11-17)
 
 ### Scope

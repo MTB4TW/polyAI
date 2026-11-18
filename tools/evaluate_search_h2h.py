@@ -40,7 +40,7 @@ SCHEMA = "polyai-search-h2h-v1"
 
 def play_game(env, p0, p1, game_map, episode_seed: int) -> dict:
     """p0 plays tribe 0 through the wrapper, p1 tribe 1 through the external hook. Returns tribe 0's result."""
-    from pol_env.Tribes.py.combat_selfplay import EXTERNAL_OPPONENT, OpponentView, swap_tribes
+    from pol_env.Tribes.py.combat_selfplay import EXTERNAL_OPPONENT, OpponentView, play_deferred_village_captures, swap_tribes
 
     te = env.tribes_env
     java = te._env
@@ -61,7 +61,11 @@ def play_game(env, p0, p1, game_map, episode_seed: int) -> dict:
             feats = v._build_legal_action_features_padded(ids, valid, id_to_raw, s_actions, s_obs)
             gid = p1.act(v._dict_to_array(s_obs), np.asarray(ids), np.asarray(valid, dtype=bool),
                          np.asarray(feats, dtype=np.float32), raw_map=id_to_raw)
-            java.stepByIndex(int(id_to_raw[int(gid)]))
+            raw = int(id_to_raw[int(gid)])
+            if str(s_actions[raw].get("type", "")).upper() == "END_TURN" and v._queued_village_capture_unit_ids:
+                play_deferred_village_captures(te, state["view"], 1)  # CHANGELOG 089
+                raw = next(i for i, a in enumerate(te.list_actions()) if a.get("type") == "END_TURN")
+            java.stepByIndex(raw)
         raise RuntimeError("Tribe 1 exceeded its action budget")
 
     def select_opponent():

@@ -510,6 +510,9 @@ class GameSession:
                  human_policy: Optional[Callable] = None, move_timeout_s: Optional[float] = None):
         self.env, self.agent, self.map_info, self.episode_seed = env, agent, map_info, int(episode_seed)
         self.map_path = str(map_info.path)
+        settings = dict(settings or {})
+        # Games saved before CHANGELOG 089 replay without the agent's end-of-turn village captures (tribe 1).
+        settings.setdefault("deferred_village_captures", True)
         self.settings, self.record_dir, self.player = settings, record_dir, player
         self.human, self.agent_tribe = int(human_tribe), 1 - int(human_tribe)
         self.human_policy = human_policy           # tests and record replay: f(state) -> index, instead of the browser
@@ -732,7 +735,7 @@ class GameSession:
     # game thread: the agent as tribe 1 ----------------------------------------------
     def _agent_turn_external(self):
         """The agent as tribe 1, the way league snapshots play (combat_selfplay.OpponentView)."""
-        from pol_env.Tribes.py.combat_selfplay import OpponentView, swap_tribes
+        from pol_env.Tribes.py.combat_selfplay import OpponentView, play_deferred_village_captures, swap_tribes
 
         te = self.env.tribes_env
         java = te._env
@@ -757,6 +760,15 @@ class GameSession:
             if idx is None:
                 raise RuntimeError(f"The agent chose global id {gid} with no engine action")
             raw = actions[int(idx)]
+            if (str(raw.get("type", "")).upper() == "END_TURN" and v._queued_village_capture_unit_ids
+                    and self.settings.get("deferred_village_captures")):
+                # The wrapper's rule: with one city a unit on a village is frozen and captures as the turn ends
+                # (the learner's step() does this; CHANGELOG 089). Replays redo it from the END_TURN choice.
+                for cap in play_deferred_village_captures(te, self._opp_view, self.agent_tribe):
+                    self._capture(self.agent_tribe, {"type": "CAPTURE", "repr": "village capture (end of turn)"})
+                actions = te.list_actions()
+                idx = next(i for i, a in enumerate(actions) if a.get("type") == "END_TURN")
+                raw = actions[int(idx)]
             self.history.append({"side": self.agent_tribe, "gid": int(gid), "raw": int(idx), "type": raw.get("type"),
                                  "repr": raw.get("repr"), "by": getattr(self.agent, "last_source", "policy")})
             java.stepByIndex(int(idx))
@@ -934,7 +946,9 @@ def replay_record(env, record: dict, map_info):
             raise GameAborted("abandoned" if abandoned else "resigned")
         return int(step["gid"] if human_t == 0 else step["raw"])
 
-    session = GameSession(env, Scripted(), map_info, record["episode_seed"], record.get("settings", {}), None,
+    settings = dict(record.get("settings", {}))
+    settings.setdefault("deferred_village_captures", False)  # recorded before CHANGELOG 089
+    session = GameSession(env, Scripted(), map_info, record["episode_seed"], settings, None,
                           human_tribe=human_t, human_policy=human_policy)
     if isinstance(record.get("model"), dict):
         session.state["model"] = record["model"]
