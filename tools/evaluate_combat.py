@@ -162,6 +162,10 @@ def parse_args():
     p.add_argument("--max-maps", type=int)
     p.add_argument("--rules", default="tribes_2020", help="Without --model-path: POLYVISION_RULES to play")
     p.add_argument("--max-turns", type=int, default=20, help="Without --model-path: turn limit")
+    p.add_argument("--rules-off", default=None,
+                   help="Optional wrapper rules to switch off (comma-separated names, 'all' or 'none'; "
+                        "environment_contract.COMBAT_OPTIONAL_RULES). Default: as the checkpoint was trained. "
+                        "Overriding the checkpoint's setting makes the evaluation a diagnostic")
     p.add_argument("--device", default="cpu")
     p.add_argument("--max-decisions-per-game", type=int, default=5000)
     p.add_argument("--progress-every", type=int, default=50)
@@ -218,6 +222,21 @@ def main():
     from pol_env.Tribes.py.environment_contract import unit_status_of_version
     unit_status = (unit_status_of_version(checkpoint_meta.get("phase1_environment_version")) if checkpoint_meta
                    else os.environ.get("POLYVISION_UNIT_STATUS", "0").strip() == "1")
+    from pol_env.Tribes.py.environment_contract import (
+        COMBAT_RULES_OFF_ENV_VAR, resolve_combat_rules_off, rules_off_of_version, with_rules_off)
+    trained_rules_off = rules_off_of_version(checkpoint_meta.get("phase1_environment_version")) if checkpoint_meta else frozenset()
+    if args.rules_off is None:
+        rules_off = trained_rules_off
+    else:
+        rules_off = resolve_combat_rules_off({COMBAT_RULES_OFF_ENV_VAR: args.rules_off, "POLYVISION_COMBAT_MODE": "1"})
+    rules_override = rules_off != trained_rules_off
+    if rules_override:
+        canonical, label = False, "rules-override-diagnostic"
+        if not args.evaluation_id:
+            evaluation_id = f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}_combat_{args.pool}_{label}"
+            out_dir = args.output_root / evaluation_id
+        print(f"Wrapper rules switched off: {sorted(rules_off) or 'none'} (the checkpoint trained with "
+              f"{sorted(trained_rules_off) or 'none'} off): a diagnostic, not a canonical result", flush=True)
     for key in [k for k in os.environ if k.startswith(("POLYVISION_COMBAT_REWARD_", "POLYVISION_COMBAT_LEAGUE"))]:
         # Outcomes do not depend on reward weights; keep the run's config clean. A league setting inherited from
         # a training shell would swap seats or replace SimpleAgent: evaluation is always the learner as tribe 0
@@ -231,6 +250,7 @@ def main():
         # Combat fog memory follows the checkpoint (it changes the observation); without one, the caller's setting.
         "POLYVISION_FOG_MEMORY": "1" if fog_memory else "0", "POLYVISION_UNIT_STATUS": "1" if unit_status else "0",
         "POLYVISION_MAX_LEGAL_ACTIONS": str(max_legal),
+        COMBAT_RULES_OFF_ENV_VAR: ",".join(sorted(rules_off)),
     })
 
     from pol_env.Tribes.py.register_env import TribesGymWrapper
@@ -245,7 +265,10 @@ def main():
         if checkpoint_meta:
             env_meta = environment_compatibility_metadata(env, actor_mode=checkpoint_meta["actor_mode"],
                                                           max_legal_actions=checkpoint_meta["max_legal_actions"])
-            validate_checkpoint_compatibility(checkpoint_meta, env_meta)
+            check_meta = dict(env_meta)
+            if rules_override:  # what is legal differs on purpose; everything else must still match
+                check_meta["phase1_environment_version"] = with_rules_off(env_meta["phase1_environment_version"], trained_rules_off)
+            validate_checkpoint_compatibility(checkpoint_meta, check_meta)
             adapter = SimpleNamespace(single_observation_space=env.observation_space, single_action_space=env.action_space)
             agent = make_agent(adapter, network_arch=checkpoint_meta.get("network_arch", "mlp"),
                                actor_mode=checkpoint_meta["actor_mode"], max_legal_actions=checkpoint_meta["max_legal_actions"],
@@ -280,6 +303,7 @@ def main():
             "ordered_maps": [m.__dict__ for m in maps], "evaluation_seed": args.seed,
             "repeats_per_map": args.repeats_per_map, "policies": list(policies), "opponent": "SimpleAgent (seeded by the episode seed)",
             "game_mode": "CAPITALS", "rules": rules, "fog_memory": bool(fog_memory), "max_turns": max_turns,
+            "wrapper_rules_off": sorted(rules_off), "wrapper_rules_override": bool(rules_override),
             "schedule_rules": "episode seed depends on map and replicate only, so every policy and evaluation with the same seed meets the same games; policy seed is policy-specific",
             "policy_semantics": {"ppo_argmax": "highest-logit valid slot", "ppo_sampled": "sampled from the policy with a per-game generator",
                                  "random_legal": "uniform over valid slots",

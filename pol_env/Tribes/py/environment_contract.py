@@ -265,6 +265,77 @@ def unit_status_of_version(environment_version) -> bool:
     return UNIT_STATUS_VERSION_SUFFIX in str(environment_version or "")
 
 
+# Optional wrapper rules (combat only). The wrapper hard-codes some rules on the learner's choices; each can be
+# switched off with POLYVISION_COMBAT_RULES_OFF (comma-separated names, or "all"). Switching any off changes what a
+# checkpoint may do, so the environment version gains "+wrapper_rules_off_<names>" (sorted). Observations are unchanged.
+COMBAT_RULES_OFF_ENV_VAR = "POLYVISION_COMBAT_RULES_OFF"
+COMBAT_OPTIONAL_RULES = {
+    # With fewer than 2 cities, a unit standing on a capturable village is frozen (no move, no capture) and the
+    # wrapper captures it when the turn ends.
+    "village_capture_freeze": "units on a capturable village are frozen and auto-capture at END_TURN (<2 cities)",
+    # With fewer than 2 cities and no capture available: if some unit can move onto a visible village, only such
+    # moves are legal (no attack, spawn, research or END_TURN).
+    "village_forced_moves": "only moves onto a visible village are legal when one exists (<2 cities)",
+    # Otherwise, with villages visible: only moves of the unit closest to one that get closer are legal.
+    "village_progress_moves": "only the closest unit's moves towards visible villages are legal (<2 cities)",
+    # Phase 1 opening relic: on turns 1-2, unit id 2 may not step back to its previous tile.
+    "unit2_backtrack": "unit 2 may not move back to its previous tile on turns 1-2",
+    # LEVEL_UP to CITY_WALL is never offered.
+    "city_wall_mask": "the CITY_WALL level-up choice is masked",
+    # RESEARCH FISHING is masked on Drylands.
+    "fishing_mask": "researching Fishing is masked on Drylands",
+}
+COMBAT_RULES_OFF_PREFIX = "+wrapper_rules_off_"  # not "+rules_...": that is the game-rules suffix
+
+
+def resolve_combat_rules_off(environ: Mapping[str, str] | None = None) -> frozenset:
+    """The optional wrapper rules switched off. Combat-only: switching rules off in Phase 1 is an error."""
+    environ = os.environ if environ is None else environ
+    raw = str(environ.get(COMBAT_RULES_OFF_ENV_VAR, "") or "").strip()
+    if not raw or raw.lower() == "none":
+        return frozenset()
+    names = set(COMBAT_OPTIONAL_RULES) if raw.lower() == "all" else {n.strip() for n in raw.split(",") if n.strip()}
+    unknown = sorted(names - set(COMBAT_OPTIONAL_RULES))
+    if unknown:
+        raise ValueError(f"{COMBAT_RULES_OFF_ENV_VAR}: unknown rule(s) {unknown}; known: {sorted(COMBAT_OPTIONAL_RULES)}")
+    combat = str(environ.get("POLYVISION_COMBAT_MODE", "")).strip() == "1" or \
+        str(environ.get("POLYVISION_PHASE", "")).strip() == "2"
+    if not combat:
+        raise ValueError(f"{COMBAT_RULES_OFF_ENV_VAR} is combat-only (Phase 1 behaviour stays unchanged)")
+    return frozenset(names)
+
+
+def versioned_for_rules_off(environment_version: str, rules_off) -> str:
+    if not rules_off:
+        return str(environment_version)
+    return f"{environment_version}{COMBAT_RULES_OFF_PREFIX}{'-'.join(sorted(rules_off))}"
+
+
+def rules_off_of_version(environment_version) -> frozenset:
+    """The rules a checkpoint was trained with switched off (empty for every older checkpoint)."""
+    v = str(environment_version or "")
+    if COMBAT_RULES_OFF_PREFIX not in v:
+        return frozenset()
+    tail = v.split(COMBAT_RULES_OFF_PREFIX, 1)[1].split("+", 1)[0]
+    return frozenset(n for n in tail.split("-") if n)
+
+
+def with_rules_off(environment_version, rules_off) -> str:
+    """`environment_version` with its rules-off part replaced (placed where versioned_for_rules_off puts it)."""
+    v = str(environment_version or "")
+    if COMBAT_RULES_OFF_PREFIX in v:
+        head, tail = v.split(COMBAT_RULES_OFF_PREFIX, 1)
+        rest = tail.split("+", 1)[1] if "+" in tail else ""
+        v = head + ("+" + rest if rest else "")
+    if not rules_off:
+        return v
+    # Before the rules suffix, as in the wrapper (unit status, then rules off, then rules).
+    marker = "+rules_"
+    i = v.find(marker)
+    suffix = f"{COMBAT_RULES_OFF_PREFIX}{'-'.join(sorted(rules_off))}"
+    return v[:i] + suffix + v[i:] if i >= 0 else v + suffix
+
+
 # Privileged critic observation (opt-in, POLYVISION_PRIVILEGED_OBS=1, combat only): the env also returns the same
 # observation layout built from the true, unfogged game state in info["privileged_obs"]. Training-time only (the
 # PPO critic reads it; the policy never does), so it changes neither the observation nor any version string.

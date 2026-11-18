@@ -163,6 +163,12 @@ class SnapshotOpponent:
         old_contract = without_unit_status(wrapper, meta, env_meta)
         if old_contract is not None:
             env_meta, observation_space, self.strip = old_contract
+        # Optional wrapper rules (CHANGELOG 090) change what is legal, not what a snapshot sees: a snapshot trained
+        # with other rules switched off still plays here, under this run's rules.
+        from pol_env.Tribes.py.environment_contract import rules_off_of_version, with_rules_off
+        env_meta = dict(env_meta)
+        env_meta["phase1_environment_version"] = with_rules_off(
+            env_meta["phase1_environment_version"], rules_off_of_version(meta.get("phase1_environment_version")))
         validate_checkpoint_compatibility(meta, env_meta)  # raises if the snapshot does not fit this environment
         adapter = SimpleNamespace(single_observation_space=observation_space,
                                   single_action_space=wrapper.action_space)

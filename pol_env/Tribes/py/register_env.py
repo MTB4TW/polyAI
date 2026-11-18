@@ -49,6 +49,8 @@ from .environment_contract import (
     versioned_for_fog_memory,
     resolve_unit_status,
     versioned_for_unit_status,
+    resolve_combat_rules_off,
+    versioned_for_rules_off,
     UNIT_STATUS_CHANNELS,
     UNIT_STATUS_HP_SCALE,
     UNIT_STATUS_ACTION_FEATURES,
@@ -411,6 +413,9 @@ class TribesGymWrapper(gym.Env):
         # engine's attack outcome as extra legal-action features. A version suffix keeps old checkpoints out.
         self.UNIT_STATUS = resolve_unit_status()
         self.PHASE1_ENVIRONMENT_VERSION = versioned_for_unit_status(self.PHASE1_ENVIRONMENT_VERSION, self.UNIT_STATUS)
+        # Optional wrapper rules (POLYVISION_COMBAT_RULES_OFF, combat only; environment_contract.COMBAT_OPTIONAL_RULES).
+        self.RULES_OFF = resolve_combat_rules_off()
+        self.PHASE1_ENVIRONMENT_VERSION = versioned_for_rules_off(self.PHASE1_ENVIRONMENT_VERSION, self.RULES_OFF)
         if self.UNIT_STATUS:
             self.LEGAL_ACTION_FEATURE_NAMES = tuple(type(self).LEGAL_ACTION_FEATURE_NAMES) + tuple(UNIT_STATUS_ACTION_FEATURES)
             self.ACTION_FEATURE_DIM = len(self.LEGAL_ACTION_FEATURE_NAMES)
@@ -3513,6 +3518,7 @@ class TribesGymWrapper(gym.Env):
             profile["allowed_after_tactical_count"] = 0
             profile["allowed_final_count"] = 0
         allowed_indices = []
+        rules_off = getattr(self, "RULES_OFF", frozenset())
         if use_profile:
             profile["raw_actions_count"] = int(len(legal_actions)) if isinstance(legal_actions, list) else 0
         for idx, a in enumerate(legal_actions):
@@ -3523,12 +3529,13 @@ class TribesGymWrapper(gym.Env):
             if a_type not in self.ALLOWED_ACTION_TYPES:
                 continue
             # Hard mask: never allow CITY_WALL level-up claims into the legal set.
-            if a_type == "LEVEL_UP":
+            if a_type == "LEVEL_UP" and "city_wall_mask" not in rules_off:
                 levelup_choice = self._resolve_action_levelup_choice(a)
                 if levelup_choice == "CITY_WALL":
                     continue
             # Drylands-only Fishing research mask
-            if getattr(self, "_current_map_type", "DRYLANDS") == "DRYLANDS" and a_type == "RESEARCH_TECH":
+            if (getattr(self, "_current_map_type", "DRYLANDS") == "DRYLANDS" and a_type == "RESEARCH_TECH"
+                    and "fishing_mask" not in rules_off):
                 tech_type = self._resolve_action_tech_type(a)
                 if tech_type == "FISHING":
                     continue
@@ -3556,7 +3563,8 @@ class TribesGymWrapper(gym.Env):
 
         # Hard guardrail: if <2 cities, prioritize village-capture lines.
         t_city_gate0 = time.perf_counter() if use_profile else None
-        if self._get_city_count(obs) < 2 and allowed_indices:
+        village_rules = {"village_capture_freeze", "village_forced_moves", "village_progress_moves"} - rules_off
+        if self._get_city_count(obs) < 2 and allowed_indices and village_rules:
             if use_profile:
                 profile["filter_city_count_tactical_s"] += time.perf_counter() - t_city_gate0
             forced_village_captures = []
@@ -3569,7 +3577,7 @@ class TribesGymWrapper(gym.Env):
                     forced_village_captures.append(idx)
             if use_profile:
                 profile["filter_capture_priority_s"] += time.perf_counter() - t_capture0
-            if forced_village_captures:
+            if forced_village_captures and "village_capture_freeze" in village_rules:
                 t_capture0 = time.perf_counter() if use_profile else None
                 frozen_units = set()
                 for idx in forced_village_captures:
@@ -3626,8 +3634,9 @@ class TribesGymWrapper(gym.Env):
                 if use_profile:
                     profile["filter_move_visible_village_s"] += time.perf_counter() - t_move_visible0
                 if forced_village_moves:
-                    allowed_indices = forced_village_moves
-                elif visible_village_positions:
+                    if "village_forced_moves" in village_rules:
+                        allowed_indices = forced_village_moves
+                elif visible_village_positions and "village_progress_moves" in village_rules:
                     t_closest0 = time.perf_counter() if use_profile else None
                     closest_unit_id, _closest_pos, _closest_dist = self._closest_owned_unit_to_targets(
                         obs,
@@ -3659,7 +3668,8 @@ class TribesGymWrapper(gym.Env):
 
         # Early-turn constraint: only block unit 2 immediate backtracking on T1/T2.
         t_backtrack0 = time.perf_counter() if use_profile else None
-        allowed_indices = self._apply_t1_t2_unit2_backtrack_mask(allowed_indices, legal_actions, obs)
+        if "unit2_backtrack" not in rules_off:
+            allowed_indices = self._apply_t1_t2_unit2_backtrack_mask(allowed_indices, legal_actions, obs)
         if use_profile:
             profile["filter_early_backtrack_s"] += time.perf_counter() - t_backtrack0
             profile["allowed_final_count"] = int(len(allowed_indices))

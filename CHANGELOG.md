@@ -2,6 +2,36 @@
 
 All notable changes to this project are documented in this file.
 
+## [Phase2-Combat_Optional_Wrapper_Rules-090] - (2026-11-18)
+
+### Scope
+- `POLYVISION_COMBAT_RULES_OFF` (combat only; comma-separated names, `all` or `none`) switches off the wrapper's
+  hard-coded rules on the learner's choices.
+- The rules are listed in `environment_contract.COMBAT_OPTIONAL_RULES`:
+  - `village_capture_freeze`: with fewer than 2 cities, a unit on a capturable village is frozen and captures at
+    END_TURN.
+  - `village_forced_moves`: with fewer than 2 cities, only moves onto a visible village are legal when one exists.
+    This removes attacks, spawns, research and END_TURN.
+  - `village_progress_moves`: otherwise, with villages visible, only the closest unit's moves towards them are legal.
+  - `unit2_backtrack`: a Phase 1 relic; on turns 1–2, unit 2 may not step back to its previous tile.
+  - `city_wall_mask`: the CITY_WALL level-up choice is never offered.
+  - `fishing_mask`: Fishing is masked on Drylands.
+- The default is unchanged: every rule is on, and Phase 1 is untouched (setting it outside combat is an error).
+- Switching any rule off changes what a checkpoint may do. The environment version gains
+  `+wrapper_rules_off_<names>`, placed before the game-rules suffix.
+  - Observations and the action catalog are unchanged, so `--init-from` warm-starts as before.
+- League snapshots trained with other rules play under the run's rules: `SnapshotOpponent` matches the rules-off
+  part of the version.
+- Evaluators:
+  - `tools/evaluate_combat.py` follows the checkpoint by default.
+  - `--rules-off` overrides it, and the evaluation is then labelled a diagnostic (`rules-override-diagnostic`,
+    `canonical: false`). Its config records `wrapper_rules_off` and `wrapper_rules_override`.
+  - `tools/evaluate_combat_h2h.py` follows checkpoint A.
+  - `cluster/eval_combat_farmshare.sbatch` accepts `EXTRA_EVAL_ARGS`.
+- Not covered here: the action types the wrapper never offers (build road, disband, burn forest, destroy and
+  others). They have no ids in the action catalog; adding them is a separate change.
+- Tests: `tools/tests/test_combat_optional_rules.py`.
+
 ## [Phase2-Combat_League_Opponent_Village_Capture-089] - (2026-11-18)
 
 ### Problem
