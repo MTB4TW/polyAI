@@ -54,6 +54,9 @@ taking yours. At the turn limit the game is a timeout.
 - **The agent's turn:** its moves are animated one at a time at the start of your turn, as far as you can
   see them. Choose instant, fast, normal or slow; Skip; Show again. Attacks are a red ⚔️ arrow from attacker
   to target, with damage numbers.
+- **Search:** tick "uses the tactical search" (or pass `--search`) to play policy + tactical search
+  (`ppo_search`). The search found the winning turn-10 line in the game the policy alone lost
+  (`docs/human-games.md`). Its moves are marked "[search]" in the replay.
 - **Controls:**
   - Click one of your units or cities. Actions on the spot (train, capture, harvest, city rewards) appear as
     buttons, and moves and attacks are highlighted on the board. Click a highlighted tile to play it.

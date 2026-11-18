@@ -180,6 +180,25 @@ class EngineGameTests(unittest.TestCase):
         agent_moves = [a for a in session.history if a["side"] == 1]
         self.assertTrue(agent_moves and all("gid" in a and "raw" in a for a in agent_moves))
 
+    def test_tactical_search_option_in_both_seats(self):
+        """The search runs for the agent in either seat (it plans for the active tribe on its own fog); moves it
+        chose are labelled, and the record still replays exactly."""
+        searcher = P.AgentPlayer(None, self.env, False, 0, search=True)
+        for human_tribe in (1, 0):
+            end = lambda st: [a["i"] for a in st["legal"] if a["type"] == "END_TURN"][0]
+            session = P.GameSession(self.env, searcher, self.maps[3], 900 + human_tribe, self.settings, self.tmp, "",
+                                    human_tribe=human_tribe, human_policy=end)
+            session._run()
+            self.assertIsNone(session.error, session.error)
+            self.assertEqual(searcher.name, "random_legal")  # no checkpoint: the fallback is random, the search still runs
+            self.assertGreater(searcher._decision, 0, "the search was consulted")
+            by = [a.get("by") for a in session.history if a["side"] == session.agent_tribe]
+            self.assertTrue(by and set(by) <= {"policy", "search"})
+            self.assertEqual(sum(f.get("by") == "search" for f in session.frames), by.count("search"))
+            record = json.loads(Path(session.state["record"]).read_text())
+            self.assertTrue(record["agent_search"])
+            self.assertTrue(P.verify(Path(session.state["record"]), "eval_validation"))
+
     def test_abandoned_game_is_saved_listed_and_rebuilt(self):
         moves = iter(range(3))
 

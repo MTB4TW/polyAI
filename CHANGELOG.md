@@ -77,6 +77,18 @@ All notable changes to this project are documented in this file.
   - frames carry resources, max HP and attack source and target;
   - an abandoned game is saved, listed, verified and rebuilt;
   - saved replays are served, and paths outside the folder are refused.
+- **"Uses the tactical search" option** (page checkbox, `--search`): the agent plays policy + CombatTactics, as
+  `ppo_search` in `tools/evaluate_combat.py`.
+  - The search picks the move whenever it finds a tactical sequence that beats stopping now; otherwise the
+    policy decides.
+  - It works in both seats, because the Java search plans for the active tribe on its own fogged view.
+  - Moves the search chose are labelled "[search]" in the replay and `"by": "search"` in the record. The
+    banner says whether search is on.
+  - Diagnostic, with a human side that only ends its turn:
+    - teacher seed 2, moving first: 4 search moves, won on turn 16;
+    - league 4M final, moving second: 6 search moves, won on turn 7 in one of three games.
+- `cluster/eval_combat_farmshare.sbatch`: optional `EXTRA_EVAL_ARGS`, e.g. to add `--policy ppo_search` to the
+  canonical policy set.
 
 ## [Phase2-Combat_Star_Hoard_Penalty-081] - (2026-11-15)
 

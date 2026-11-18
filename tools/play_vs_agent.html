@@ -126,6 +126,7 @@
         <label for="mapsel">Map</label><select id="mapsel"><option value="">Random validation map</option></select>
         <label for="seedin">Seed</label><input id="seedin" type="number" placeholder="random" aria-label="Episode seed">
         <label for="sampled">Agent</label><label><input type="checkbox" id="sampled"> samples its moves (default: always its top choice)</label>
+        <label for="search">Search</label><label><input type="checkbox" id="search"> uses the tactical search (policy + search, like <code>ppo_search</code>)</label>
       </div>
       <div class="row" style="margin-top:8px"><button class="primary" id="newgame">Start</button>
         <span class="sub">Starting a new game abandons the current one (it is still saved).</span></div>
@@ -359,7 +360,8 @@ function banner(s) {
   const ev = m && m.evaluation && m.evaluation.win != null
     ? `canonical eval ${(m.evaluation.win * 100).toFixed(1)}% wins vs ${m.evaluation.against} (${m.evaluation.id})` : "no evaluation in this checkout";
   $("oppdet").textContent = m ? `${m.file} · saved ${m.saved} · sha256 ${m.sha256.slice(0, 12)} · ${m.arch} · ${m.env_version}` +
-    `${m.init_from ? " · warm-started from " + m.init_from : ""} · ${ev} · plays ${s.agent === "ppo_sampled" ? "sampled" : "argmax"}` : "";
+    `${m.init_from ? " · warm-started from " + m.init_from : ""} · ${ev} · plays ${s.agent.includes("sampled") ? "sampled" : "argmax"}` +
+    `${s.search ? " + TACTICAL SEARCH" : " (policy only, no search)"}` : "";
   $("seatdet").textContent = `You play ${s.you} (tribe ${s.human_tribe}) and move ${s.you_move}; the agent plays ${s.opponent}. ` +
     `${s.map} · seed ${s.episode_seed} · ${s.settings.rules}, ${s.settings.max_turns}-turn limit · take the agent's capital to win.` +
     (s.human_tribe === 0 ? " In the first seat you choose from the agent's own legal-action list." : "");
@@ -443,7 +445,8 @@ function syncPicker() {  // the picker starts on the model being played
   if (!CAT || !S) return;
   $("modelsel").value = S.model ? S.model.key : "random";
   $("seatsel").value = S.human_tribe === 0 ? "first" : "second";
-  $("sampled").checked = S.agent === "ppo_sampled";
+  $("sampled").checked = S.agent.includes("sampled");
+  $("search").checked = !!S.search;
 }
 
 async function poll() {
@@ -468,6 +471,7 @@ $("newgame").onclick = async () => {
   const seed = $("seedin").value.trim();
   $("newgame").disabled = true; $("status").textContent = "Loading the model…";
   const ok = await post("/api/new", { model: $("modelsel").value, seat: $("seatsel").value, sampled: $("sampled").checked,
+                                      search: $("search").checked,
                                       map: $("mapsel").value || null, seed: seed ? parseInt(seed, 10) : null });
   $("newgame").disabled = false;
   if (ok) { sel = null; version = -1; S = null; $("notice").textContent = ""; setTimeout(loadGames, 1500); }

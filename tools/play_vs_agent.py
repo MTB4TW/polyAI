@@ -241,12 +241,17 @@ def make_env(model_path: Optional[Path], pool: str, rules: str, max_turns: int, 
 
 
 class AgentPlayer:
-    """A checkpoint (argmax or sampled), or uniformly random legal actions without one."""
+    """A checkpoint (argmax or sampled), or uniformly random legal actions without one. With `search`, the combat
+    tactical search (CombatTactics, as `ppo_search` in tools/evaluate_combat.py) picks the move whenever it finds a
+    tactical sequence that beats stopping now; otherwise the policy decides."""
 
-    def __init__(self, info: Optional[ModelInfo], env, sampled: bool, seed: int):
+    def __init__(self, info: Optional[ModelInfo], env, sampled: bool, seed: int, search: bool = False):
         import torch
 
         self.info, self.sampled, self._torch = info, bool(sampled), torch
+        self.search, self.env = bool(search), env
+        self.last_source = "policy"
+        self._search_seed, self._decision, self.search_moves = int(seed), 0, 0
         self.generator = torch.Generator().manual_seed(int(seed))
         self.rng = np.random.default_rng(int(seed))
         self.agent = None
@@ -273,14 +278,36 @@ class AgentPlayer:
     def name(self) -> str:
         if self.agent is None:
             return "random_legal"
+        if getattr(self, "search", False):
+            return "ppo_search_sampled" if self.sampled else "ppo_search"
         return "ppo_sampled" if self.sampled else "ppo_argmax"
 
     def reseed(self, seed: int):
         self.generator.manual_seed(int(seed) % (2**31 - 1))
         self.rng = np.random.default_rng(int(seed))
+        self._search_seed, self._decision, self.search_moves = int(seed), 0, 0
 
-    def act(self, vec, ids, valid, feats) -> int:
+    def _search_pick(self, ids, valid, raw_map) -> Optional[int]:
+        """The tactical search's move for the active tribe on its own fogged view, or None (the policy decides)."""
+        if not getattr(self, "search", False) or raw_map is None:
+            return None
+        from pol_env.Tribes.py import search_teacher
+
+        te = self.env.tribes_env
+        seed = search_teacher.decision_seed(self._search_seed, self._decision)
+        self._decision += 1
+        slot = search_teacher.tactical_slot(te._env, te._gateway, ids, valid, raw_map, seed)
+        if slot < 0:
+            return None
+        self.search_moves += 1
+        return int(ids[slot])
+
+    def act(self, vec, ids, valid, feats, raw_map=None) -> int:
         ids, valid = np.asarray(ids).reshape(-1), np.asarray(valid, dtype=bool).reshape(-1)
+        picked = self._search_pick(ids, valid, raw_map)
+        self.last_source = "search" if picked is not None else "policy"
+        if picked is not None:
+            return picked
         if self.agent is None:
             return int(ids[int(self.rng.choice(np.flatnonzero(valid)))])
         torch = self._torch
@@ -302,7 +329,7 @@ class AgentPlayer:
     def choose(self, obs, info) -> int:
         from tools.phase1_eval_core import legal_tensors
         ids, valid, feats = legal_tensors(info)
-        return self.act(obs, ids, valid, feats)
+        return self.act(obs, ids, valid, feats, raw_map=self.env._current_legal_id_to_raw_index)
 
 
 # --- what the human sees ------------------------------------------------------------------------------------
@@ -490,7 +517,8 @@ class GameSession:
         model = agent.info.public(with_sha=True) if agent.info else None
         self.state: Dict[str, Any] = {
             "version": 0, "phase": "starting", "map": Path(self.map_path).name, "episode_seed": self.episode_seed,
-            "agent": agent.name, "model": model, "settings": settings, "log": [], "human_tribe": self.human,
+            "agent": agent.name, "search": bool(getattr(agent, "search", False)), "model": model, "settings": settings,
+            "log": [], "human_tribe": self.human,
             "tribes": tribes, "you": tribes[self.human], "opponent": tribes[self.agent_tribe],
             "you_move": "first" if self.human == 0 else "second"}
         self.history: List[dict] = []
@@ -585,6 +613,12 @@ class GameSession:
                 elif v["hp"] != u["hp"]:
                     frame["hits"].append({"at": [v["x"], v["y"]], "d": v["hp"] - u["hp"], "killed": False, "o": u["o"]})
         self.frames.append(frame)
+
+    def _mark_search(self):
+        """Label the agent's last frame when the tactical search (not the policy) chose that move."""
+        if self.frames and getattr(self.agent, "last_source", "policy") == "search" and self.frames[-1]["actor"] == self.agent_tribe:
+            self.frames[-1]["label"] += " [search]"
+            self.frames[-1]["by"] = "search"
 
     def _check_abort(self):
         if self._abort.is_set():
@@ -714,17 +748,19 @@ class GameSession:
             ids, valid, _count = v._build_legal_slot_tensors(mask)
             feats = v._build_legal_action_features_padded(ids, valid, id_to_raw, s_actions, s_obs)
             vec = v._dict_to_array(s_obs)
-            gid = self.agent.act(vec, np.asarray(ids), np.asarray(valid, dtype=bool), np.asarray(feats, dtype=np.float32))
+            gid = self.agent.act(vec, np.asarray(ids), np.asarray(valid, dtype=bool), np.asarray(feats, dtype=np.float32),
+                                 raw_map=id_to_raw)
             idx = id_to_raw.get(int(gid))
             if idx is None:
                 raise RuntimeError(f"The agent chose global id {gid} with no engine action")
             raw = actions[int(idx)]
             self.history.append({"side": self.agent_tribe, "gid": int(gid), "raw": int(idx), "type": raw.get("type"),
-                                 "repr": raw.get("repr")})
+                                 "repr": raw.get("repr"), "by": getattr(self.agent, "last_source", "policy")})
             java.stepByIndex(int(idx))
             if not bool(java.isDone()) and int(java.getActiveTribeID()) == self.agent_tribe:
                 self._refresh_mask(self.agent_tribe)
             self._capture(self.agent_tribe, raw)
+            self._mark_search()
 
     def _tribe1_turn(self):
         """Engine callback after tribe 0 ends its turn: tribe 1 is played from Python."""
@@ -762,6 +798,8 @@ class GameSession:
                     gid = self._human_pick_wrapper(obs, info)
                 raw = env._current_legal_actions[env._current_legal_id_to_raw_index[int(gid)]]
                 entry = {"side": 0, "gid": int(gid), "type": raw.get("type"), "repr": raw.get("repr")}
+                if self.agent_tribe == 0:
+                    entry["by"] = getattr(self.agent, "last_source", "policy")
                 self.history.append(entry)
                 if self.human == 0:
                     self._log("you", describe(raw), self._round())
@@ -774,6 +812,8 @@ class GameSession:
                     if not (terminated or truncated):
                         self._refresh_mask(0)
                     self._capture(0, raw)
+                    if self.agent_tribe == 0:
+                        self._mark_search()
                 elif not self._end_frame_done:  # the game ended without tribe 1 moving again
                     self._capture(0, label="End turn")
             outcome = str(info.get("combat_outcome"))  # tribe 0's result
@@ -848,7 +888,9 @@ class GameSession:
         model = self.state.get("model")
         record = {"record_version": RECORD_VERSION, "created_utc": stamp, "player": self.player,
                   "map": Path(self.map_path).name, "map_path": self.map_path, "episode_seed": self.episode_seed,
-                  "agent": self.agent.name, "model": model, "agent_tribe": self.agent_tribe, "human_tribe": self.human,
+                  "agent": self.agent.name, "agent_search": bool(getattr(self.agent, "search", False)),
+                  "agent_search_moves": int(getattr(self.agent, "search_moves", 0)),
+                  "model": model, "agent_tribe": self.agent_tribe, "human_tribe": self.human,
                   "settings": self.settings, "tribe0_outcome": "abandoned" if self.outcome == "aborted" else self.outcome,
                   "human_result": "abandoned" if self.outcome == "aborted" else self.result,
                   "turns": self._round(), "actions": self.history}
@@ -872,7 +914,7 @@ def replay_record(env, record: dict, map_info):
         def reseed(self, seed):
             pass
 
-        def act(self, *args):
+        def act(self, *args, **kwargs):
             return self.choose(None, None)
 
         def choose(self, obs, info):
@@ -925,7 +967,7 @@ class Server:
             self.env.close()
             self.env = None
 
-    def _prepare(self, info: Optional[ModelInfo], sampled: bool):
+    def _prepare(self, info: Optional[ModelInfo], sampled: bool, search: bool = False):
         """An environment set up for this checkpoint (rebuilt only when its settings differ) and the agent."""
         from pol_env.Tribes.py.environment_contract import read_checkpoint_metadata
         from tools.evaluate_combat import environment_settings
@@ -938,14 +980,15 @@ class Server:
                 self.env, self.agent, self.agent_id = None, None, None
             self.env, settings = make_env(info.path if info else None, self.pool, self.rules, self.max_turns)
             self.env_settings = dict(settings, _wanted=wanted)
-        agent_id = (info.key if info else None, bool(sampled))
+        agent_id = (info.key if info else None, bool(sampled), bool(search) and info is not None)
         if self.agent is None or self.agent_id != agent_id:
-            self.agent = AgentPlayer(info, self.env, sampled, self.policy_seed)
+            self.agent = AgentPlayer(info, self.env, sampled, self.policy_seed, search=bool(search) and info is not None)
             self.agent_id = agent_id
         return {k: v for k, v in self.env_settings.items() if k != "_wanted"}
 
     def new_game(self, model_key: Optional[str] = None, map_name: Optional[str] = None,
-                 episode_seed: Optional[int] = None, seat: str = "second", sampled: bool = False) -> GameSession:
+                 episode_seed: Optional[int] = None, seat: str = "second", sampled: bool = False,
+                 search: bool = False) -> GameSession:
         with self.lock:
             if self.session is not None:
                 self.session.abort()
@@ -967,7 +1010,7 @@ class Server:
             if seat not in ("first", "second"):
                 raise ValueError("seat must be first, second or random")
             seed = int(episode_seed) if episode_seed is not None else self.rng.randrange(1, 2**31 - 1)
-            settings = self._prepare(info, sampled)
+            settings = self._prepare(info, sampled, search)
             self.session = GameSession(self.env, self.agent, game_map, seed, settings, self.record_dir, self.player,
                                        human_tribe=0 if seat == "first" else 1)
             return self.session.start()
@@ -1027,7 +1070,8 @@ class Server:
                 if path == "/api/new":
                     try:
                         server.new_game(body.get("model") or None, body.get("map") or None, body.get("seed"),
-                                        str(body.get("seat") or "second"), bool(body.get("sampled")))
+                                        str(body.get("seat") or "second"), bool(body.get("sampled")),
+                                        bool(body.get("search")))
                     except (ValueError, TypeError) as exc:
                         return self._json(400, {"error": str(exc)})
                     except Exception as exc:  # e.g. a checkpoint that does not fit this environment
@@ -1086,6 +1130,7 @@ def parse_args():
     p.add_argument("--model-path", type=Path, help="Checkpoint for the first game (default: the newest found)")
     p.add_argument("--seat", default="second", choices=["first", "second", "random"], help="Your seat in the first game")
     p.add_argument("--sampled", action="store_true", help="The agent samples its actions instead of playing argmax")
+    p.add_argument("--search", action="store_true", help="The agent plays with the tactical search (ppo_search) in the first game")
     p.add_argument("--policy-seed", type=int, default=0)
     p.add_argument("--map", help="Map file name for the first game (default: a random validation map)")
     p.add_argument("--episode-seed", type=int)
@@ -1152,7 +1197,7 @@ def main():
 
     server = Server(models, load_maps(args.pool), args.pool, args.record_dir, args.player, args.seed,
                     args.rules, args.max_turns, args.policy_seed)
-    server.new_game(first.key if first else "random", args.map, args.episode_seed, args.seat, args.sampled)
+    server.new_game(first.key if first else "random", args.map, args.episode_seed, args.seat, args.sampled, args.search)
     try:
         httpd = ThreadingHTTPServer((args.host, args.port), server.handler())
     except OSError as exc:

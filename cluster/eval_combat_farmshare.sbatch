@@ -18,6 +18,10 @@
 #   EVAL_ID=20261114_NAME_combat_eval_validation_canonical \
 #   sbatch cluster/eval_combat_farmshare.sbatch
 #
+# Optional: EXTRA_EVAL_ARGS is appended to the evaluator's arguments, e.g. to add search at play time on top of the
+# canonical policy set:
+#   EXTRA_EVAL_ARGS="--policy ppo_argmax --policy ppo_sampled --policy random_legal --policy ppo_search"
+#
 # The held-out eval_test pool is refused here on purpose; run it by hand with --confirm-test, and only when a
 # person asks. No partition is set, so SLURM uses the cluster default; override with -p.
 # ==============================================================================
@@ -54,6 +58,8 @@ if [ -n "${EVAL_ID:-}" ]; then
     EVAL_ARGS+=(--evaluation-id "$EVAL_ID")
 fi
 
-python tools/evaluate_combat.py "${EVAL_ARGS[@]}"
+# shellcheck disable=SC2206  # split EXTRA_EVAL_ARGS on spaces on purpose
+EXTRA_ARGS=(${EXTRA_EVAL_ARGS:-})
+python tools/evaluate_combat.py "${EVAL_ARGS[@]}" ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}
 
 echo "Evaluation finished at: $(date)"
