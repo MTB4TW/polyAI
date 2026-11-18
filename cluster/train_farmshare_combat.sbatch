@@ -7,6 +7,7 @@
 #SBATCH --time=24:00:00
 #SBATCH --output=logs/%x-%j.out
 #SBATCH --error=logs/%x-%j.err
+#SBATCH --signal=B:USR1@600
 
 # ==============================================================================
 # Stanford Farmshare SLURM Job Script: Polytopia Phase 2 Combat Training
@@ -82,7 +83,9 @@ fi
 echo "Starting Phase 2 Combat training: $TOTAL_TIMESTEPS steps with $NUM_ENVS parallel environments on $DEVICE ($NETWORK_ARCH, seed $SEED)..."
 [ ${#EXTRA_ARGS[@]} -gt 0 ] && echo "Extra PPO args: ${EXTRA_ARGS[*]}"
 
-python py_rl/cleanrl/cleanrl/ppo.py \
+source cluster/trainer_signals.sh
+TRAIN_SCRIPT=${TRAIN_SCRIPT:-cluster/train_farmshare_combat.sbatch}
+run_trainer py_rl/cleanrl/cleanrl/ppo.py \
     --total-timesteps "$TOTAL_TIMESTEPS" \
     --num-envs "$NUM_ENVS" \
     --num-steps 128 \
