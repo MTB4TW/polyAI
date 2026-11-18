@@ -40,6 +40,7 @@ from py_rl.cleanrl.cleanrl.gae import compute_gae, per_turn_discounts
 from py_rl.cleanrl.cleanrl.init_from import apply_init_from, format_report, load_checkpoint
 from py_rl.cleanrl.cleanrl.obs_normalization import OBS_NORMALIZATION_VERSION, ObsNormalizedAgent
 from py_rl.cleanrl.cleanrl.privileged_critic import privileged_critic_path
+from py_rl.cleanrl.cleanrl import resume as resume_lib
 from py_rl.cleanrl.cleanrl.return_normalization import ReturnNormalizer
 from py_rl.cleanrl.cleanrl.teacher_kickstart import (
     TEACHER_ENV_VAR, TEACHER_SLOT_INFO_KEY, extract_teacher_slots, kickstart_cross_entropy, teacher_coef_at,
@@ -78,6 +79,10 @@ class Args:
     """if toggled and CUDA is not in use, run the learner on the Apple-silicon GPU (MPS backend)"""
     init_from: Optional[str] = None
     """warm start: copy compatible weights from this .cleanrl_model (needs its sidecar); optimizer and schedule start fresh"""
+    resume: Optional[str] = None
+    """continue a stopped run exactly (resume.py): a checkpoint with its .resume.pt bundle, or the run directory
+    (its newest bundle). Weights, optimizer, schedule position, step count, return scale and random state are
+    restored and the run keeps writing into the same directory. Stop a run with runs/<run>/STOP or SIGUSR1."""
     init_from_reset: str = "auto"
     """with --init-from: key prefixes to keep freshly initialised ("auto" = critic when the environment version differs, "none", or e.g. "critic.,actor.")"""
     init_from_fold_scalars: bool = True
@@ -1622,8 +1627,25 @@ if __name__ == "__main__":
     args.batch_size = int(args.num_envs * args.num_steps)
     args.minibatch_size = int(args.batch_size // args.num_minibatches)
     args.num_iterations = args.total_timesteps // args.batch_size
-    run_name = f"{args.env_id}__{args.exp_name}__{args.seed}__{int(time.time())}"
-    run_dir = os.path.join("runs", run_name)
+    resume_checkpoint, resume_state = None, None
+    if args.resume:
+        if args.init_from:
+            raise SystemExit("--resume and --init-from are exclusive (a resume restores everything --init-from would)")
+        resume_checkpoint = resume_lib.find_resume_checkpoint(args.resume)
+        resume_state = resume_lib.load_resume_bundle(resume_checkpoint)
+        for w in resume_lib.check_resume_args(resume_state["args"], args):
+            print(f"[RESUME] warning: schedule setting changed: {w}")
+        if resume_state["iteration"] >= args.num_iterations:
+            raise SystemExit(f"--resume: the run already completed {resume_state['iteration']} of {args.num_iterations} "
+                             "iterations; raise --total-timesteps to train further")
+        # Keep writing into the same run directory: checkpoints, TensorBoard and the league's own snapshots.
+        run_dir = os.path.dirname(os.path.abspath(resume_checkpoint))
+        run_name = os.path.basename(run_dir)
+        print(f"[RESUME] {resume_checkpoint}: iteration {resume_state['iteration']}, global step "
+              f"{resume_state['global_step']:,} ({resume_state['reason']}, saved {resume_state['saved_utc']})")
+    else:
+        run_name = f"{args.env_id}__{args.exp_name}__{args.seed}__{int(time.time())}"
+        run_dir = os.path.join("runs", run_name)
     os.makedirs(run_dir, exist_ok=True)
     if _env_flag_bool("POLYVISION_COMBAT_LEAGUE_SELF", default=False):
         # Self-play league: env workers (started below, inheriting the environment) draw opponents from this run's
@@ -1841,12 +1863,77 @@ if __name__ == "__main__":
             device=device,
         )
 
+    start_iteration, start_global_step = 1, 0
+    if resume_state is not None:
+        agent.load_state_dict(torch.load(resume_checkpoint, map_location=device, weights_only=True))
+        if privileged_critic is not None:
+            pc_path = privileged_critic_path(resume_checkpoint)
+            if not os.path.isfile(pc_path):
+                raise SystemExit(f"--resume: {pc_path} is missing")
+            privileged_critic.load_state_dict(torch.load(pc_path, map_location=device, weights_only=True))
+        optimizer.load_state_dict(resume_state["optimizer"])
+        resume_lib.restore_return_normalizer(return_normalizer, resume_state["return_normalizer"])
+        extras = resume_state.get("extras") or {}
+        if privileged_critic is not None:
+            privileged_critic_guard.flat_updates = int(extras.get("privileged_critic_flat_updates", 0))
+            privileged_critic_reinits = int(extras.get("privileged_critic_reinits", 0))
+        start_iteration = int(resume_state["iteration"]) + 1
+        start_global_step = int(resume_state["global_step"])
     # TRY NOT TO MODIFY: start the game
-    global_step = 0
+    global_step = start_global_step
     profiler.start_perf = time.perf_counter()
     start_time = time.time()
     t0_env_reset = time.perf_counter()
-    next_obs, reset_infos = envs.reset(seed=args.seed)
+    # A resumed run starts fresh episodes; offsetting the reset seed avoids replaying the run's first games.
+    next_obs, reset_infos = envs.reset(seed=args.seed + (start_iteration - 1) * 7919)
+    if resume_state is not None:
+        resume_lib.restore_rng(resume_state["rng"])
+
+    def _resume_extras():
+        if privileged_critic is None:
+            return {}
+        return {"privileged_critic_flat_updates": int(privileged_critic_guard.flat_updates),
+                "privileged_critic_reinits": int(privileged_critic_reinits)}
+
+    def _save_checkpoint(path, completed_iteration, step_count, reason):
+        """Weights + sidecar + resume bundle; returns the path. Used by periodic saves and by stop requests."""
+        torch.save(agent.state_dict(), path)
+        if privileged_critic is not None:
+            torch.save(privileged_critic.state_dict(), privileged_critic_path(path))
+        try:
+            with open(path + ".action_interface.json", "w", encoding="utf-8") as f:
+                json.dump(action_interface_meta, f, indent=2, sort_keys=True, default=str)
+        except Exception as e:
+            print(f"warning: failed to save action interface metadata: {e}")
+        resume_lib.save_resume_bundle(path, global_step=step_count, iteration=completed_iteration, optimizer=optimizer,
+                                      args=args, return_normalizer=return_normalizer, extras=_resume_extras(),
+                                      reason=reason)
+        return path
+
+    # The last state that a resume can continue from exactly: after `completed` iterations.
+    resume_point = {"completed": start_iteration - 1, "global_step": start_global_step}
+
+    def _save_on_terminate():
+        if not args.save_model:
+            return
+        path = os.path.join(run_dir, f"model_checkpoint_{global_step}.cleanrl_model")
+        _save_checkpoint(path, resume_point["completed"], resume_point["global_step"], "SIGTERM")
+        print(f"checkpoint_saved={path} (SIGTERM; resumes after iteration {resume_point['completed']})", flush=True)
+        _write_resume_marker("SIGTERM")
+
+    def _write_resume_marker(reason):
+        # Lets the sbatch script resubmit the run (AUTO_RESUME=1): logs/resume_<job id>.txt holds the run dir.
+        job = os.environ.get("SLURM_JOB_ID")
+        if job:
+            try:
+                os.makedirs("logs", exist_ok=True)
+                with open(os.path.join("logs", f"resume_{job}.txt"), "w", encoding="utf-8") as f:
+                    f.write(os.path.abspath(run_dir) + "\n" + reason + "\n")
+            except OSError as e:
+                print(f"warning: could not write the resume marker: {e}")
+
+    stop_requests = resume_lib.StopRequests(run_dir, on_terminate=_save_on_terminate)
+    stopped_early = None
     profiler.add("trainer/envs_reset_wall", time.perf_counter() - t0_env_reset)
     t0_reset_tensor = time.perf_counter()
     next_obs = torch.Tensor(next_obs).to(device)
@@ -2046,6 +2133,9 @@ if __name__ == "__main__":
         action_interface_meta["privileged_critic"] = PRIVILEGED_CRITIC_VERSION
         if args.init_from:
             action_interface_meta["privileged_critic_init"] = "loaded" if privileged_critic_loaded else "fresh"
+    if resume_state is not None:
+        action_interface_meta["resumed_from"] = {"checkpoint": os.path.basename(resume_checkpoint),
+                                                 "global_step": start_global_step}
     writer.add_text("meta/action_interface", json.dumps(action_interface_meta, sort_keys=True, default=str))
 
     overlap_stepper = None
@@ -2054,7 +2144,7 @@ if __name__ == "__main__":
             args, envs, agent, device, profiler, values, actions, selected_slots, logprobs,
         )
 
-    for iteration in range(1, args.num_iterations + 1):
+    for iteration in range(start_iteration, args.num_iterations + 1):
         t0_rollout_iter = time.perf_counter()
         # Per-iteration diagnostics for dashboard clarity.
         iter_valid_actions_sum = 0.0
@@ -2790,15 +2880,8 @@ if __name__ == "__main__":
                         if checkpoint_step > 0 and checkpoint_step % args.save_frequency == 0:
                             checkpoint_path = os.path.join(run_dir, f"model_checkpoint_{checkpoint_step}.cleanrl_model")
                             t0_ckpt = time.perf_counter()
-                            torch.save(agent.state_dict(), checkpoint_path)
-                            if privileged_critic is not None:
-                                torch.save(privileged_critic.state_dict(), privileged_critic_path(checkpoint_path))
-                            meta_path = checkpoint_path + ".action_interface.json"
-                            try:
-                                with open(meta_path, "w", encoding="utf-8") as f:
-                                    json.dump(action_interface_meta, f, indent=2, sort_keys=True, default=str)
-                            except Exception as e:
-                                print(f"warning: failed to save action interface metadata: {e}")
+                            # Saved mid-rollout with the weights of the last update: resuming redoes this iteration.
+                            _save_checkpoint(checkpoint_path, iteration - 1, (iteration - 1) * args.batch_size, "periodic")
                             print(f"checkpoint_saved={checkpoint_path}")
                             profiler.add("trainer/checkpoint_save", time.perf_counter() - t0_ckpt)
 
@@ -3131,7 +3214,7 @@ if __name__ == "__main__":
             global_step,
         )
         elapsed_seconds = max(1e-9, time.time() - start_time)
-        average_sps = global_step / elapsed_seconds
+        average_sps = (global_step - start_global_step) / elapsed_seconds
         scheduled_total_steps = int(args.num_iterations * args.batch_size)
         remaining_steps = max(0, scheduled_total_steps - global_step)
         eta_seconds = remaining_steps / max(1e-9, average_sps)
@@ -3145,19 +3228,30 @@ if __name__ == "__main__":
         log_scalar("charts/SPS", int(average_sps), global_step)
         profiler.add("trainer/update_and_logging_iteration", time.perf_counter() - t0_update_iter)
         profiler.maybe_report(global_step, args.num_envs)
+        resume_point["completed"], resume_point["global_step"] = iteration, global_step
 
-    if args.save_model:
+        stop_reason = stop_requests.requested()
+        if stop_reason is not None and iteration < args.num_iterations:
+            if args.save_model:
+                path = os.path.join(run_dir, f"model_checkpoint_{global_step}.cleanrl_model")
+                _save_checkpoint(path, iteration, global_step, stop_reason)
+                print(f"checkpoint_saved={path}")
+            print(f"[RESUME] stopped after iteration {iteration}/{args.num_iterations} ({stop_reason}); continue with "
+                  f"--resume {run_dir}", flush=True)
+            if stop_reason == "STOP file":
+                try:
+                    os.remove(stop_requests.stop_file())
+                except OSError:
+                    pass
+            _write_resume_marker(stop_reason)
+            stopped_early = stop_reason
+            break
+
+    stop_requests.restore()
+    if args.save_model and stopped_early is None:
         t0_final_save = time.perf_counter()
         model_path = args.model_path or os.path.join(run_dir, f"{args.exp_name}.cleanrl_model")
-        torch.save(agent.state_dict(), model_path)
-        if privileged_critic is not None:
-            torch.save(privileged_critic.state_dict(), privileged_critic_path(model_path))
-        meta_path = model_path + ".action_interface.json"
-        try:
-            with open(meta_path, "w", encoding="utf-8") as f:
-                json.dump(action_interface_meta, f, indent=2, sort_keys=True, default=str)
-        except Exception as e:
-            print(f"warning: failed to save action interface metadata: {e}")
+        _save_checkpoint(model_path, args.num_iterations, global_step, "final")
         print(f"model_saved={model_path}")
         profiler.add("trainer/final_model_save", time.perf_counter() - t0_final_save)
 
@@ -3193,3 +3287,7 @@ if __name__ == "__main__":
 
     envs.close()
     writer.close()
+    if stopped_early is not None:
+        # Not a finished run: a nonzero exit keeps SLURM `afterok` chains from starting the next segment from a
+        # final model that does not exist (cluster/trainer_signals.sh resubmits with AUTO_RESUME=1).
+        sys.exit(resume_lib.EXIT_STOPPED_EARLY)

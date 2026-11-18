@@ -250,7 +250,7 @@ class ExtraPpoArgsTests(unittest.TestCase):
     def _sandbox(self, tmp):
         root = Path(tmp) / "repo"
         (root / "cluster").mkdir(parents=True)
-        for name in ("run_experiment.sh", "train_farmshare.sbatch"):
+        for name in ("run_experiment.sh", "train_farmshare.sbatch", "trainer_signals.sh"):
             shutil.copy(REPO_ROOT / "cluster" / name, root / "cluster" / name)
         bin_dir = Path(tmp) / "bin"
         bin_dir.mkdir()

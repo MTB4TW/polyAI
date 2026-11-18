@@ -42,7 +42,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from tools.combat_eval_core import (  # noqa: E402
-    OUTCOMES, TEST_POOLS, CombatMap, aggregate, load_verified_pool, paired_difference, per_map_rates,
+    OUTCOMES, POOL_VERSION, TEST_POOLS, CombatMap, aggregate, load_verified_pool, paired_difference, per_map_rates,
 )
 from tools.phase1_eval_core import json_safe, sha256_file, stable_seed, write_csv  # noqa: E402
 
@@ -226,7 +226,7 @@ def main(argv=None):
         del os.environ[key]  # no league (the hook below sets the opponent), no reward weights, no critic input
     os.environ.update({
         "POLYVISION_PHASE": "2", "POLYVISION_COMBAT_MODE": "1", "POLYVISION_SOLO_NO_OPPONENT_MODE": "0",
-        "POLYVISION_LEVEL_POOL_GLOB": f"levels/phase2_pool_1v1/{args.pool}/*.csv",
+        "POLYVISION_LEVEL_POOL_GLOB": f"levels/{POOL_VERSION}/{args.pool}/*.csv",
         "POLYVISION_LEVEL_SELECTION_MODE": "round_robin", "POLYVISION_INFO_MODE": "fast",
         "POLYVISION_MAX_TURNS": str(max_turns), "POLYVISION_RULES": rules,
         "POLYVISION_FOG_MEMORY": "1" if fog_memory else "0", "POLYVISION_UNIT_STATUS": "1" if unit_status else "0", "POLYVISION_MAX_LEGAL_ACTIONS": str(max_legal),

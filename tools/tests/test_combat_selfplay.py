@@ -73,5 +73,47 @@ class LeagueTests(unittest.TestCase):
             self.assertEqual(league.pool, [])
 
 
+class DeferredVillageCaptureTests(unittest.TestCase):
+    """A snapshot opponent with one city gets the wrapper's deferred village captures at END_TURN (CHANGELOG 089)."""
+
+    def make(self, queued, cities=1):
+        from types import SimpleNamespace
+        actions = [{"type": "MOVE", "repr": "MOVE unit 7"}, {"type": "CAPTURE", "repr": "CAPTURE unit 7", "village": True},
+                   {"type": "CAPTURE", "repr": "CAPTURE unit 9", "village": True}, {"type": "END_TURN", "repr": "END_TURN"}]
+        stepped = []
+        state = {"cities": cities}
+
+        class Java:
+            def stepByIndex(self, i):
+                stepped.append(actions[i]["repr"])
+                if actions[i]["type"] == "CAPTURE":
+                    state["cities"] += 1
+
+        env = SimpleNamespace(_env=Java(), get_observation=lambda relabel=True: {"tribes": {}},
+                              list_actions=lambda relabel=True: [dict(a) for a in actions])
+        inner = SimpleNamespace(
+            _queued_village_capture_unit_ids=set(queued),
+            _get_city_count=lambda obs: state["cities"],
+            _is_capture_of_village=lambda a, obs: bool(a.get("village")),
+            _parse_unit_id_from_action_repr=lambda r: int(r.split()[-1]) if r.split()[-1].isdigit() else None)
+        return env, SimpleNamespace(view=inner), stepped
+
+    def test_queued_unit_captures_before_the_turn_ends(self):
+        env, view, stepped = self.make({7})
+        self.assertEqual(S.play_deferred_village_captures(env, view, 1), [1])
+        self.assertEqual(stepped, ["CAPTURE unit 7"])
+        self.assertEqual(view.view._queued_village_capture_unit_ids, set())
+
+    def test_stops_once_the_tribe_has_two_cities(self):
+        env, view, stepped = self.make({7, 9})
+        S.play_deferred_village_captures(env, view, 1)
+        self.assertEqual(len(stepped), 1)  # the second capture would be the wrapper's 3rd city: not deferred
+
+    def test_nothing_queued_or_two_cities_means_no_capture(self):
+        env, view, stepped = self.make({7}, cities=2)
+        self.assertEqual(S.play_deferred_village_captures(env, view, 1), [])
+        self.assertEqual(stepped, [])
+
+
 if __name__ == "__main__":
     unittest.main()

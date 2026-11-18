@@ -253,8 +253,33 @@ def play_external_turn(wrapper, opponent: SnapshotOpponent, view: OpponentView, 
         raw = id_to_raw.get(int(gid))
         if raw is None:
             raise RuntimeError(f"Snapshot opponent chose global id {gid} with no raw action")
+        if str(s_actions[int(raw)].get("type", "")).upper() == "END_TURN" and view.view._queued_village_capture_unit_ids:
+            play_deferred_village_captures(env, view, active)
+            raw = next(i for i, a in enumerate(env.list_actions(relabel=False)) if a.get("type") == "END_TURN")
         java.stepByIndex(int(raw))
     raise RuntimeError("Snapshot opponent exceeded its action budget without ending its turn")
+
+
+def play_deferred_village_captures(env, view: OpponentView, active: int) -> list:
+    """The opponent's half of the wrapper's village-capture rule (register_env step(): with fewer than 2 cities, a
+    unit standing on a village is frozen and its CAPTURE is masked; END_TURN captures it first). Without this a
+    snapshot opponent with one city could never take a village (CHANGELOG 089). Returns the engine indices played."""
+    v = view.view
+    queued = set(int(u) for u in v._queued_village_capture_unit_ids)
+    done = []
+    for _ in range(max(1, len(queued))):
+        s_obs, s_actions = swap_tribes(env.get_observation(relabel=False), env.list_actions(relabel=False), 0, active)
+        if v._get_city_count(s_obs) >= 2:
+            break
+        idx = next((i for i, a in enumerate(s_actions) if a.get("type") == "CAPTURE" and v._is_capture_of_village(a, s_obs)
+                    and v._parse_unit_id_from_action_repr(str(a.get("repr", ""))) in queued), None)
+        if idx is None:
+            break
+        queued.discard(v._parse_unit_id_from_action_repr(str(s_actions[idx].get("repr", ""))))
+        env._env.stepByIndex(int(idx))
+        done.append(int(idx))
+    v._queued_village_capture_unit_ids = set()
+    return done
 
 
 # --- the league ----------------------------------------------------------------------------------------------

@@ -6,6 +6,7 @@
 #SBATCH --time=08:00:00
 #SBATCH --output=logs/%x-%j.out
 #SBATCH --error=logs/%x-%j.err
+#SBATCH --signal=B:USR1@600
 
 # ==============================================================================
 # Stanford Farmshare SLURM Job Script: short Phase 2 combat run on CPU only
@@ -13,6 +14,8 @@
 # 1v1 vs SimpleAgent on the 11x11 Drylands pool, shaped combat reward (docs/rewards.md).
 # CPU nodes start much sooner than the GPU queue. Defaults target a ~1M-step first look.
 #
+# Stop / resume (cluster/trainer_signals.sh): touch runs/<run>/STOP to stop for good; RESUME_FROM=<run dir> to
+# continue exactly; AUTO_RESUME=1 to chain across the time limit.
 # Usage (from the repo root):
 #   EXP_NAME=combat_cpu_1m sbatch cluster/train_combat_cpu.sbatch
 # Optional overrides (environment variables):
@@ -46,7 +49,10 @@ source .venv/bin/activate
 export POLYVISION_PHASE="2"
 export POLYVISION_COMBAT_MODE="1"
 export POLYVISION_SOLO_NO_OPPONENT_MODE="0"
-export POLYVISION_LEVEL_POOL_GLOB="levels/phase2_pool_1v1/train/*.csv"
+# POLYVISION_COMBAT_POOL picks the map pool version (default phase2_pool_1v1; phase2_pool_1v1_wiki = CHANGELOG 086)
+export POLYVISION_COMBAT_POOL="${POLYVISION_COMBAT_POOL:-phase2_pool_1v1}"
+export POLYVISION_LEVEL_POOL_GLOB="levels/$POLYVISION_COMBAT_POOL/train/*.csv"
+echo "Map pool: $POLYVISION_COMBAT_POOL"
 export POLYVISION_MAX_TURNS="${POLYVISION_MAX_TURNS:-20}"
 export POLYVISION_INFO_MODE="fast"
 export POLYVISION_RULES="${POLYVISION_RULES:-tribes_2020}"
@@ -83,7 +89,9 @@ echo "Starting Phase 2 combat training on CPU: $TOTAL_TIMESTEPS steps, $NUM_ENVS
 #   --learning-rate 5e-4, --update-epochs 8
 #                             the smoke run's updates were ~10x smaller than typical (approx_kl ~0.002)
 #   --target-kl 0.03          stop an update early if the policy moves too far
-python py_rl/cleanrl/cleanrl/ppo.py \
+source cluster/trainer_signals.sh
+TRAIN_SCRIPT=${TRAIN_SCRIPT:-cluster/train_combat_cpu.sbatch}
+run_trainer py_rl/cleanrl/cleanrl/ppo.py \
     --total-timesteps "$TOTAL_TIMESTEPS" \
     --num-envs "$NUM_ENVS" \
     --num-steps 128 \

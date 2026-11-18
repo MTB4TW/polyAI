@@ -2,6 +2,138 @@
 
 All notable changes to this project are documented in this file.
 
+## [Phase2-Combat_League_Opponent_Village_Capture-089] - (2026-11-18)
+
+### Problem
+- League snapshot opponents could not capture villages while they had one city.
+- The wrapper's capture rule (`_filter_allowed_raw_indices`):
+  - With fewer than 2 cities, a unit standing on a village is frozen and its CAPTURE is masked.
+  - `step()` then captures it when the tribe ends its turn.
+- `combat_selfplay.play_external_turn` drives the opponent tribe. Its `OpponentView` applied the mask but never
+  made the deferred capture. Units sat on villages for good and the opponent's economy stalled.
+- The same loop plays tribe 1 in `tools/evaluate_combat_h2h.py`.
+
+### Evidence
+- The 4M league checkpoint played against itself: one side through the wrapper (as the learner plays), the other
+  through `play_external_turn`, sampling, 200 games per seat.
+- Before the fix the wrapper side scored 0.90 moving first and 0.69 moving second, a sum of 1.59 where equal
+  paths give 1.
+- After the fix it scored 0.685 and 0.320 (sum 1.005).
+- Inputs matched exactly: observations and legal-action features, checked move by move in both seats, apart
+  from `is_immediate_backtrack`.
+
+### Fix
+- `play_deferred_village_captures`: when a snapshot opponent chooses END_TURN with queued village captures, it
+  captures them first, as `step()` does for the learner.
+- Unit tests are in `tools/tests/test_combat_selfplay.py`.
+
+### Impact
+- League runs before this trained against handicapped snapshots. Their league win rates (about 0.8 against their
+  own recent snapshots) are inflated.
+- Combat head-to-head results before this handicapped tribe 1:
+  - The "first mover scores ~0.94" was mostly this bug.
+  - With it fixed, the first mover scores about 0.68 with sampled play.
+- Evaluations against SimpleAgent are unaffected, because Java plays SimpleAgent.
+- Copies of this loop also need the fix: `tools/play_vs_agent.py` (agent as tribe 1) and
+  `tools/evaluate_search_h2h.py` on feat/play-vs-agent.
+
+## [Phase2-Combat_Map_Pool_Version-088] - (2026-11-18)
+
+### Scope
+- `POLYVISION_COMBAT_POOL` selects the combat map pool version: a folder under `pol_env/Tribes/levels`.
+  The default is `phase2_pool_1v1`, so nothing changes unless it is set.
+- New pool `phase2_pool_1v1_wiki`, made by the wiki-parity generator (086) with the same seeds and tribe pairings.
+  It has train 50, validation 10, eval_validation 120 and eval_test 120 maps, plus `eval_manifest.json`.
+- All 50 train maps differ from the old pool.
+- `tools/audit_map_generation.py` on train and eval_validation: no rule violations.
+  - Terrain: Bardur field 55.0 / forest 30.8 / mountain 14.3% (wiki 55.6 / 30.4 / 14.0).
+  - Ruins: 4 per map, as the wiki's table gives for 11x11.
+- Wiring:
+  - The training jobs (`train_combat_cpu.sbatch`, `train_farmshare_combat.sbatch`) read the setting.
+  - So do `tools/evaluate_combat.py` and `tools/evaluate_combat_h2h.py`, through `tools/combat_eval_core.py`.
+  - Evaluations record the manifest path and SHA-256, so results from different pool versions are never mixed up.
+- `cluster/league_unit_status_wiki.sbatch`:
+  - Runs a league with unit status on the new pool, warm-started from league8m segment 1 at 1.2M steps.
+  - Its league settings are Devin's league8m settings.
+  - It resumes itself across the time limit (AUTO_RESUME).
+
+## [Train-Stop_And_Resume-085] - (2026-11-18)
+
+### Scope
+- `ppo.py --resume <checkpoint or run dir>` continues a stopped run exactly (`py_rl/cleanrl/cleanrl/resume.py`).
+  - Every checkpoint gets a `.resume.pt` bundle holding the optimizer state, the iteration and global step (so
+    the learning-rate schedule, the teacher decay and the checkpoint numbering continue), the return
+    normalisation, the RNG states, the privileged-critic guard state and the arguments.
+  - Structural argument changes are refused; schedule changes are warned about.
+  - A resumed run writes into the same run directory. Env episodes restart with an offset seed.
+  - `--resume` and `--init-from` are exclusive.
+- **Stopping:**
+  - `runs/<run>/STOP` or SIGUSR1: save and stop at the end of the iteration.
+  - SIGTERM (`scancel`): save immediately, then exit 143.
+  - An early stop writes no "final" model, so a stopped run is never mistaken for a finished one.
+- **Cluster:** `cluster/trainer_signals.sh` is used by `train_combat_cpu.sbatch`, `train_farmshare_combat.sbatch`
+  and `train_farmshare.sbatch`.
+  - SLURM sends SIGUSR1 ten minutes before the time limit, and the batch shell forwards it to the trainer.
+  - `RESUME_FROM` passes `--resume`.
+  - `AUTO_RESUME=1` resubmits the job after a time-limit stop, so a run chains across the 48 h limit.
+- An early stop exits with status 3 (`resume.EXIT_STOPPED_EARLY`), so `afterok` chains (such as segmented league
+  runs) never start the next segment from an unfinished run.
+- SPS and ETA in a resumed run count only the steps since the resume.
+- No contract change: checkpoints are unchanged, and the bundle is an extra file.
+
+### Validation
+- `tools/tests/test_resume.py`:
+  - a bundle round trip (Adam moments, return normaliser, RNG streams, the LATEST pointer);
+  - finding the newest bundle in a run directory;
+  - structural changes refused and schedule changes warned;
+  - the STOP file and SIGUSR1.
+- `tools/tests/test_ppo_experiment_options.py`, `test_training_autoreset.py` and core CI pass.
+- Live combat smoke test (2 envs, 640 steps, privileged critic, `--norm-returns`):
+  1. A STOP file stops it after iteration 1 (step 128).
+  2. `--resume` continues from step 128 in the same directory.
+  3. SIGTERM in iteration 5 saves at once (marked "resumes after iteration 4").
+  4. A second `--resume` finishes at step 640 and writes the final model.
+- The job-script test: SIGUSR1 to the batch shell reaches the trainer, and AUTO_RESUME resubmits with
+  `RESUME_FROM` set.
+
+## [Maps-Wiki_Generation_Parity-086] - (2026-11-18)
+
+### Scope
+- Audited the combat map generator against the Polytopia wiki's Map Generation page (Tiny 11×11 Drylands) with the
+  new `tools/audit_map_generation.py`. It runs on the 170 maps of the train and eval_validation pools.
+- **Already matched:**
+  - all land;
+  - capitals in different quadrants (the generator's domains);
+  - village spacing and distance from the edge;
+  - no ruin next to a village or ruin;
+  - every resource within 2 tiles of a city or village;
+  - Bardur's terrain: field 54.8 / forest 30.6 / mountain 14.6% (wiki 55.6 / 30.4 / 14.0), and Imperius's and
+    Xin-xi's terrain.
+- **Fixed in the generator:**
+  - `terrainProbs.json` tribe modifiers, set to the wiki:
+    - Imperius fruit ×2 and animal ×0.5; these were on Luxidoor, which is now base;
+    - Oumaji mountain ×0.5, forest ×0.2 (was 0.1) and animal ×0.2;
+    - Xin-xi metal ×1.5;
+    - Quetzali metal ×1 (was 0.1).
+  - **Modifiers multiply resource rates directly, and the empty share absorbs the difference** (`LevelGenerator`).
+    Before, a removed resource was redistributed: Bardur's ×0 crop gave its inner fields about 56–60% fruit
+    instead of 37.5%.
+  - **Ruins per map size** from the wiki table: Tiny 4 (was 3), Small 5, Normal 7, Large 9, Huge 11, Massive 23.
+- **After the fix,** on the same 120 seeds:
+  - 4 ruins per map;
+  - Bardur inner fruit 40% (wiki 37.5%);
+  - Imperius inner animal 28.5% (wiki 25%);
+  - Xin-xi inner metal 98% (×1.5, capped);
+  - Oumaji mountain 8.2% (wiki 7%).
+  - Remaining small gaps near the border come from the audit's nearest-capital ownership approximation.
+- `tools/generate_phase2_maps.py`:
+  - `--pool-root` writes a pool version beside the current one;
+  - the bundled JDK is found on Linux too.
+- **The committed pools are unchanged.** `levels/phase2_pool_1v1/*` and its manifest are files; regenerating them
+  would change every training and canonical evaluation map. Moving to wiki-parity pools is a separate, deliberate
+  step (a new pool version and a new reference).
+- Phase 1 maps are fixed files and are unaffected.
+
 ## [Phase2-Combat_Unit_Status-087] - (2026-11-18)
 
 ### Problem

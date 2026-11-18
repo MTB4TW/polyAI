@@ -7,6 +7,7 @@
 #SBATCH --time=24:00:00
 #SBATCH --output=logs/%x-%j.out
 #SBATCH --error=logs/%x-%j.err
+#SBATCH --signal=B:USR1@600
 
 # ==============================================================================
 # Stanford Farmshare SLURM Job Script: Polytopia Phase 2 Combat Training
@@ -49,7 +50,10 @@ if torch.cuda.is_available():
 export POLYVISION_PHASE="2"
 export POLYVISION_COMBAT_MODE="1"
 export POLYVISION_SOLO_NO_OPPONENT_MODE="0"
-export POLYVISION_LEVEL_POOL_GLOB="levels/phase2_pool_1v1/train/*.csv"
+# POLYVISION_COMBAT_POOL picks the map pool version (default phase2_pool_1v1; phase2_pool_1v1_wiki = CHANGELOG 086)
+export POLYVISION_COMBAT_POOL="${POLYVISION_COMBAT_POOL:-phase2_pool_1v1}"
+export POLYVISION_LEVEL_POOL_GLOB="levels/$POLYVISION_COMBAT_POOL/train/*.csv"
+echo "Map pool: $POLYVISION_COMBAT_POOL"
 export POLYVISION_MAX_TURNS="${POLYVISION_MAX_TURNS:-20}"
 export POLYVISION_INFO_MODE="fast"
 # Combat reward weights (see docs/rewards.md); set any of these before sbatch to override:
@@ -82,7 +86,9 @@ fi
 echo "Starting Phase 2 Combat training: $TOTAL_TIMESTEPS steps with $NUM_ENVS parallel environments on $DEVICE ($NETWORK_ARCH, seed $SEED)..."
 [ ${#EXTRA_ARGS[@]} -gt 0 ] && echo "Extra PPO args: ${EXTRA_ARGS[*]}"
 
-python py_rl/cleanrl/cleanrl/ppo.py \
+source cluster/trainer_signals.sh
+TRAIN_SCRIPT=${TRAIN_SCRIPT:-cluster/train_farmshare_combat.sbatch}
+run_trainer py_rl/cleanrl/cleanrl/ppo.py \
     --total-timesteps "$TOTAL_TIMESTEPS" \
     --num-envs "$NUM_ENVS" \
     --num-steps 128 \
