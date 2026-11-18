@@ -448,6 +448,9 @@ def full_board(te) -> dict:
     snap = full_snapshot(obs)
     board = obs.get("board", {})
     snap["resource"], snap["building"] = board.get("resource", []), board.get("building", [])
+    for cid, c in (obs.get("city") or {}).items():  # population toward the next level, for the replay
+        if str(cid) in snap["cities"]:
+            snap["cities"][str(cid)].update({"pop": int(c.get("population", 0)), "need": int(c.get("population_need", 0))})
     for uid, mh in max_hp_by_unit(te).items():
         if uid in snap["units"]:
             snap["units"][uid]["mh"] = mh
