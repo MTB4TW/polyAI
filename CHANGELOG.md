@@ -2,6 +2,31 @@
 
 All notable changes to this project are documented in this file.
 
+## [Tools-Play_Vs_Agent-083] - (2026-11-17)
+
+### Scope
+- New `tools/play_vs_agent.py` (+ `tools/play_vs_agent.html`): a local web server for a person to play a combat
+  (Phase 2) game against a checkpoint in the browser. The setup is `tools/evaluate_combat.py`'s:
+  - validation maps;
+  - capitals mode;
+  - rules, turn limit and fog memory from the checkpoint's environment version.
+- Seats:
+  - The agent plays tribe 0 and moves first.
+  - The human plays tribe 1 (SimpleAgent's seat) through the engine's "external" opponent hook that self-play
+    already uses. The human sees only tribe 1's fogged observation.
+  - The agent's full move list is shown only when the game ends.
+- Every finished game is saved as JSON (`human_game_v1`) under `runs/human_games/`: map, seed, checkpoint,
+  settings and every action of both sides. `--verify-record` replays a record and checks the outcome.
+- `eval_test` maps are refused without `--confirm-test`. Guide: `docs/human-play.md`.
+- No environment, reward, observation or action change: the tool drives the existing wrapper and engine, and
+  training and evaluation are unchanged. No contract version change.
+
+### Validation
+- `tools/tests/test_play_vs_agent.py`:
+  - the action list and the change log the human sees;
+  - a full scripted game against the random opponent that is recorded and replays to the same outcome;
+  - the browser API over HTTP: new game, a stale move is rejected, end turn, resign, and the resigned record replays.
+
 ## [Phase2-Combat_Star_Hoard_Penalty-081] - (2026-11-15)
 
 ### Scope

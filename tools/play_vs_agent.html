@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Play the Agent</title>
+<style>
+  :root {
+    --bg: #f6f5f1; --card: #ffffff; --text: #1d1f24; --muted: #6b6f78; --border: #dedcd4;
+    --you: #2563eb; --you-soft: #dbe6fd; --bot: #dc2626; --bot-soft: #fde0e0;
+    --win: #15803d; --loss: #b91c1c; --timeout: #a16207; --sel: #f59e0b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #15171c; --card: #1e2128; --text: #e7e8ec; --muted: #9aa0ab; --border: #30343d;
+      --you: #60a5fa; --you-soft: #1e3352; --bot: #f87171; --bot-soft: #4a2020;
+      --win: #4ade80; --loss: #f87171; --timeout: #facc15; --sel: #fbbf24;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  header { max-width: 1240px; margin: 0 auto; padding: 16px 16px 6px; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: baseline; }
+  h1 { font-size: 20px; margin: 0; }
+  .sub { color: var(--muted); font-size: 13px; }
+  main { max-width: 1240px; margin: 0 auto; padding: 8px 16px 32px; display: grid;
+         grid-template-columns: minmax(0, 640px) minmax(0, 1fr); gap: 16px; }
+  @media (max-width: 960px) { main { grid-template-columns: minmax(0, 1fr); } }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
+  .side { display: grid; gap: 12px; align-content: start; }
+  canvas { width: 100%; height: auto; display: block; border-radius: 6px; cursor: pointer; touch-action: manipulation; }
+  button { background: transparent; color: var(--text); border: 1px solid var(--border); border-radius: 6px;
+           padding: 6px 10px; font: inherit; cursor: pointer; }
+  button:hover:not(:disabled) { border-color: var(--muted); }
+  button:disabled { opacity: .45; cursor: default; }
+  button.primary { background: var(--you); border-color: var(--you); color: #fff; font-weight: 600; }
+  .acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .acts button .c { color: var(--muted); font-size: 12px; margin-left: 4px; }
+  .status { font-weight: 600; font-size: 15px; }
+  .status.wait { color: var(--muted); }
+  .stats { display: grid; grid-template-columns: auto 1fr 1fr; gap: 2px 12px; font-variant-numeric: tabular-nums; margin-top: 8px; }
+  .stats .h { color: var(--muted); font-size: 12px; }
+  .you { color: var(--you); } .bot { color: var(--bot); }
+  h2 { font-size: 13px; margin: 0; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .03em; }
+  #log { max-height: 300px; overflow-y: auto; margin-top: 6px; font-size: 13px; }
+  #log div { padding: 2px 0 2px 8px; border-left: 3px solid var(--border); margin-bottom: 2px; }
+  #log .you { border-color: var(--you); color: var(--text); } #log .agent { border-color: var(--bot); color: var(--text); }
+  #log .t { color: var(--muted); font-weight: 600; border: 0; padding-left: 0; margin-top: 6px; }
+  .legend { color: var(--muted); font-size: 12px; margin-top: 8px; display: flex; flex-wrap: wrap; gap: 2px 14px; }
+  .notice { color: var(--loss); min-height: 1.2em; font-size: 13px; }
+  .over { font-size: 18px; font-weight: 700; }
+  .over.win { color: var(--win); } .over.loss { color: var(--loss); } .over.timeout { color: var(--timeout); }
+  select, input { font: inherit; color: var(--text); background: var(--card); border: 1px solid var(--border); border-radius: 6px; padding: 5px 6px; max-width: 100%; }
+  .row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  details summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+  .techs { font-size: 12px; color: var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Play the agent</h1>
+  <span class="sub" id="meta">connecting…</span>
+</header>
+<main>
+  <section class="card">
+    <canvas id="board" width="1100" height="1100" aria-label="Game board"></canvas>
+    <div class="legend">
+      <span><b class="you">●</b> you</span><span><b class="bot">●</b> agent</span>
+      <span>■ city, ♛ capital, number = level</span>
+      <span>W warrior · R rider · D defender · S swordsman · A archer · C catapult · K knight</span>
+      <span>f fruit · a animal · h fish · c crops · o ore · w whale · r ruins</span>
+      <span>Click a unit or city, then a highlighted tile. <kbd>E</kbd> end turn · <kbd>Esc</kbd> deselect</span>
+    </div>
+  </section>
+  <div class="side">
+    <section class="card">
+      <div class="status wait" id="status">Waiting…</div>
+      <div class="notice" id="notice"></div>
+      <div class="stats" id="stats"></div>
+      <div class="techs" id="techs"></div>
+      <div class="acts"><button class="primary" id="end" disabled>End turn</button><button id="resign" disabled>Resign</button></div>
+    </section>
+    <section class="card">
+      <h2 id="selh">Selected</h2>
+      <div class="acts" id="selacts"><span class="sub">Click one of your units or cities.</span></div>
+    </section>
+    <section class="card">
+      <h2>Research and other actions</h2>
+      <div class="acts" id="globalacts"></div>
+    </section>
+    <section class="card">
+      <h2>Game log</h2>
+      <div id="log"></div>
+    </section>
+    <section class="card">
+      <h2>New game</h2>
+      <div class="row" style="margin-top:8px">
+        <select id="mapsel" aria-label="Map"><option value="">Random map</option></select>
+        <input id="seedin" type="number" placeholder="seed (optional)" aria-label="Episode seed" style="width:150px">
+        <button id="newgame">Start</button>
+      </div>
+      <div class="sub" style="margin-top:6px">Starting a new game abandons the current one.</div>
+    </section>
+  </div>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const canvas = $("board"), ctx = canvas.getContext("2d");
+const TERRAIN = { 0: "#b7d98b", 1: "#8fd0ea", 2: "#3f86c6", 3: "#9b9488", 4: "#d9bf7f", 5: "#c9b48a", 6: "#5e9a4f", 7: "#2a2c33" };
+const LETTERS = ["W", "R", "D", "S", "A", "C", "K", "M", "B", "Sh", "Bs", "G", "Cl", "Dg"];
+const RES = { 0: "h", 1: "f", 2: "a", 3: "w", 5: "o", 6: "c", 7: "r" };
+const HUMAN = 1;
+let S = null, version = -1, sel = null, pending = false, mapsFilled = false;
+const PAD = 40;
+
+function N() { return S && S.board ? S.board.terrain.length : 0; }
+function cell() { return (canvas.width - PAD) / Math.max(1, N()); }
+function px(x, y) { const C = cell(); return [PAD + y * C, PAD + x * C]; }  // board arrays are [x][y]
+function legal() { return (S && S.phase === "your_turn" && S.legal) || []; }
+function same(a, b) { return a && b && a[0] === b[0] && a[1] === b[1]; }
+function fromSel() { return sel ? legal().filter(a => same(a.src, sel)) : []; }
+
+function drawUnit(u) {
+  const C = cell(), [cx, cy] = px(u.x, u.y), mx = cx + C / 2, my = cy + C / 2;
+  ctx.beginPath(); ctx.arc(mx, my, C * 0.3, 0, Math.PI * 2);
+  ctx.fillStyle = u.o === HUMAN ? css("--you") : css("--bot"); ctx.fill();
+  ctx.lineWidth = 3; ctx.strokeStyle = "#fff"; ctx.stroke();
+  ctx.fillStyle = "#fff"; ctx.font = `bold ${C * 0.28}px sans-serif`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  ctx.fillText(LETTERS[u.t] || "?", mx, my + 1);
+  const maxhp = Math.max(u.hp, u.maxhp || 10), bw = C * 0.7, bx = cx + C * 0.15, by = cy + C * 0.86;
+  ctx.fillStyle = "rgba(0,0,0,.45)"; ctx.fillRect(bx, by, bw, 6);
+  ctx.fillStyle = u.hp / maxhp > 0.5 ? "#22c55e" : u.hp / maxhp > 0.25 ? "#eab308" : "#ef4444";
+  ctx.fillRect(bx, by, bw * Math.min(1, u.hp / maxhp), 6);
+  if (u.vet) { ctx.fillStyle = "#facc15"; ctx.font = `${C * 0.22}px sans-serif`; ctx.fillText("★", cx + C * 0.82, cy + C * 0.18); }
+}
+
+function draw() {
+  ctx.fillStyle = css("--card"); ctx.fillRect(0, 0, canvas.width, canvas.height);
+  const board = S && (S.phase === "over" && S.final_board ? S.final_board : S.board);
+  if (!board) return;
+  const n = board.terrain.length, C = cell();
+  ctx.fillStyle = css("--muted"); ctx.font = "20px sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  for (let i = 0; i < n; i++) { ctx.fillText(i, PAD + i * C + C / 2, PAD / 2); ctx.fillText(i, PAD / 2, PAD + i * C + C / 2); }
+  for (let x = 0; x < n; x++) for (let y = 0; y < n; y++) {
+    const [cx, cy] = px(x, y), t = board.terrain[x][y];
+    ctx.fillStyle = TERRAIN[t] || "#999"; ctx.fillRect(cx, cy, C, C);
+    if (t === 3) { ctx.fillStyle = "rgba(255,255,255,.55)"; ctx.beginPath(); ctx.moveTo(cx + C * .2, cy + C * .8);
+      ctx.lineTo(cx + C * .5, cy + C * .25); ctx.lineTo(cx + C * .8, cy + C * .8); ctx.closePath(); ctx.fill(); }
+    if (t === 6) { ctx.fillStyle = "rgba(0,60,0,.35)"; for (const [a, b] of [[.3, .35], [.65, .3], [.5, .65]]) {
+      ctx.beginPath(); ctx.arc(cx + C * a, cy + C * b, C * .12, 0, 7); ctx.fill(); } }
+    if (t === 4) { ctx.strokeStyle = "rgba(90,60,20,.8)"; ctx.lineWidth = 3; ctx.strokeRect(cx + C * .3, cy + C * .3, C * .4, C * .4); }
+    const r = board.resource && board.resource[x] ? board.resource[x][y] : -1;
+    if (t !== 7 && RES[r] !== undefined) { ctx.fillStyle = "rgba(0,0,0,.6)"; ctx.font = `${C * .2}px sans-serif`;
+      ctx.textAlign = "right"; ctx.textBaseline = "bottom"; ctx.fillText(RES[r], cx + C - 4, cy + C - 2); }
+    ctx.strokeStyle = "rgba(0,0,0,.15)"; ctx.lineWidth = 1; ctx.strokeRect(cx, cy, C, C);
+  }
+  for (const c of board.cities) {
+    const [cx, cy] = px(c.x, c.y), mine = c.o === HUMAN;
+    ctx.fillStyle = mine ? css("--you-soft") : css("--bot-soft"); ctx.strokeStyle = mine ? css("--you") : css("--bot");
+    ctx.lineWidth = c.cap ? 7 : 4; ctx.fillRect(cx + 5, cy + 5, C - 10, C - 10); ctx.strokeRect(cx + 5, cy + 5, C - 10, C - 10);
+    ctx.fillStyle = ctx.strokeStyle; ctx.font = `bold ${C * 0.22}px sans-serif`; ctx.textAlign = "left"; ctx.textBaseline = "top";
+    ctx.fillText((c.cap ? "♛" : "") + c.lvl, cx + 9, cy + 8);
+  }
+  for (const u of board.units) drawUnit(u);
+  // highlights: selected tile and the targets of its actions
+  if (sel) { const [cx, cy] = px(sel[0], sel[1]); ctx.strokeStyle = css("--sel"); ctx.lineWidth = 5; ctx.strokeRect(cx + 2, cy + 2, C - 4, C - 4); }
+  const seenT = new Set();
+  for (const a of fromSel()) {
+    if (!a.dst || same(a.dst, a.src)) continue;
+    const k = a.dst.join(","); if (seenT.has(k)) continue; seenT.add(k);
+    const [cx, cy] = px(a.dst[0], a.dst[1]);
+    ctx.fillStyle = a.type === "ATTACK" ? "rgba(239,68,68,.45)" : "rgba(245,158,11,.35)"; ctx.fillRect(cx, cy, C, C);
+    ctx.strokeStyle = a.type === "ATTACK" ? "#ef4444" : css("--sel"); ctx.lineWidth = 3; ctx.strokeRect(cx + 3, cy + 3, C - 6, C - 6);
+  }
+}
+
+function tileOf(ev) {
+  const r = canvas.getBoundingClientRect(), k = canvas.width / r.width, C = cell();
+  const y = Math.floor(((ev.clientX - r.left) * k - PAD) / C), x = Math.floor(((ev.clientY - r.top) * k - PAD) / C);
+  return x >= 0 && y >= 0 && x < N() && y < N() ? [x, y] : null;
+}
+
+canvas.addEventListener("click", ev => {
+  const t = tileOf(ev); if (!t || S.phase !== "your_turn") return;
+  const toHere = fromSel().filter(a => a.dst && same(a.dst, t) && !same(a.dst, a.src));
+  if (toHere.length === 1) return act(toHere[0].i);
+  if (toHere.length > 1) { renderSel(toHere, `Actions on (${t[0]},${t[1]})`); return; }
+  sel = legal().some(a => same(a.src, t)) ? t : null;
+  renderSel(); draw();
+});
+
+function button(a) {
+  const b = document.createElement("button");
+  b.innerHTML = a.text + (a.cost ? `<span class="c">${a.cost}★</span>` : "");
+  b.title = a.type; b.disabled = pending; b.onclick = () => act(a.i); return b;
+}
+
+function renderSel(list, head) {
+  const box = $("selacts"); box.innerHTML = "";
+  if (!sel || S.phase !== "your_turn") { $("selh").textContent = "Selected"; box.innerHTML = '<span class="sub">Click one of your units or cities.</span>'; return; }
+  const board = S.board, u = board.units.find(u => u.x === sel[0] && u.y === sel[1]), c = board.cities.find(c => c.x === sel[0] && c.y === sel[1]);
+  const what = [u ? `${S.unit_names[u.t] || "Unit"} HP ${u.hp}${u.vet ? " ★" : ""}` : null,
+                c ? `${c.cap ? "Capital" : "City"} level ${c.lvl}, pop ${c.pop}/${c.need}, +${c.prod}★` : null].filter(Boolean).join(" · ");
+  $("selh").textContent = head || `(${sel[0]},${sel[1]}) ${what}`;
+  const items = list || fromSel().filter(a => !a.dst || same(a.dst, a.src));
+  const moves = list ? 0 : fromSel().filter(a => a.dst && !same(a.dst, a.src)).length;
+  items.forEach(a => box.appendChild(button(a)));
+  if (!items.length) box.innerHTML = `<span class="sub">${moves ? `Click a highlighted tile (${moves} target${moves > 1 ? "s" : ""}).` : "Nothing to do here."}</span>`;
+  else if (moves) box.insertAdjacentHTML("beforeend", `<span class="sub">or click a highlighted tile</span>`);
+}
+
+async function post(path, body) {
+  const r = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
+  const j = await r.json().catch(() => ({})); if (!r.ok) $("notice").textContent = j.error || `Error ${r.status}`; return r.ok;
+}
+async function act(i) {
+  if (pending) return; pending = true; $("notice").textContent = "";
+  const ok = await post("/api/act", { i, version: S.version });
+  if (!ok) pending = false;
+}
+
+function render() {
+  const s = S, mine = s.board && s.board.tribes[String(HUMAN)], theirs = s.board && s.board.tribes["0"];
+  const tribes = s.tribes ? ` · you: ${s.tribes.you}, agent: ${s.tribes.agent}` : "";
+  $("meta").textContent = s.map ? `${s.map} · seed ${s.episode_seed} · agent ${s.agent}${s.model ? " (" + s.model + ")" : ""}${tribes} · ` +
+    `${s.settings.rules}, ${s.settings.max_turns}-turn limit · take the agent's capital to win; the agent moves first` : "no game";
+  const st = $("status");
+  if (s.phase === "your_turn") { st.className = "status"; st.textContent = `Your turn — turn ${s.turn}`; }
+  else if (s.phase === "over") {
+    const word = { win: "You won!", loss: "You lost", timeout: "Turn limit reached (timeout)", aborted: "Game abandoned", error: "Error" }[s.result] || s.result;
+    st.className = `over ${s.result}`; st.textContent = `${word} — turn ${s.turn}`;
+    if (s.error) $("notice").textContent = s.error.split("\n").slice(-3).join(" ");
+  } else { st.className = "status wait"; st.textContent = s.phase === "agent_turn" ? "The agent is thinking…" : "Starting…"; }
+  if (s.notice) $("notice").textContent = s.notice;
+  if (mine) {
+    const cnt = (o) => { const us = s.board.units.filter(u => u.o === o); return [us.length, us.reduce((a, u) => a + u.hp, 0)]; };
+    const [yu, yh] = cnt(HUMAN), [bu, bh] = cnt(0);
+    $("stats").innerHTML = `<span class="h"></span><span class="h you">You</span><span class="h bot">Agent (what you see)</span>
+      <span>Stars</span><span>${mine.stars}</span><span>—</span>
+      <span>Cities</span><span>${mine.cities}</span><span>${s.board.cities.filter(c => c.o === 0).length} seen</span>
+      <span>Units (HP)</span><span>${yu} (${yh})</span><span>${bu} (${bh}) seen</span>
+      <span>Kills</span><span>${mine.kills}</span><span>${theirs ? theirs.kills : "—"}</span>`;
+    $("techs").textContent = "Your tech: " + (mine.techs.map(t => t.replace(/_/g, " ").toLowerCase()).join(", ") || "none");
+  }
+  const L = legal(), endA = L.find(a => a.type === "END_TURN");
+  $("end").disabled = !endA || pending; $("end").onclick = () => endA && act(endA.i);
+  $("resign").disabled = s.phase !== "your_turn" || pending;
+  const g = $("globalacts"); g.innerHTML = "";
+  L.filter(a => !a.src && a.type !== "END_TURN").forEach(a => g.appendChild(button(a)));
+  if (!g.children.length) g.innerHTML = `<span class="sub">${s.phase === "your_turn" ? "None available." : "—"}</span>`;
+  let html = "", lastT = null;
+  const entries = (s.log || []).concat(s.phase === "over" && s.agent_moves && s.agent_moves.length ? [{ side: "t", text: "Everything the agent did (revealed now the game is over):" }].concat(s.agent_moves) : []);
+  for (const e of entries) {
+    if (e.side === "t") { html += `<div class="t">${e.text}</div>`; lastT = null; continue; }
+    if (e.turn !== lastT) { html += `<div class="t">Turn ${e.turn}</div>`; lastT = e.turn; }
+    html += `<div class="${e.side === "you" ? "you" : "agent"}">${e.side === "you" ? "You" : "Agent"}: ${e.text}</div>`;
+  }
+  $("log").innerHTML = html; $("log").scrollTop = $("log").scrollHeight;
+  if (!mapsFilled && s.maps) { mapsFilled = true; for (const m of s.maps) $("mapsel").insertAdjacentHTML("beforeend", `<option>${m}</option>`); }
+  if (sel && !legal().some(a => same(a.src, sel))) sel = null;
+  renderSel(); draw();
+}
+
+async function poll() {
+  try {
+    const r = await fetch("/api/state"); const s = await r.json();
+    if (s.version !== version || (S && s.map !== S.map)) { S = s; version = s.version; pending = false; render(); }
+  } catch (e) { $("status").textContent = "Lost connection to the game server"; }
+  setTimeout(poll, S && S.phase === "your_turn" ? 500 : 300);
+}
+$("resign").onclick = () => { if (confirm("Resign this game?")) post("/api/resign"); };
+$("newgame").onclick = async () => {
+  const seed = $("seedin").value.trim();
+  if (await post("/api/new", { map: $("mapsel").value || null, seed: seed ? parseInt(seed, 10) : null })) { sel = null; version = -1; $("notice").textContent = ""; }
+};
+document.addEventListener("keydown", e => {
+  if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT") return;
+  if (e.key === "Escape") { sel = null; renderSel(); draw(); }
+  if ((e.key === "e" || e.key === "E") && !$("end").disabled) $("end").click();
+});
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => S && draw());
+poll();
+</script>
+</body>
+</html>
