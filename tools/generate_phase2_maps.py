@@ -10,7 +10,8 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 TRIBES_DIR = REPO_ROOT / "pol_env/Tribes"
 
 # Ensure local Java is in PATH
-jdks = sorted((REPO_ROOT / ".runtime").glob("jdk-*/Contents/Home"))
+jdks = [h for d in sorted((REPO_ROOT / ".runtime").glob("jdk-*")) for h in (d / "Contents" / "Home", d)
+        if (h / "bin" / "java").exists()]
 if jdks:
     os.environ["JAVA_HOME"] = str(jdks[-1])
     os.environ["PATH"] = str(jdks[-1] / "bin") + os.pathsep + os.environ.get("PATH", "")
@@ -69,7 +70,11 @@ if __name__ == "__main__":
                                        f"({', '.join(EVAL_POOLS)}); default regenerates train and validation")
     parser.add_argument("--count", type=int, help="Number of maps (default: the pool's standard size)")
     parser.add_argument("--start-seed", type=int, help="First map seed (default: the pool's standard seed)")
+    parser.add_argument("--pool-root", type=Path, default=None,
+                        help="Write pools under this folder instead of levels/phase2_pool_1v1 (e.g. a new pool version)")
     args = parser.parse_args()
+    if args.pool_root is not None:
+        POOL_ROOT = args.pool_root.resolve()
     standard = {"train": (50, 10000), "validation": (10, 20000), **EVAL_POOLS}
     if args.pool is None:
         print("Generating Phase 2 1v1 training maps...")

@@ -2,6 +2,44 @@
 
 All notable changes to this project are documented in this file.
 
+## [Maps-Wiki_Generation_Parity-086] - (2026-11-18)
+
+### Scope
+- Audited the combat map generator against the Polytopia wiki's Map Generation page (Tiny 11×11 Drylands) with the
+  new `tools/audit_map_generation.py`. It runs on the 170 maps of the train and eval_validation pools.
+- **Already matched:**
+  - all land;
+  - capitals in different quadrants (the generator's domains);
+  - village spacing and distance from the edge;
+  - no ruin next to a village or ruin;
+  - every resource within 2 tiles of a city or village;
+  - Bardur's terrain: field 54.8 / forest 30.6 / mountain 14.6% (wiki 55.6 / 30.4 / 14.0), and Imperius's and
+    Xin-xi's terrain.
+- **Fixed in the generator:**
+  - `terrainProbs.json` tribe modifiers, set to the wiki:
+    - Imperius fruit ×2 and animal ×0.5; these were on Luxidoor, which is now base;
+    - Oumaji mountain ×0.5, forest ×0.2 (was 0.1) and animal ×0.2;
+    - Xin-xi metal ×1.5;
+    - Quetzali metal ×1 (was 0.1).
+  - **Modifiers multiply resource rates directly, and the empty share absorbs the difference** (`LevelGenerator`).
+    Before, a removed resource was redistributed: Bardur's ×0 crop gave its inner fields about 56–60% fruit
+    instead of 37.5%.
+  - **Ruins per map size** from the wiki table: Tiny 4 (was 3), Small 5, Normal 7, Large 9, Huge 11, Massive 23.
+- **After the fix,** on the same 120 seeds:
+  - 4 ruins per map;
+  - Bardur inner fruit 40% (wiki 37.5%);
+  - Imperius inner animal 28.5% (wiki 25%);
+  - Xin-xi inner metal 98% (×1.5, capped);
+  - Oumaji mountain 8.2% (wiki 7%).
+  - Remaining small gaps near the border come from the audit's nearest-capital ownership approximation.
+- `tools/generate_phase2_maps.py`:
+  - `--pool-root` writes a pool version beside the current one;
+  - the bundled JDK is found on Linux too.
+- **The committed pools are unchanged.** `levels/phase2_pool_1v1/*` and its manifest are files; regenerating them
+  would change every training and canonical evaluation map. Moving to wiki-parity pools is a separate, deliberate
+  step (a new pool version and a new reference).
+- Phase 1 maps are fixed files and are unaffected.
+
 ## [Phase2-Combat_Unit_Status-087] - (2026-11-18)
 
 ### Problem
