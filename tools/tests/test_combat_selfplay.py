@@ -100,7 +100,7 @@ class DeferredVillageCaptureTests(unittest.TestCase):
 
     def test_queued_unit_captures_before_the_turn_ends(self):
         env, view, stepped = self.make({7})
-        self.assertEqual(S.play_deferred_village_captures(env, view, 1), 1)
+        self.assertEqual(S.play_deferred_village_captures(env, view, 1), [1])
         self.assertEqual(stepped, ["CAPTURE unit 7"])
         self.assertEqual(view.view._queued_village_capture_unit_ids, set())
 
@@ -111,7 +111,7 @@ class DeferredVillageCaptureTests(unittest.TestCase):
 
     def test_nothing_queued_or_two_cities_means_no_capture(self):
         env, view, stepped = self.make({7}, cities=2)
-        self.assertEqual(S.play_deferred_village_captures(env, view, 1), 0)
+        self.assertEqual(S.play_deferred_village_captures(env, view, 1), [])
         self.assertEqual(stepped, [])
 
 
