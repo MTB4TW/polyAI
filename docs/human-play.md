@@ -9,7 +9,8 @@ you in SimpleAgent's seat, so a human result can be compared directly with the a
 # then open http://127.0.0.1:8765
 
 # On Farmshare (run it on a compute node or a login node, then forward the port from your laptop):
-ssh -L 8765:127.0.0.1:8765 <farmshare host>     # then open http://127.0.0.1:8765 locally
+# on your laptop, to the same login node by name (e.g. rice-03), never on Farmshare itself:
+ssh -L 8765:127.0.0.1:8765 <you>@rice-03.stanford.edu     # then open http://127.0.0.1:8765 locally
 ```
 
 A checkpoint stored in W&B can be fetched with `tools/wandb_checkpoint.py` first. Without `--model-path` the

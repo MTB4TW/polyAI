@@ -568,7 +568,14 @@ def main():
     maps = load_maps(args.pool)
     server = Server(env, agent, maps, settings, args.record_dir, args.player, args.seed)
     server.new_game(args.map, args.episode_seed)
-    httpd = ThreadingHTTPServer((args.host, args.port), server.handler())
+    try:
+        httpd = ThreadingHTTPServer((args.host, args.port), server.handler())
+    except OSError as exc:
+        server.session.abort()
+        env.close()
+        raise SystemExit(f"Cannot listen on {args.host}:{args.port} ({exc.strerror}). Another program (or an "
+                         f"`ssh -L {args.port}:...` tunnel started on this machine) is using it: pick another --port. "
+                         "The ssh tunnel belongs on your laptop, not on the machine running this server.")
     print(f"Playing {agent.name}{' (' + agent.model + ')' if agent.model else ''}: {settings['rules']}, "
           f"{settings['max_turns']}-turn limit, {args.pool} maps. Records go to {args.record_dir}")
     print(f"Open http://{args.host}:{args.port}  (Ctrl-C to stop)")
