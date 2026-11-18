@@ -2,6 +2,152 @@
 
 All notable changes to this project are documented in this file.
 
+## [Phase2-Combat_External_Tribe_Village_Capture-089] - (2026-11-18)
+
+### Problem and fix
+- The agent playing tribe 1 outside the wrapper's `step()` never made the wrapper's deferred village captures. Three
+  places play it that way:
+  - league snapshots (`combat_selfplay.play_external_turn`);
+  - `tools/play_vs_agent.py`, with the agent as tribe 1;
+  - `tools/evaluate_search_h2h.py`.
+- With fewer than 2 cities, a unit on a village is frozen and its CAPTURE is masked; `step()` captures it at
+  END_TURN. So in those three places tribe 1 could never take a village with one city.
+- Evidence: the same checkpoint against itself scored 0.90 / 0.69 by seat through the two paths before the fix,
+  and 0.685 / 0.320 after.
+- Fix: `combat_selfplay.play_deferred_village_captures`, called on END_TURN by all three.
+- `play_vs_agent` stores `settings.deferred_village_captures`. Games saved before this replay without the
+  captures, so their records still verify; all 5 saved games were checked.
+- The same fix is on exp/league-unitstatus-wikimaps (PR #33).
+
+## [Eval-Search_Variants_H2H-084] - (2026-11-17)
+
+### Scope
+- Ways to combine the policy with the combat tactical search at play time, for evaluation and human play only;
+  training is unchanged. `tools/search_variants.py`, `SearchPlayer`. Each mode plays the policy's top move
+  unless its rule lets the search override it:
+  - `none`: never;
+  - `search`: the existing `ppo_search` rule;
+  - `order`: only the order of the policy's own plan. Any attack on the target the policy attacks may go
+    first, a killing attack is always allowed, and an attack the policy rates at 5% or more may go before a
+    RECOVER or END_TURN;
+  - `decisive`: only lines that win, capture, put a unit on an enemy city or remove a threat to our capital;
+  - `decisive_kills`: `decisive`, plus lines that kill an enemy unit;
+  - `plan`: lines that beat the policy's own move by a margin of 0.5, searched at depth 4 and scored after the
+    opponent's tactical reply.
+- Java (read-only, used only by these tools):
+  - `CombatTactics.analyze`, through `PythonEnv.tacticalAnalyze`: the best line, its value, the stop value,
+    the value of the line forced to start with the policy's move, what each line achieves, and an optional
+    opponent-reply lookahead;
+  - `PythonEnv.attackPreviews`: damage, retaliation, kill and attacker-dies for every ATTACK, from the
+    engine's damage formula.
+  - `chooseIndex`, the teacher and `ppo_search` are unchanged.
+- `tools/evaluate_search_h2h.py` and `cluster/eval_search_h2h.sbatch`: head-to-head games of a variant against
+  a frozen checkpoint (policy only):
+  - both seats, canonical episode seeds, eval_validation;
+  - seat 0 through the wrapper, seat 1 through the league-snapshot path;
+  - `--summarize` pairs each variant with `none` against the same opponent, game by game, with a map
+    bootstrap.
+  - Diagnostics only: no SimpleAgent, not canonical.
+- No contract change: what a checkpoint sees and does in training and canonical evaluation is unchanged.
+
+### Validation
+- `tools/tests/test_search_variants.py`:
+  - attack previews line up with the action list;
+  - the analysis returns 18 finite values, also with a non-tactical forced move and with the reply lookahead;
+  - END_TURN forced gives no line;
+  - the live game is unchanged after analysis.
+- Core CI and `test_combat_tactics`, `test_teacher_kickstart` and `test_combat_selfplay` (live engine) pass.
+- Smoke run: the 4M league model in each mode against its 3M snapshot, 2 maps × 2 seats. Every mode ran, and
+  the search decided 6–14% of the moves.
+
+## [Tools-Play_Vs_Agent-083] - (2026-11-17)
+
+### Scope
+- New `tools/play_vs_agent.py` (+ `tools/play_vs_agent.html`): a local web server for a person to play a combat
+  (Phase 2) game against a checkpoint in the browser. The setup is `tools/evaluate_combat.py`'s:
+  - validation maps;
+  - capitals mode;
+  - rules, turn limit and fog memory from the checkpoint's environment version.
+- Model picker in the page: every combat checkpoint under `runs/` and `--models` globs, grouped by run, newest
+  first, with step, save time and canonical evaluation. The banner names the run, step, file, SHA-256 prefix,
+  network, environment version and warm-start source, so it is always clear which weights are playing.
+  Switching models rebuilds the environment only when the rules or turn limit differ.
+- Either seat:
+  - **Human second (tribe 1):** the agent plays through the wrapper as in evaluation, and the human acts
+    through the engine's "external" opponent hook.
+  - **Human first (tribe 0):** the human acts through the wrapper (the agent's legal-action list), and the
+    agent plays tribe 1 the way league snapshots do (`combat_selfplay.OpponentView`, turn count = turns it
+    has finished, as in seat-swap training).
+  - The human sees only their tribe's fogged observation.
+- Replay after the game in `tools/combat_replay_template.html`, now shared by both tools:
+  - one frame per action;
+  - the true board plus each player's fogged view, rebuilt from the true board and that tribe's explored tiles;
+  - player names and colours.
+  - The template change is backward compatible: `export_combat_replay.py` files (`seen`, no `views`) render
+    as before.
+- Every finished game is saved under `runs/human_games/`:
+  - a JSON record (`human_game_v2`): map, seed, checkpoint with SHA-256, settings, seats and every action of
+    both sides;
+  - the replay HTML file.
+  - `--verify-record` replays a record and checks every action and the outcome.
+- `eval_test` maps are refused without `--confirm-test`. Guide: `docs/human-play.md`.
+- No environment, reward, observation or action change: the tool drives the existing wrapper and engine, and
+  training and evaluation are unchanged. No contract version change.
+
+### Validation
+- `tools/tests/test_play_vs_agent.py` (9 tests with the exporter's):
+  - helpers: action list, change log, fogged view, checkpoint catalogue;
+  - a full scripted game in each seat against the random opponent, with both views on every frame, the
+    opponent hidden by fog at the start, and the record replaying to identical actions and outcome;
+  - the browser API over HTTP: catalogue, first seat, the replay withheld during the game, a stale move
+    rejected, end turn, resign, the replay served afterwards, and the resigned record replays.
+- Diagnostic: `combat_pcritic_t1_league_swap_4m` step 3.8M, against a side that only ended its turn, won on
+  turn 10 when the human moved first and on turn 9 when the human moved second. Both records verified.
+- Not checked: the pages' JavaScript was not run here (no browser or JS runtime on the node).
+
+### Update (same day, after the first human games)
+- **The board, in the game and in replays:**
+  - resources and buildings as distinct icons, with monuments ringed in gold;
+  - lighthouses at the map corners: found or not for the player. As in the game, a lighthouse the player has
+    found also shows whether the opponent has found it. Replays mark every finder on the true board, and in a
+    player's view only on lighthouses that player has found;
+  - health bars against each unit's true max HP, from `PythonEnv.combatStateJson`. The observation JSON has no
+    max HP, so the bars were always full before. The HP number is drawn on every unit.
+- **Click any tile to inspect it:** terrain, resource, building, lighthouse, city, and unit with exact
+  HP / max HP, veteran status and kills, including enemy units you can see.
+- **The agent's moves are animated** at the start of your turn, one action at a time (instant, fast, normal or
+  slow; Skip; Show again):
+  - built from the human's fogged view, so only what the human could see is shown;
+  - attacks as a red arrow with ⚔️ from attacker to target, and damage, retaliation and kills as numbers above
+    the units.
+  - Replays show attacks and damage the same way.
+- **Games are always saved,** including games abandoned by starting another or stopping the server.
+  - The page's "Past games" list opens any saved replay (`/api/games`, `/saved/<file>`; only files in the
+    record folder are served).
+  - `--rebuild-replay FILE...` replays records and rewrites their replay HTML, which also gives `human_game_v1`
+    records a replay.
+- **`tools/analyze_human_game.py`** replays a game with its checkpoint and prints, per agent decision, the
+  probabilities of its options and the moves onto villages and enemy cities. The first findings are in
+  `docs/human-games.md`.
+- **Tests:** `test_play_vs_agent.py` now has 10 tests, adding:
+  - exact max HP and lighthouses in the live view;
+  - the agent's steps contain no unit on a fogged tile;
+  - frames carry resources, max HP and attack source and target;
+  - an abandoned game is saved, listed, verified and rebuilt;
+  - saved replays are served, and paths outside the folder are refused.
+- **"Uses the tactical search" option** (page checkbox, `--search`): the agent plays policy + CombatTactics, as
+  `ppo_search` in `tools/evaluate_combat.py`.
+  - The search picks the move whenever it finds a tactical sequence that beats stopping now; otherwise the
+    policy decides.
+  - It works in both seats, because the Java search plans for the active tribe on its own fogged view.
+  - Moves the search chose are labelled "[search]" in the replay and `"by": "search"` in the record. The
+    banner says whether search is on.
+  - Diagnostic, with a human side that only ends its turn:
+    - teacher seed 2, moving first: 4 search moves, won on turn 16;
+    - league 4M final, moving second: 6 search moves, won on turn 7 in one of three games.
+- `cluster/eval_combat_farmshare.sbatch`: optional `EXTRA_EVAL_ARGS`, e.g. to add `--policy ppo_search` to the
+  canonical policy set.
+
 ## [Phase2-Combat_Star_Hoard_Penalty-081] - (2026-11-15)
 
 ### Scope
