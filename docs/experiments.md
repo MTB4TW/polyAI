@@ -123,6 +123,35 @@ Kevin (Claude agent), 2026-11-17, jobs 1994801/1994802, commit `5ea9532`.
 - The 4M league model wins all 600 games from seat 0 at argmax. Its sampled play reaches 99.0%. This is in
   line with SimpleAgent being saturated as an opponent.
 
+### Play-time search variants, head to head against frozen checkpoints (diagnostic)
+
+Player: `combat_pcritic_t1_league_swap_4m` (final) under each `tools/search_variants.py` mode. Opponents: the same final
+model, and its 3M and 2M snapshots, all with the policy alone (argmax). Each pairing covers 120 eval_validation maps ×
+2 canonical seeds × both seats = 480 games. Score: win 1, timeout 0.5, loss 0. "vs none" is paired game by game with
+the policy-only player against the same opponent (95% bootstrap CI over maps). Run by Kevin (Claude agent),
+2026-11-18, `tools/evaluate_search_h2h.py`; folders `outputs/evaluations/20261118_search_h2h_league4m_<mode>_vs_<opponent>`.
+
+| Mode (share of moves decided by search) | vs itself | vs 3M snapshot | vs 2M snapshot |
+|---|---|---|---|
+| `none` (score) | 0.500 | 0.530 | 0.529 |
+| `search` (17%) | −1.9 [−3.9, +0.0] | **−5.6 [−8.5, −2.9]** | +0.5 [−2.8, +4.0] |
+| `order` (6.5%) | +0.7 [−0.7, +2.2] | +0.9 [−1.1, +3.1] | +1.7 [−0.7, +4.2] |
+| `decisive` (4%) | **+1.3 [+0.2, +2.5]** | +1.1 [−0.3, +2.7] | +1.4 [−0.8, +3.4] |
+| `decisive_kills` (12–13%) | −0.2 [−2.1, +1.8] | −2.3 [−4.8, +0.3] | +0.2 [−2.4, +2.8] |
+| `plan` (7%) | +0.2 [−0.8, +1.3] | +0.0 [−2.5, +2.5] | +2.7 [−0.3, +5.6] |
+
+- **The seat decides most games.** Between these models the first mover scores about 0.94 and the second 0.04–0.17,
+  so every effect here comes from a small number of contested games.
+- **Plain `ppo_search` hurts**, as it did against SimpleAgent.
+- **Adding kills to `decisive` brings back the attrition trades:** 12–13% of moves are overridden, and it scores −2.3
+  against 3M.
+- **`decisive`** (overrides only for wins, captures, sieges and saving the capital) is positive against all three
+  opponents, and its interval excludes zero against itself. It is the safest play-time option.
+- **`order`** is positive but not significant.
+- **All gains are small (≤ 3 points).** The bigger fix is giving the policy the information itself (CHANGELOG 087,
+  unit status).
+- **4M vs its own 3M and 2M snapshots:** 0.53. The extra training shows mainly when moving second.
+
 ### Training-game diagnostics (before the canonical evaluation)
 
 Combat is judged by win rate against SimpleAgent (11×11, 1v1, CAPITALS mode, 20 turns). The canonical combat
