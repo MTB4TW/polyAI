@@ -218,6 +218,9 @@ def main(argv=None):
     rules, max_turns, max_legal = environment_settings(meta_a)
     from pol_env.Tribes.py.environment_contract import fog_memory_of_version
     fog_memory = fog_memory_of_version(meta_a.get("phase1_environment_version"))
+    from pol_env.Tribes.py.environment_contract import unit_status_of_version
+    # The env follows checkpoint A; a B without unit status plays through the old-contract adapter (combat_selfplay).
+    unit_status = unit_status_of_version(meta_a.get("phase1_environment_version"))
     for key in [k for k in os.environ if k.startswith(("POLYVISION_COMBAT_REWARD_", "POLYVISION_COMBAT_LEAGUE",
                                                        "POLYVISION_PRIVILEGED_OBS"))]:
         del os.environ[key]  # no league (the hook below sets the opponent), no reward weights, no critic input
@@ -226,7 +229,7 @@ def main(argv=None):
         "POLYVISION_LEVEL_POOL_GLOB": f"levels/phase2_pool_1v1/{args.pool}/*.csv",
         "POLYVISION_LEVEL_SELECTION_MODE": "round_robin", "POLYVISION_INFO_MODE": "fast",
         "POLYVISION_MAX_TURNS": str(max_turns), "POLYVISION_RULES": rules,
-        "POLYVISION_FOG_MEMORY": "1" if fog_memory else "0", "POLYVISION_MAX_LEGAL_ACTIONS": str(max_legal),
+        "POLYVISION_FOG_MEMORY": "1" if fog_memory else "0", "POLYVISION_UNIT_STATUS": "1" if unit_status else "0", "POLYVISION_MAX_LEGAL_ACTIONS": str(max_legal),
     })
 
     from pol_env.Tribes.py.combat_selfplay import SnapshotOpponent

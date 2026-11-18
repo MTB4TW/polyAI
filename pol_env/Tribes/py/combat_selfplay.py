@@ -158,13 +158,28 @@ class SnapshotOpponent:
         meta = read_checkpoint_metadata(path)
         env_meta = environment_compatibility_metadata(wrapper, actor_mode=meta["actor_mode"],
                                                       max_legal_actions=meta["max_legal_actions"])
+        observation_space = wrapper.observation_space
+        self.strip = None  # (unit-status slice of the observation, number of base action features)
+        old_contract = without_unit_status(wrapper, meta, env_meta)
+        if old_contract is not None:
+            env_meta, observation_space, self.strip = old_contract
         validate_checkpoint_compatibility(meta, env_meta)  # raises if the snapshot does not fit this environment
-        adapter = SimpleNamespace(single_observation_space=wrapper.observation_space,
+        adapter = SimpleNamespace(single_observation_space=observation_space,
                                   single_action_space=wrapper.action_space)
-        self.agent = make_agent(adapter, network_arch=meta.get("network_arch", "mlp"), actor_mode=meta["actor_mode"],
-                                max_legal_actions=meta["max_legal_actions"],
-                                legal_action_feature_dim=meta["legal_action_feature_dim"],
-                                observation_normalization=observation_normalization_from_metadata(meta))
+        previous = os.environ.get("POLYVISION_UNIT_STATUS")
+        if self.strip is not None:
+            os.environ["POLYVISION_UNIT_STATUS"] = "0"  # the network sizes itself from the snapshot's layout
+        try:
+            self.agent = make_agent(adapter, network_arch=meta.get("network_arch", "mlp"), actor_mode=meta["actor_mode"],
+                                    max_legal_actions=meta["max_legal_actions"],
+                                    legal_action_feature_dim=meta["legal_action_feature_dim"],
+                                    observation_normalization=observation_normalization_from_metadata(meta))
+        finally:
+            if self.strip is not None:
+                if previous is None:
+                    os.environ.pop("POLYVISION_UNIT_STATUS", None)
+                else:
+                    os.environ["POLYVISION_UNIT_STATUS"] = previous
         self.agent.load_state_dict(torch.load(path, map_location="cpu", weights_only=True))
         self.agent.eval()
         self._torch = torch
@@ -176,6 +191,10 @@ class SnapshotOpponent:
 
     def act(self, vec, ids, valid, feats) -> int:
         torch = self._torch
+        if self.strip is not None:  # an older snapshot: drop the unit-status planes and attack-outcome features
+            (start, end), base = self.strip
+            vec = np.concatenate([np.asarray(vec).reshape(-1)[:start], np.asarray(vec).reshape(-1)[end:]])
+            feats = np.asarray(feats)[:, :base]
         with torch.inference_mode():
             dist = self.agent.get_action_distribution(
                 torch.as_tensor(vec, dtype=torch.float32).reshape(1, -1),
@@ -190,6 +209,30 @@ class SnapshotOpponent:
         if not valid[slot]:
             raise RuntimeError("Snapshot opponent picked an invalid slot")
         return int(ids[slot])
+
+
+def without_unit_status(wrapper, meta, env_meta):
+    """For a snapshot trained without unit status in a run that has it: (env metadata as that snapshot expects it,
+    its observation space, ((start, end) of the unit-status block, base feature count)). None otherwise."""
+    from pol_env.Tribes.py.environment_contract import (
+        UNIT_STATUS_FEATURE_VERSION_SUFFIX, UNIT_STATUS_VERSION_SUFFIX, observation_layout, unit_status_of_version,
+    )
+    if not getattr(wrapper, "UNIT_STATUS", False) or unit_status_of_version(meta.get("phase1_environment_version")):
+        return None
+    import gymnasium as gym
+
+    layout = observation_layout(int(meta.get("map_width", 11)), int(meta.get("map_height", 11)),
+                                getattr(wrapper, "RULES_VERSION", None), getattr(wrapper, "FOG_MEMORY", None), True)
+    width = layout.unit_status_end - layout.unit_status_start
+    base = len(type(wrapper).LEGAL_ACTION_FEATURE_NAMES)
+    env_meta = dict(env_meta)
+    env_meta["phase1_environment_version"] = str(env_meta["phase1_environment_version"]).replace(UNIT_STATUS_VERSION_SUFFIX, "")
+    env_meta["observation_dim"] = int(env_meta["observation_dim"]) - width
+    env_meta["legal_action_feature_dim"] = base
+    env_meta["legal_action_feature_version"] = str(env_meta["legal_action_feature_version"]).replace(
+        UNIT_STATUS_FEATURE_VERSION_SUFFIX, "")
+    space = gym.spaces.Box(low=-np.inf, high=np.inf, shape=(int(env_meta["observation_dim"]),), dtype=np.float32)
+    return env_meta, space, ((layout.unit_status_start, layout.unit_status_end), base)
 
 
 def play_external_turn(wrapper, opponent: SnapshotOpponent, view: OpponentView, max_actions: int = 2000):

@@ -229,6 +229,42 @@ def fog_memory_of_version(environment_version) -> bool:
     return FOG_MEMORY_VERSION_SUFFIX in str(environment_version or "")
 
 
+# Combat unit status (opt-in, POLYVISION_UNIT_STATUS=1, combat only). Without it the policy sees each unit's type and
+# owner but not its health, veteran status or whether it has already acted, so it cannot tell whether an attack kills.
+# Adds spatial channels after the fog-memory channels and, for ATTACK actions, the engine's deterministic outcome as
+# extra legal-action features (UNIT_STATUS_ACTION_FEATURES). The version gains UNIT_STATUS_VERSION_SUFFIX.
+UNIT_STATUS_ENV_VAR = "POLYVISION_UNIT_STATUS"
+UNIT_STATUS_VERSION_SUFFIX = "+unit_status_v1"
+UNIT_STATUS_CHANNELS = ("unit_hp_fraction", "unit_hp_absolute", "unit_veteran", "unit_can_move", "unit_can_attack")
+UNIT_STATUS_HP_SCALE = 40.0  # a Giant's max HP: absolute HP / 40 stays in [0, 1.1]
+UNIT_STATUS_ACTION_FEATURES = ("attack_damage", "attack_retaliation", "attack_kills", "attack_attacker_dies")
+UNIT_STATUS_DAMAGE_SCALE = 10.0
+UNIT_STATUS_FEATURE_VERSION_SUFFIX = "+attack_outcome_v1"
+
+
+def resolve_unit_status(environ: Mapping[str, str] | None = None) -> bool:
+    """Whether the combat unit-status inputs are on. Combat-only: asking for them outside combat is an error."""
+    environ = os.environ if environ is None else environ
+    raw = str(environ.get(UNIT_STATUS_ENV_VAR, "") or "").strip()
+    if raw in ("", "0"):
+        return False
+    if raw != "1":
+        raise ValueError(f"{UNIT_STATUS_ENV_VAR}={raw!r}: expected 0 or 1")
+    combat = str(environ.get("POLYVISION_COMBAT_MODE", "")).strip() == "1" or \
+        str(environ.get("POLYVISION_PHASE", "")).strip() == "2"
+    if not combat:
+        raise ValueError(f"{UNIT_STATUS_ENV_VAR}=1 is combat-only (set POLYVISION_COMBAT_MODE=1 / POLYVISION_PHASE=2)")
+    return True
+
+
+def versioned_for_unit_status(environment_version: str, unit_status: bool) -> str:
+    return f"{environment_version}{UNIT_STATUS_VERSION_SUFFIX}" if unit_status else str(environment_version)
+
+
+def unit_status_of_version(environment_version) -> bool:
+    return UNIT_STATUS_VERSION_SUFFIX in str(environment_version or "")
+
+
 # Privileged critic observation (opt-in, POLYVISION_PRIVILEGED_OBS=1, combat only): the env also returns the same
 # observation layout built from the true, unfogged game state in info["privileged_obs"]. Training-time only (the
 # PPO critic reads it; the policy never does), so it changes neither the observation nor any version string.
@@ -453,6 +489,9 @@ class ObservationLayout:
     # Combat fog memory only; empty ranges when it is off.
     fog_memory_start: int = 0
     fog_memory_end: int = 0
+    # Combat unit status only; empty range when it is off.
+    unit_status_start: int = 0
+    unit_status_end: int = 0
     fog_scalar_start: int = 0
     fog_scalar_end: int = 0
 
@@ -467,11 +506,12 @@ class ObservationLayout:
 
 
 def observation_layout(width: int, height: int, rules_version: str | None = None,
-                       fog_memory: bool | None = None) -> ObservationLayout:
-    """Observation layout for a board; ``rules_version`` defaults to the POLYVISION_RULES setting and
-    ``fog_memory`` to the POLYVISION_FOG_MEMORY setting."""
+                       fog_memory: bool | None = None, unit_status: bool | None = None) -> ObservationLayout:
+    """Observation layout for a board; ``rules_version`` defaults to the POLYVISION_RULES setting, ``fog_memory`` to
+    POLYVISION_FOG_MEMORY and ``unit_status`` to POLYVISION_UNIT_STATUS."""
     diplomacy = rules_have_diplomacy(rules_version)
     fog_memory = resolve_fog_memory() if fog_memory is None else bool(fog_memory)
+    unit_status = resolve_unit_status() if unit_status is None else bool(unit_status)
     width = int(width)
     height = int(height)
     if width <= 0 or height <= 0:
@@ -516,6 +556,11 @@ def observation_layout(width: int, height: int, rules_version: str | None = None
     if fog_memory:
         cur += len(FOG_MEMORY_CHANNELS) * n_tiles
     fog_memory_end = cur
+
+    unit_status_start = cur
+    if unit_status:
+        cur += len(UNIT_STATUS_CHANNELS) * n_tiles
+    unit_status_end = cur
 
     legacy_scalar_start = cur
     cur += LEGACY_SCALAR_DIM
@@ -580,6 +625,8 @@ def observation_layout(width: int, height: int, rules_version: str | None = None
         diplomacy_scalar_end=diplomacy_scalar_end,
         fog_memory_start=fog_memory_start,
         fog_memory_end=fog_memory_end,
+        unit_status_start=unit_status_start,
+        unit_status_end=unit_status_end,
         fog_scalar_start=fog_scalar_start,
         fog_scalar_end=fog_scalar_end,
     )
