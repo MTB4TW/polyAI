@@ -47,6 +47,35 @@ All notable changes to this project are documented in this file.
   turn 10 when the human moved first and on turn 9 when the human moved second. Both records verified.
 - Not checked: the pages' JavaScript was not run here (no browser or JS runtime on the node).
 
+### Update (same day, after the first human games)
+- **The board, in the game and in replays:**
+  - resources and buildings as distinct icons, with monuments ringed in gold;
+  - lighthouses at the map corners: found or not for the player, and in replays, which player found each;
+  - health bars against each unit's true max HP, from `PythonEnv.combatStateJson`. The observation JSON has no
+    max HP, so the bars were always full before. The HP number is drawn on every unit.
+- **Click any tile to inspect it:** terrain, resource, building, lighthouse, city, and unit with exact
+  HP / max HP, veteran status and kills, including enemy units you can see.
+- **The agent's moves are animated** at the start of your turn, one action at a time (instant, fast, normal or
+  slow; Skip; Show again):
+  - built from the human's fogged view, so only what the human could see is shown;
+  - attacks as a red arrow with ⚔️ from attacker to target, and damage, retaliation and kills as numbers above
+    the units.
+  - Replays show attacks and damage the same way.
+- **Games are always saved,** including games abandoned by starting another or stopping the server.
+  - The page's "Past games" list opens any saved replay (`/api/games`, `/saved/<file>`; only files in the
+    record folder are served).
+  - `--rebuild-replay FILE...` replays records and rewrites their replay HTML, which also gives `human_game_v1`
+    records a replay.
+- **`tools/analyze_human_game.py`** replays a game with its checkpoint and prints, per agent decision, the
+  probabilities of its options and the moves onto villages and enemy cities. The first findings are in
+  `docs/human-games.md`.
+- **Tests:** `test_play_vs_agent.py` now has 10 tests, adding:
+  - exact max HP and lighthouses in the live view;
+  - the agent's steps contain no unit on a fogged tile;
+  - frames carry resources, max HP and attack source and target;
+  - an abandoned game is saved, listed, verified and rebuilt;
+  - saved replays are served, and paths outside the folder are refused.
+
 ## [Phase2-Combat_Star_Hoard_Penalty-081] - (2026-11-15)
 
 ### Scope

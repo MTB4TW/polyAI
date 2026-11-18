@@ -312,11 +312,12 @@ def tech_names() -> List[str]:
     return [str(t) for t in TECHNOLOGY_ORDER]
 
 
-def board_view(obs: dict) -> dict:
+def board_view(obs: dict, max_hp: Optional[Dict[str, int]] = None) -> dict:
     """Compact, JSON-ready view of a fogged observation (board arrays are indexed [x][y])."""
     board = obs.get("board", {})
+    max_hp = max_hp or {}
     units = [{"id": int(uid), "x": int(u["x"]), "y": int(u["y"]), "t": int(u["type"]), "o": int(u["tribeId"]),
-              "hp": int(u["currentHP"]), "maxhp": int(u.get("maxHP", u["currentHP"]) or u["currentHP"]),
+              "hp": int(u["currentHP"]), "maxhp": int(max_hp.get(str(uid), u["currentHP"])),
               "vet": bool(u.get("isVeteran", False)), "kills": int(u.get("kill", 0))}
              for uid, u in (obs.get("unit") or {}).items()]
     cities = [{"id": int(cid), "x": int(c["x"]), "y": int(c["y"]), "o": int(c["tribeID"]), "cap": bool(c.get("isCapital")),
@@ -414,6 +415,47 @@ def seen_changes(before: Optional[dict], after: dict, me: int) -> List[str]:
     return lines
 
 
+def full_board(te) -> dict:
+    """True-board snapshot for replays: the exporter's snapshot plus resources, buildings and each unit's max HP."""
+    obs = te.get_observation(full_visibility=True)
+    snap = full_snapshot(obs)
+    board = obs.get("board", {})
+    snap["resource"], snap["building"] = board.get("resource", []), board.get("building", [])
+    for uid, mh in max_hp_by_unit(te).items():
+        if uid in snap["units"]:
+            snap["units"][uid]["mh"] = mh
+    return snap
+
+
+def max_hp_by_unit(te) -> Dict[str, int]:
+    """Unit id -> max HP from the engine (the observation JSON has only current HP). Max HP follows from the unit's
+    type, veteran status and rules, so it is public for any unit you can see."""
+    try:
+        return {str(u["id"]): int(u["maxHp"]) for u in json.loads(te._env.combatStateJson()).get("units", [])}
+    except Exception:
+        return {}
+
+
+def lighthouses(size: int) -> List[List[int]]:
+    """2.15 rules: a lighthouse stands on each corner; a tribe finds one by revealing that tile."""
+    return [[0, 0], [0, size - 1], [size - 1, 0], [size - 1, size - 1]]
+
+
+def fogged_board(full: dict, mask: Optional[List[List[int]]], me: int, tribes: dict) -> dict:
+    """Tribe `me`'s view of a true-board snapshot in board_view's format (what the engine would show it)."""
+    n = len(full["terrain"])
+    mask = mask or [[0] * n for _ in range(n)]
+    on = lambda x, y: bool(mask[x][y])
+    hide = lambda grid, blank: [[grid[x][y] if on(x, y) else blank for y in range(n)] for x in range(n)] if grid else []
+    units = [{"id": int(uid), "x": u["x"], "y": u["y"], "t": u["t"], "o": u["o"], "hp": u["hp"], "maxhp": u.get("mh", u["hp"]),
+              "vet": u["vet"], "kills": u.get("k", 0)}
+             for uid, u in full["units"].items() if u["o"] == me or on(u["x"], u["y"])]
+    cities = [{"id": int(cid), "x": c["x"], "y": c["y"], "o": c["o"], "cap": c["cap"], "lvl": c["lvl"], "walls": c["walls"]}
+              for cid, c in full["cities"].items() if c["o"] == me or on(c["x"], c["y"])]
+    return {"terrain": hide(full["terrain"], FOG), "resource": hide(full.get("resource"), -1),
+            "building": hide(full.get("building"), -1), "units": units, "cities": cities, "tribes": tribes}
+
+
 def visible_mask(obs: dict) -> List[List[int]]:
     return [[0 if int(t) == FOG else 1 for t in row] for row in obs.get("board", {}).get("terrain", [])]
 
@@ -460,6 +502,8 @@ class GameSession:
         self._abort = threading.Event()
         self._last_human_view: Optional[dict] = None
         self._need_changes = False
+        self._steps_from: Optional[int] = 0     # frames from here on are shown to the human at their next turn
+        self._step_seq = 0
         self._opp_view = None
         self._end_frame_done = False
         self.thread = threading.Thread(target=self._run, name="game", daemon=True)
@@ -521,23 +565,69 @@ class GameSession:
         return obs
 
     def _capture(self, actor: Optional[int], raw: Optional[dict] = None, label: Optional[str] = None):
-        full = full_snapshot(self.env.tribes_env.get_observation(full_visibility=True))
+        full = full_board(self.env.tribes_env)
         before = self.frames[-1]["full"] if self.frames else None
         events = diff_events(before, full) if before is not None else []
         if raw is not None:
             label = describe_action(raw, before, events) if before is not None else str(raw.get("repr"))
-        self.frames.append({"turn": self._round(), "label": label or "", "events": events, "full": full,
-                            "actor": actor, "action": raw.get("type") if raw else None,
-                            "raw": raw.get("repr") if raw else None, "_masks": dict(self.masks)})
+        frame = {"turn": self._round(), "label": label or "", "events": events, "full": full,
+                 "actor": actor, "action": raw.get("type") if raw else None,
+                 "raw": raw.get("repr") if raw else None, "_masks": dict(self.masks), "hits": []}
+        if raw is not None and "src_x" in raw:
+            frame["src"] = [int(raw["src_x"]), int(raw["src_y"])]
+        if raw is not None and "target_x" in raw:
+            frame["dst"] = [int(raw["target_x"]), int(raw["target_y"])]
+        if before is not None:  # HP changes: damage to the target and retaliation on the attacker
+            for uid, u in before["units"].items():
+                v = full["units"].get(uid)
+                if v is None:
+                    frame["hits"].append({"at": [u["x"], u["y"]], "d": -u["hp"], "killed": True, "o": u["o"]})
+                elif v["hp"] != u["hp"]:
+                    frame["hits"].append({"at": [v["x"], v["y"]], "d": v["hp"] - u["hp"], "killed": False, "o": u["o"]})
+        self.frames.append(frame)
 
     def _check_abort(self):
         if self._abort.is_set():
             raise GameAborted()
 
     # game thread: the human -------------------------------------------------------
+    def _agent_steps(self, mask, tribes) -> List[dict]:
+        """The agent's actions since the human last ended a turn, as the human could see them (for the live
+        animation): each with the human's fogged board after it and what to highlight."""
+        steps = []
+        on = lambda p: p is not None and 0 <= p[0] < len(mask) and 0 <= p[1] < len(mask) and bool(mask[p[0]][p[1]])
+        for f in self.frames[self._steps_from:]:
+            if f["actor"] != self.agent_tribe or f["action"] in (None, "END_TURN", "RESEARCH_TECH"):
+                continue
+            src, dst = f.get("src"), f.get("dst")
+            hits = [h for h in f["hits"] if on(h["at"]) or h["o"] == self.human]
+            if not (on(src) or on(dst) or hits):
+                continue
+            text = f["label"]
+            unit = next((u for u in f["full"]["units"].values() if dst and [u["x"], u["y"]] == dst), None)
+            name = UNIT_NAMES[unit["t"]] if unit and 0 <= unit["t"] < len(UNIT_NAMES) else "unit"
+            if f["action"] == "MOVE" and not (on(src) and on(dst)):
+                text = f"An enemy {name} moved into view at ({dst[0]},{dst[1]})" if on(dst) else \
+                       f"An enemy unit moved out of sight from ({src[0]},{src[1]})"
+            elif f["action"] == "ATTACK" and not on(src):
+                text = "An enemy unit attacked from the fog: " + "; ".join(e["text"] for e in f["events"] if e["kind"] in ("damaged", "killed"))
+                src = None
+            steps.append({"text": text, "action": f["action"], "src": src if on(src) else None, "dst": dst if on(dst) else None,
+                          "hits": hits, "board": fogged_board(f["full"], mask, self.human, tribes)})
+        return steps
+
     def _wait_for_human(self, obs: dict, legal: List[dict]) -> dict:
-        view = board_view(obs)
+        view = board_view(obs, max_hp_by_unit(self.env.tribes_env))
+        if self.settings.get("rules") == "polytopia_2_15":
+            n = len(view["terrain"])
+            view["lighthouses"] = [{"at": p, "found": int(view["terrain"][p[0]][p[1]]) != FOG} for p in lighthouses(n)]
         turn = self._round()
+        if self._steps_from is not None:  # a new turn: hand the agent's visible moves to the browser to animate
+            mask = self.masks[self.human]
+            self._step_seq += 1
+            with self.lock:
+                self.state["agent_steps"] = {"id": self._step_seq, "steps": self._agent_steps(mask, view["tribes"])}
+            self._steps_from = None
         if self._need_changes:
             for line in seen_changes(self._last_human_view, view, self.human) or ["(nothing you can see changed)"]:
                 self._log("agent", line, turn)
@@ -580,6 +670,7 @@ class GameSession:
             self._capture(self.human, raw)
             if raw.get("type") == "END_TURN":
                 self._last_human_view, self._need_changes = self._current_view, True
+                self._steps_from = len(self.frames)
         self._publish(phase="agent_turn", legal=[])
 
     def _human_pick_wrapper(self, obs_vec, info) -> int:
@@ -668,6 +759,7 @@ class GameSession:
                     self._log("you", describe(raw), self._round())
                     if raw.get("type") == "END_TURN":
                         self._last_human_view, self._need_changes = self._current_view, True
+                        self._steps_from = len(self.frames) + 1  # after this END_TURN's own frame
                 self._end_frame_done = False
                 obs, _r, terminated, truncated, info = env.step(int(gid))
                 if raw.get("type") != "END_TURN":
@@ -694,12 +786,12 @@ class GameSession:
         final = None
         if outcome not in ("aborted", "error"):
             try:
-                final = board_view(env.tribes_env.get_observation(full_visibility=True))
+                final = board_view(env.tribes_env.get_observation(full_visibility=True), max_hp_by_unit(env.tribes_env))
             except Exception:
                 pass
         self._save()
         self._publish(phase="over", tribe0_outcome=outcome, result=human_result, legal=[], error=self.error,
-                      final_board=final, turn=self._round(), has_replay=bool(self.frames) and outcome not in ("aborted", "error"),
+                      final_board=final, turn=self._round(), has_replay=bool(self.frames) and outcome != "error",
                       record=str(self.record_path) if self.record_path else None,
                       replay=str(self.replay_path) if self.replay_path else None)
 
@@ -715,7 +807,7 @@ class GameSession:
         model = self.state.get("model") or {}
         model_name = f"{model.get('run')} {('step ' + format(model['step'], ',')) if model.get('step') else 'final'}" if model else "random legal"
         players = {str(self.human): f"{who} ({tribes[self.human]})", str(self.agent_tribe): f"Agent ({tribes[self.agent_tribe]})"}
-        word = {"win": f"{who} won", "loss": "Agent won", "timeout": "Timeout"}.get(self.result, self.result)
+        word = {"win": f"{who} won", "loss": "Agent won", "timeout": "Timeout", "aborted": "Abandoned"}.get(self.result, self.result)
         if self.outcome == "resigned":
             word = f"{who} resigned"
         return {
@@ -728,6 +820,7 @@ class GameSession:
             "outcome": self.result if self.result in ("win", "loss", "timeout") else "loss",
             "outcome_text": word, "end_turn": self._round(), "decisions": len(self.history),
             "mark_pov": self.human, "blue_tribe": self.human,
+            "lighthouses": str(self.settings.get("rules")) == "polytopia_2_15",
             "unit_names": UNIT_NAMES, "unit_letters": UNIT_LETTERS, "terrain_names": TERRAIN_NAMES, "frames": frames,
         }
 
@@ -737,8 +830,10 @@ class GameSession:
         return template.replace("/*REPLAY_DATA*/null", data)
 
     def _save(self):
-        if self.record_dir is None or self.outcome in ("aborted", "error"):
+        if self.record_dir is None or self.outcome == "error":
             return
+        if self.outcome == "aborted" and not any(a.get("side") == self.human for a in self.history):
+            return  # abandoned before the human moved: nothing worth keeping
         self.record_dir.mkdir(parents=True, exist_ok=True)
         stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         base = self.record_dir / f"{stamp}_{Path(self.map_path).stem}_{self.episode_seed}_human{self.human}"
@@ -746,7 +841,8 @@ class GameSession:
         record = {"record_version": RECORD_VERSION, "created_utc": stamp, "player": self.player,
                   "map": Path(self.map_path).name, "map_path": self.map_path, "episode_seed": self.episode_seed,
                   "agent": self.agent.name, "model": model, "agent_tribe": self.agent_tribe, "human_tribe": self.human,
-                  "settings": self.settings, "tribe0_outcome": self.outcome, "human_result": self.result,
+                  "settings": self.settings, "tribe0_outcome": "abandoned" if self.outcome == "aborted" else self.outcome,
+                  "human_result": "abandoned" if self.outcome == "aborted" else self.result,
                   "turns": self._round(), "actions": self.history}
         self.record_path = base.with_suffix(".json")
         self.record_path.write_text(json.dumps(record, indent=1), encoding="utf-8")
@@ -754,8 +850,8 @@ class GameSession:
         self.replay_path.write_text(self.replay_html(), encoding="utf-8")
 
 
-def replay_record(env, record: dict, map_info) -> Tuple[str, List[dict]]:
-    """Replay a saved game action by action. Returns (tribe 0's outcome, replayed history)."""
+def replay_record(env, record: dict, map_info):
+    """Replay a saved game action by action. Returns (tribe 0's outcome, replayed history, session)."""
     actions = [a for a in record["actions"] if not a.get("resign")]
     human_t = int(record["human_tribe"])
     human = iter([a for a in actions if a["side"] == human_t])
@@ -769,23 +865,32 @@ def replay_record(env, record: dict, map_info) -> Tuple[str, List[dict]]:
             pass
 
         def act(self, *args):
-            return int(next(agent)["gid"])
+            return self.choose(None, None)
 
         def choose(self, obs, info):
-            return int(next(agent)["gid"])
+            step = next(agent, None)
+            if step is None:
+                raise GameAborted("abandoned")
+            return int(step["gid"])
+
+    abandoned = record.get("tribe0_outcome") == "abandoned"
 
     def human_policy(state):
         step = next(human, None)
-        if step is None:  # the human resigned here
-            raise GameAborted("resigned")
+        if step is None:  # the human resigned (or left) here
+            raise GameAborted("abandoned" if abandoned else "resigned")
         return int(step["gid"] if human_t == 0 else step["raw"])
 
     session = GameSession(env, Scripted(), map_info, record["episode_seed"], record.get("settings", {}), None,
                           human_tribe=human_t, human_policy=human_policy)
+    if isinstance(record.get("model"), dict):
+        session.state["model"] = record["model"]
+    elif record.get("model"):  # human_game_v1 stored only the file name
+        session.state["model"] = {"run": record["model"], "file": record["model"], "step": None, "sha256": ""}
     session._run()
     if session.error:
         raise RuntimeError(session.error)
-    return session.outcome, session.history
+    return ("abandoned" if session.outcome == "aborted" else session.outcome), session.history, session
 
 
 # --- web server ---------------------------------------------------------------------------------------------
@@ -889,6 +994,14 @@ class Server:
                     return self._json(200, {"models": [m.public() for m in server.models],
                                             "maps": [m.filename for m in server.maps],
                                             "unit_names": UNIT_NAMES, "player": server.player})
+                if path == "/api/games":
+                    return self._json(200, {"games": list_games(server.record_dir), "dir": str(server.record_dir)})
+                if path.startswith("/saved/"):
+                    name = Path(path[len("/saved/"):]).name  # no directories: only files in the record folder
+                    f = server.record_dir / name
+                    if not name.endswith(".html") or not f.is_file():
+                        return self._send(404, b"No such saved replay.", "text/plain")
+                    return self._send(200, f.read_bytes(), "text/html; charset=utf-8")
                 if path == "/replay":
                     s = server.session
                     if s is None or s.state.get("phase") != "over" or not s.state.get("has_replay"):
@@ -926,6 +1039,32 @@ class Server:
         return Handler
 
 
+def list_games(record_dir: Path) -> List[dict]:
+    """Saved games, newest first: what the page's "Past games" list shows."""
+    games = []
+    for path in sorted(record_dir.glob("*.json"), reverse=True):
+        try:
+            r = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not str(r.get("record_version", "")).startswith("human_game_"):
+            continue
+        model = r.get("model")
+        if isinstance(model, dict):
+            name = f"{model.get('run')} " + (f"step {model['step']:,}" if model.get("step") else "final")
+        else:
+            name = str(model or "random legal")
+        human = r.get("human_result")
+        if human is None:  # human_game_v1: the agent was tribe 0 and its outcome is recorded
+            human = {"win": "loss", "loss": "win"}.get(r.get("agent_outcome"), r.get("agent_outcome"))
+        html = path.with_suffix(".html")
+        games.append({"file": path.name, "replay": html.name if html.is_file() else None, "created": r.get("created_utc"),
+                      "map": r.get("map"), "seed": r.get("episode_seed"), "player": r.get("player"), "model": name,
+                      "you_moved": "first" if r.get("human_tribe") == 0 else "second", "result": human,
+                      "turns": r.get("turns")})
+    return games
+
+
 def load_maps(pool: str):
     from tools.combat_eval_core import load_verified_pool
     _, maps, _ = load_verified_pool(REPO_ROOT, pool)
@@ -952,22 +1091,30 @@ def parse_args():
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=8765)
     p.add_argument("--verify-record", type=Path, help="Replay a saved game and check every action and the outcome")
+    p.add_argument("--rebuild-replay", type=Path, nargs="+", help="Replay saved games and (re)write their replay HTML")
     return p.parse_args()
 
 
-def verify(record_path: Path, pool: str) -> bool:
+def verify(record_path: Path, pool: str, rebuild: bool = False) -> bool:
+    """Replay a record and check its actions and outcome; with rebuild, (re)write its replay HTML next to it."""
     record = json.loads(record_path.read_text(encoding="utf-8"))
     s = record.get("settings", {})
     env, _ = make_env(None, pool, s.get("rules", "tribes_2020"), int(s.get("max_turns", 20)), recorded=s)
     try:
         game_map = [m for m in load_maps(pool) if m.filename == record["map"]][0]
-        outcome, history = replay_record(env, record, game_map)
+        outcome, history, session = replay_record(env, record, game_map)
+        session.player = record.get("player", "")
+        if rebuild:
+            html = record_path.with_suffix(".html")
+            html.write_text(session.replay_html(), encoding="utf-8")
+            print(f"wrote {html}")
     finally:
         env.close()
     strip = lambda h: [(a.get("side"), a.get("gid"), a.get("raw"), a.get("repr")) for a in h if not a.get("resign")]
     same_moves = strip(history) == strip(record["actions"])
-    ok = same_moves and outcome == record["tribe0_outcome"]
-    print(f"{record_path.name}: recorded {record['tribe0_outcome']}, replayed {outcome}, "
+    recorded = record.get("tribe0_outcome", record.get("agent_outcome"))  # human_game_v1 stored the agent's (tribe 0's)
+    ok = same_moves and outcome == recorded
+    print(f"{record_path.name}: recorded {recorded}, replayed {outcome}, "
           f"{'same' if same_moves else 'DIFFERENT'} actions — {'OK' if ok else 'MISMATCH'}")
     return ok
 
@@ -978,6 +1125,8 @@ def main():
         raise SystemExit("eval_test maps are for the human protocol only: pass --confirm-test when a human asked for it")
     if args.verify_record:
         sys.exit(0 if verify(args.verify_record, args.pool) else 1)
+    if args.rebuild_replay:
+        sys.exit(0 if all([verify(p, args.pool, rebuild=True) for p in args.rebuild_replay]) else 1)
 
     patterns = [str(REPO_ROOT / "runs" / "**" / "*.cleanrl_model")] + args.models
     patterns += [g for g in os.environ.get("POLYAI_MODEL_GLOBS", "").split(":") if g]

@@ -45,6 +45,14 @@ taking yours. At the turn limit the game is a timeout.
   so playing first tests them in a seat they never trained in.
 - **Fog:** you see only your tribe's fogged observation. At the start of your turn, the log lists the changes
   you can see from the agent's turn.
+- **On the board:**
+  - resources (🍒🦌🐟🐋🌾🪨🏛️) and buildings, with monuments ringed in gold;
+  - lighthouses (🗼, faint until you have found them);
+  - HP bars against true max HP, with the number on each unit.
+  - Click any tile to inspect it, including the exact HP of an enemy unit you can see.
+- **The agent's turn:** its moves are animated one at a time at the start of your turn, as far as you can
+  see them. Choose instant, fast, normal or slow; Skip; Show again. Attacks are a red ⚔️ arrow from attacker
+  to target, with damage numbers.
 - **Controls:**
   - Click one of your units or cities. Actions on the spot (train, capture, harvest, city rewards) appear as
     buttons, and moves and attacks are highlighted on the board. Click a highlighted tile to play it.
@@ -69,6 +77,13 @@ The viewer is shared: `export_combat_replay.py` replays (agent against SimpleAge
 "True board / Bot's view" as before.
 
 ## Records
+
+Every game is saved, including one you abandon by starting another (marked "abandoned"). The page's **Past
+games** list opens the replay of any saved game. `--rebuild-replay FILE...` rewrites replays from records, for
+example after a viewer update or for an old `human_game_v1` record. To see what the agent was thinking in a
+game, run `tools/analyze_human_game.py <record> --turns 9-11`. Notes from the games so far are in
+`docs/human-games.md`.
+
 
 Every finished game is saved to `--record-dir` (by default `runs/human_games/`, never committed) in two files:
 - **JSON record** (`human_game_v2`):

@@ -81,7 +81,8 @@
     <div class="legend">
       <span id="legend-players"></span>
       <span>■ city, ♛ capital, number = level</span><span>W warrior · R rider · D defender · S swordsman · A archer · C catapult · K knight</span>
-      <span>bar = HP, ★ veteran</span><span>arrows = this step's moves, ✕ = killed</span>
+      <span>bar and number = HP, ★ veteran</span><span>arrows = this step's moves, red arrow ⚔️ = attack, −n = damage, ✕ = killed</span>
+      <span>🍒🦌🐟🐋🌾🪨🏛️ resources · 🌽⛏️⚓🪵🔨🌬️🪚💰⛩️ buildings · gold ring = monument · 🗼 lighthouse (dots: who found it)</span>
       <span><kbd>←</kbd><kbd>→</kbd> step · <kbd>↑</kbd><kbd>↓</kbd> turn · <kbd>F</kbd> next view</span>
     </div>
   </section>
@@ -118,6 +119,14 @@ const N = F[0].full.terrain.length;
 const PAD = 40, CELL = (canvas.width - PAD) / N;
 const TERRAIN = { 0: "#b7d98b", 1: "#8fd0ea", 2: "#3f86c6", 3: "#9b9488", 4: "#d9bf7f", 5: "#c9b48a", 6: "#5e9a4f", 7: "#333" };
 const TNAME = D.terrain_names;
+// Resources, buildings (monuments ringed) and lighthouses: drawn when the replay carries them (play_vs_agent.py).
+const RES = { 0: "🐟", 1: "🍒", 2: "🦌", 3: "🐋", 5: "🪨", 6: "🌾", 7: "🏛️" };
+const BUILD = { 0: "⚓", 1: "⛏️", 2: "🔨", 3: "🌽", 4: "🌬️", 5: "💰", 6: "🪵", 7: "🪚", 8: "⛩️", 9: "⛩️", 10: "⛩️", 11: "⛩️",
+                12: "🕊️", 13: "⚱️", 14: "👁️", 15: "🚪", 16: "🏪", 17: "🍀", 18: "📚" };
+function glyph(t, x, y, size, align, base) {
+  ctx.font = `${size}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif`;
+  ctx.textAlign = align; ctx.textBaseline = base; ctx.fillText(t, x, y);
+}
 const outcomeWord = D.outcome_text || { win: "Win", loss: "Loss", timeout: "Timeout" }[D.outcome] || D.outcome;
 
 $("title").innerHTML = `${P[0]} vs ${P[1]} <span class="badge ${D.outcome}">${outcomeWord} · turn ${D.end_turn}</span>`;
@@ -136,12 +145,14 @@ function drawUnit(u, faded) {
   ctx.lineWidth = 3; ctx.strokeStyle = "#fff"; ctx.stroke();
   ctx.fillStyle = "#fff"; ctx.font = `bold ${CELL * 0.28}px sans-serif`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
   ctx.fillText(D.unit_letters[u.t] || "?", mx, my + 1);
-  const maxhp = Math.max(u.hp, 10 + (u.vet ? 5 : 0), u.t === 2 ? 15 : 10);
+  const maxhp = u.mh ? Math.max(u.mh, u.hp) : Math.max(u.hp, 10 + (u.vet ? 5 : 0), u.t === 2 ? 15 : 10);
   const bw = CELL * 0.7, bx = cx + CELL * 0.15, by = cy + CELL * 0.86;
   ctx.fillStyle = "rgba(0,0,0,.45)"; ctx.fillRect(bx, by, bw, 6);
   ctx.fillStyle = u.hp / maxhp > 0.5 ? "#22c55e" : u.hp / maxhp > 0.25 ? "#eab308" : "#ef4444";
   ctx.fillRect(bx, by, bw * Math.min(1, u.hp / maxhp), 6);
   if (u.vet) { ctx.fillStyle = "#facc15"; ctx.font = `${CELL * 0.22}px sans-serif`; ctx.fillText("★", cx + CELL * 0.82, cy + CELL * 0.18); }
+  ctx.font = `bold ${CELL * 0.17}px sans-serif`; ctx.textAlign = "left"; ctx.textBaseline = "top"; ctx.lineWidth = 3;
+  ctx.strokeStyle = "rgba(0,0,0,.65)"; ctx.strokeText(u.hp, cx + 4, cy + 3); ctx.fillStyle = "#fff"; ctx.fillText(u.hp, cx + 4, cy + 3);
   ctx.globalAlpha = 1;
 }
 
@@ -173,6 +184,14 @@ function draw() {
     if (t === 6) { ctx.fillStyle = "rgba(0,60,0,.35)"; for (const [a, b] of [[.3, .35], [.65, .3], [.5, .65]]) {
       ctx.beginPath(); ctx.arc(cx + CELL * a, cy + CELL * b, CELL * .12, 0, 7); ctx.fill(); } }
     if (t === 4) { ctx.strokeStyle = "rgba(90,60,20,.8)"; ctx.lineWidth = 3; ctx.strokeRect(cx + CELL * .3, cy + CELL * .3, CELL * .4, CELL * .4); }
+    const seenHere = !fogged || vis[x][y];
+    const r = full.resource && full.resource[x] ? full.resource[x][y] : -1;
+    if (seenHere && RES[r]) glyph(RES[r], cx + CELL - 3, cy + CELL - 2, CELL * 0.3, "right", "bottom");
+    const b = full.building && full.building[x] ? full.building[x][y] : -1;
+    if (seenHere && BUILD[b]) {
+      if (b >= 12 && b <= 18) { ctx.strokeStyle = "#d4a017"; ctx.lineWidth = 5; ctx.beginPath(); ctx.arc(cx + CELL * .22, cy + CELL * .78, CELL * .2, 0, 7); ctx.stroke(); }
+      glyph(BUILD[b], cx + 4, cy + CELL - 2, CELL * 0.28, "left", "bottom");
+    }
     ctx.strokeStyle = "rgba(0,0,0,.15)"; ctx.lineWidth = 1; ctx.strokeRect(cx, cy, CELL, CELL);
   }
   for (const [id, c] of Object.entries(full.cities)) {
@@ -188,6 +207,15 @@ function draw() {
     const [cx, cy] = px(x, y);
     ctx.fillStyle = fogged ? "rgba(30,32,38,.93)" : "rgba(30,32,38,.28)"; ctx.fillRect(cx, cy, CELL, CELL);
   }
+  if (D.lighthouses) {
+    for (const [lx, ly] of [[0, 0], [0, N - 1], [N - 1, 0], [N - 1, N - 1]]) {
+      const [cx, cy] = px(lx, ly), foundBy = POVS.filter(t => { const v = seenOf(f, t); return v && v.visible && v.visible[lx][ly]; });
+      ctx.globalAlpha = (fogged ? foundBy.includes(viewT) : foundBy.length) ? 1 : 0.35;
+      glyph("🗼", cx + CELL - 3, cy + 3, CELL * 0.28, "right", "top"); ctx.globalAlpha = 1;
+      if (!fogged) foundBy.forEach((t, k) => { ctx.beginPath(); ctx.arc(cx + CELL * (0.55 - k * 0.14), cy + CELL * 0.14, CELL * 0.06, 0, 7);
+        ctx.fillStyle = col(t); ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = "#fff"; ctx.stroke(); });
+    }
+  }
   for (const [id, u] of Object.entries(full.units)) {
     const hidden = u.o !== viewT && !seenUnits.has(id);
     if (fogged && hidden) continue;
@@ -196,6 +224,25 @@ function draw() {
       const [cx, cy] = px(u.x, u.y); ctx.setLineDash([6, 5]); ctx.strokeStyle = "#fff"; ctx.lineWidth = 2;
       ctx.strokeRect(cx + 3, cy + 3, CELL - 6, CELL - 6); ctx.setLineDash([]);
     }
+  }
+  const visP = p => !fogged || (p && vis[p[0]][p[1]]);
+  if (f.action === "ATTACK" && f.src && f.dst && (visP(f.src) || visP(f.dst))) {  // who attacked whom
+    const c = p => { const [x0, y0] = px(p[0], p[1]); return [x0 + CELL / 2, y0 + CELL / 2]; };
+    const a = c(f.src), b = c(f.dst), ang = Math.atan2(b[1] - a[1], b[0] - a[0]);
+    const end = [b[0] - Math.cos(ang) * CELL * 0.3, b[1] - Math.sin(ang) * CELL * 0.3];
+    ctx.strokeStyle = "#ef4444"; ctx.fillStyle = "#ef4444"; ctx.lineWidth = 8;
+    ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(end[0], end[1]); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(end[0], end[1]); ctx.lineTo(end[0] - 22 * Math.cos(ang - 0.45), end[1] - 22 * Math.sin(ang - 0.45));
+    ctx.lineTo(end[0] - 22 * Math.cos(ang + 0.45), end[1] - 22 * Math.sin(ang + 0.45)); ctx.closePath(); ctx.fill();
+    glyph("⚔️", (a[0] + b[0]) / 2, (a[1] + b[1]) / 2, CELL * 0.35, "center", "middle");
+    const [sx, sy] = px(f.src[0], f.src[1]); ctx.strokeStyle = "#facc15"; ctx.lineWidth = 6; ctx.strokeRect(sx + 3, sy + 3, CELL - 6, CELL - 6);
+  }
+  for (const h of f.hits || []) {  // damage (and retaliation) as numbers above the units
+    if (!visP(h.at) && h.o !== viewT) continue;
+    const [hx, hy] = px(h.at[0], h.at[1]), txt = h.killed ? "killed" : (h.d > 0 ? "+" : "−") + Math.abs(h.d);
+    ctx.font = `bold ${CELL * 0.3}px sans-serif`; ctx.textAlign = "center"; ctx.textBaseline = "bottom";
+    ctx.lineWidth = 6; ctx.strokeStyle = "#000"; ctx.strokeText(txt, hx + CELL / 2, hy + 2);
+    ctx.fillStyle = h.d > 0 ? "#4ade80" : "#fca5a5"; ctx.fillText(txt, hx + CELL / 2, hy + 2);
   }
   for (const e of f.events) {
     if (fogged && e.at && !vis[e.at[0]][e.at[1]] && e.side !== viewT) continue;  // no hints from inside the fog

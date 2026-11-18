@@ -84,7 +84,7 @@ class EngineGameTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.tmp = Path(tempfile.mkdtemp())
-        cls.env, cls.settings = P.make_env(None, "eval_validation", "tribes_2020", 4)
+        cls.env, cls.settings = P.make_env(None, "eval_validation", "polytopia_2_15", 4)
         cls.agent = P.AgentPlayer(None, cls.env, False, 0)
         cls.maps = P.load_maps("eval_validation")
 
@@ -95,8 +95,10 @@ class EngineGameTests(unittest.TestCase):
 
     def play(self, human_tribe, seed):
         rng = random.Random(seed)
+        self.seen_states = []
 
         def human(state):  # random legal moves, ending the turn after a few
+            self.seen_states.append(state)
             legal = state["legal"]
             ends = [a["i"] for a in legal if a["type"] == "END_TURN"]
             others = [a["i"] for a in legal if a["type"] != "END_TURN"]
@@ -118,6 +120,10 @@ class EngineGameTests(unittest.TestCase):
         payload = session.replay_payload()
         self.assertEqual(payload["mark_pov"], session.human)
         frames = payload["frames"]
+        self.assertTrue(payload["lighthouses"])
+        self.assertTrue(all("resource" in f["full"] and all("mh" in u for u in f["full"]["units"].values()) for f in frames))
+        attacks = [f for f in frames if f["action"] == "ATTACK"]
+        self.assertTrue(all(f.get("src") and f.get("dst") for f in attacks))
         self.assertGreater(len(frames), 5)
         self.assertEqual(frames[0]["label"], "Start")
         self.assertTrue(all(set(f["views"]) == {"0", "1"} for f in frames))
@@ -133,27 +139,71 @@ class EngineGameTests(unittest.TestCase):
         # the record replays to the same actions and outcome
         record = json.loads(Path(state["record"]).read_text())
         self.assertEqual(record["record_version"], P.RECORD_VERSION)
-        outcome, history = P.replay_record(self.env, record, session.map_info)
+        outcome, history, _ = P.replay_record(self.env, record, session.map_info)
         self.assertEqual(outcome, record["tribe0_outcome"])
         strip = lambda h: [(a["side"], a.get("gid"), a.get("raw"), a["repr"]) for a in h]
         self.assertEqual(strip(history), strip(record["actions"]))
 
+    def check_live_view(self, session):
+        """What the browser gets on the human's turns: exact max HP, lighthouses, and the agent's visible moves."""
+        states = self.seen_states
+        board = states[0]["board"]
+        self.assertTrue(all(u["maxhp"] >= u["hp"] and u["maxhp"] >= 10 for u in board["units"] if u["t"] in (0, 1)))
+        self.assertEqual(len(board["lighthouses"]), 4)
+        steps = [st["agent_steps"] for st in states if st.get("agent_steps")]
+        self.assertTrue(steps, "agent moves are handed to the browser")
+        for batch in steps:
+            for step in batch["steps"]:
+                self.assertTrue(step["text"])
+                b = step["board"]
+                # the step board is the human's fogged view: no agent unit on a fogged tile
+                for u in b["units"]:
+                    if u["o"] != session.human:
+                        self.assertNotEqual(b["terrain"][u["x"]][u["y"]], P.FOG)
+
     def test_human_second_seat(self):
-        self.check_game(self.play(1, 3))
+        session = self.play(1, 3)
+        self.check_game(session)
+        self.check_live_view(session)
 
     def test_human_first_seat_agent_plays_tribe_one(self):
         session = self.play(0, 4)
         self.check_game(session)
+        self.check_live_view(session)
         human_moves = [a for a in session.history if a["side"] == 0]
         self.assertTrue(all("gid" in a and "raw" not in a for a in human_moves), "seat 0 acts through the wrapper")
         agent_moves = [a for a in session.history if a["side"] == 1]
         self.assertTrue(agent_moves and all("gid" in a and "raw" in a for a in agent_moves))
+
+    def test_abandoned_game_is_saved_listed_and_rebuilt(self):
+        moves = iter(range(3))
+
+        def human(state):  # two moves, then the player starts another game
+            if next(moves) == 2:
+                raise P.GameAborted()
+            others = [a["i"] for a in state["legal"] if a["type"] != "END_TURN"]
+            return others[0] if others else state["legal"][0]["i"]
+
+        d = self.tmp / "abandon"
+        session = P.GameSession(self.env, self.agent, self.maps[2], 55, self.settings, d, "", human_tribe=1, human_policy=human)
+        session._run()
+        self.assertEqual(session.outcome, "aborted")
+        record = json.loads(Path(session.state["record"]).read_text())
+        self.assertEqual(record["tribe0_outcome"], "abandoned")
+        games = P.list_games(d)
+        self.assertEqual((len(games), games[0]["result"]), (1, "abandoned"))
+        self.assertTrue(games[0]["replay"])
+        html = Path(session.state["replay"])
+        html.unlink()
+        self.assertTrue(P.verify(Path(session.state["record"]), "eval_validation", rebuild=True))
+        self.assertTrue(html.is_file())
 
     def test_browser_flow_over_http(self):
         from http.server import ThreadingHTTPServer
 
         server = P.Server([], self.maps, "eval_validation", self.tmp, "", seed=5, rules="tribes_2020", max_turns=4)
         server.env, server.env_settings = self.env, dict(self.settings, _wanted=("tribes_2020", 4, 512, None))
+        server.rules = "tribes_2020"  # matches _wanted, so the shared env is reused
         httpd = ThreadingHTTPServer(("127.0.0.1", 0), server.handler())
         threading.Thread(target=httpd.serve_forever, daemon=True).start()
         base = f"http://127.0.0.1:{httpd.server_address[1]}"
@@ -208,8 +258,19 @@ class EngineGameTests(unittest.TestCase):
             with urllib.request.urlopen(base + "/replay", timeout=30) as r:
                 html = r.read().decode()
             self.assertIn('"short_names"', html)
+            games = get("/api/games")["games"]
+            self.assertTrue(any(g["file"] == Path(s3["record"]).name for g in games))
+            with urllib.request.urlopen(base + "/saved/" + Path(s3["replay"]).name, timeout=30) as r:
+                self.assertEqual(r.status, 200)
+                self.assertIn(b"const D = {", r.read())
+            try:
+                urllib.request.urlopen(base + "/saved/..%2F..%2Fsecret.html", timeout=30)
+                self.fail("paths outside the record folder must not be served")
+            except urllib.error.HTTPError as e:
+                self.assertEqual(e.code, 404)
+                e.close()
             record = json.loads(Path(s3["record"]).read_text())
-            outcome, _ = P.replay_record(self.env, record, self.maps[1])
+            outcome, _, _ = P.replay_record(self.env, record, self.maps[1])
             self.assertEqual(outcome, "resigned")
         finally:
             httpd.shutdown()
