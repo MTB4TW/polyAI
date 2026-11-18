@@ -1610,6 +1610,11 @@ if __name__ == "__main__":
         raise RuntimeError("--max-legal-actions must be > 0.")
     if int(args.legal_action_feature_dim) <= 0:
         raise RuntimeError("--legal-action-feature-dim must be > 0.")
+    from pol_env.Tribes.py.environment_contract import UNIT_STATUS_ACTION_FEATURES, resolve_unit_status
+    if resolve_unit_status() and int(args.legal_action_feature_dim) == int(TribesGymWrapper.ACTION_FEATURE_DIM):
+        # POLYVISION_UNIT_STATUS=1 appends the attack-outcome features (environment_contract.UNIT_STATUS_ACTION_FEATURES).
+        args.legal_action_feature_dim = int(TribesGymWrapper.ACTION_FEATURE_DIM) + len(UNIT_STATUS_ACTION_FEATURES)
+        print(f"[UNIT_STATUS] legal-action features: {args.legal_action_feature_dim}")
     if int(args.step_diagnostics_log_every) <= 0:
         raise RuntimeError("--step-diagnostics-log-every must be > 0.")
     os.environ.setdefault("POLYVISION_SOLO_NO_OPPONENT_MODE", "1")

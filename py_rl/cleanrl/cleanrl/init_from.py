@@ -59,7 +59,7 @@ _COMBAT_ONLY_FAMILIES = ("ATTACK", "RECOVER")
 # scorer shapes, and replaces only its per-id action embedding.
 ALLOWED_ARCH_CHANGES = {("spatial_resnet_local", "spatial_resnet_composed")}
 _LAYOUT_BLOCKS = ("terrain", "unit_types", "city_territory", "unit_home_city", "road", "buildings", "resource",
-                  "diplomacy_units", "fog_memory", "legacy_scalar", "economy_scalar", "tech_vector", "city_block",
+                  "diplomacy_units", "fog_memory", "unit_status", "legacy_scalar", "economy_scalar", "tech_vector", "city_block",
                   "diplomacy_scalar", "fog_scalar")
 _RULES_SUFFIX_RE = re.compile(r"\+rules_([a-z0-9_]+?)(?:_r\d+)?$")
 
@@ -76,10 +76,11 @@ def observation_layout_for(meta: dict):
 
     width = _int_or_none(meta.get("map_width")) or 11
     height = _int_or_none(meta.get("map_height")) or 11
-    from pol_env.Tribes.py.environment_contract import fog_memory_of_version
+    from pol_env.Tribes.py.environment_contract import fog_memory_of_version, unit_status_of_version
 
     version = meta.get("phase1_environment_version")
-    layout = observation_layout(width, height, rules_of_version(version), fog_memory_of_version(version))
+    layout = observation_layout(width, height, rules_of_version(version), fog_memory_of_version(version),
+                                unit_status_of_version(version))
     dim = _int_or_none(meta.get("observation_dim"))
     if dim is not None and dim != layout.expected_obs_dim:
         raise InitFromError(f"--init-from: observation_dim={dim} does not match the "
@@ -283,9 +284,16 @@ def apply_init_from(agent: torch.nn.Module, path: str, *, target_meta: dict, net
     source_arch = str(source_meta.get("network_arch", "mlp"))
     if (source_arch, str(network_arch)) not in ALLOWED_ARCH_CHANGES:
         check_equal("network_arch", source_arch, network_arch)
-    for field in ("actor_mode", "legal_action_feature_dim", "map_width", "map_height",
-                  "legal_action_feature_version"):
+    for field in ("actor_mode", "map_width", "map_height"):
         check_equal(field, source_meta.get(field), target_meta.get(field))
+    # Legal-action features: identical, or the target appends columns to the source's (e.g. the unit-status attack
+    # outcome, whose feature version extends the source's): the feature encoder's new input columns start at zero.
+    src_fdim, tgt_fdim = _int_or_none(source_meta.get("legal_action_feature_dim")), _int_or_none(target_meta.get("legal_action_feature_dim"))
+    src_fver, tgt_fver = str(source_meta.get("legal_action_feature_version")), str(target_meta.get("legal_action_feature_version"))
+    feature_grows = (src_fdim is not None and tgt_fdim is not None and tgt_fdim > src_fdim and tgt_fver.startswith(src_fver))
+    if not feature_grows:
+        check_equal("legal_action_feature_dim", src_fdim, tgt_fdim)
+        check_equal("legal_action_feature_version", src_fver, tgt_fver)
 
     # Observation: identical, or the target layout extends the source's (a rules change such as 2020 -> 2.15).
     src_layout, tgt_layout = observation_layout_for(source_meta), observation_layout_for(target_meta)
@@ -359,6 +367,11 @@ def apply_init_from(agent: torch.nn.Module, path: str, *, target_meta: dict, net
                 copied.append(tkey)
             elif index_map is not None and _remap_input_layer(key, sval, tval, src_layout, tgt_layout, index_map):
                 remapped.append(tkey)
+            elif (feature_grows and key.endswith("action_feature_encoder.0.weight") and sval.dim() == 2
+                  and sval.shape[0] == tval.shape[0] and (sval.shape[1], tval.shape[1]) == (src_fdim, tgt_fdim)):
+                tval.zero_()
+                tval[:, :src_fdim] = sval  # the appended features start with zero weight
+                extended.append(tkey)
             elif (key.endswith(ACTION_TYPE_TABLE_SUFFIX) and grows and sval.dim() == 2
                   and sval.shape[1] == tval.shape[1]):
                 # Composed -> composed: match action types by name (a rules change can insert types mid-table).

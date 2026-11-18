@@ -215,6 +215,9 @@ def main():
     from pol_env.Tribes.py.environment_contract import fog_memory_of_version
     fog_memory = (fog_memory_of_version(checkpoint_meta.get("phase1_environment_version")) if checkpoint_meta
                   else os.environ.get("POLYVISION_FOG_MEMORY", "0").strip() == "1")
+    from pol_env.Tribes.py.environment_contract import unit_status_of_version
+    unit_status = (unit_status_of_version(checkpoint_meta.get("phase1_environment_version")) if checkpoint_meta
+                   else os.environ.get("POLYVISION_UNIT_STATUS", "0").strip() == "1")
     for key in [k for k in os.environ if k.startswith(("POLYVISION_COMBAT_REWARD_", "POLYVISION_COMBAT_LEAGUE"))]:
         # Outcomes do not depend on reward weights; keep the run's config clean. A league setting inherited from
         # a training shell would swap seats or replace SimpleAgent: evaluation is always the learner as tribe 0
@@ -226,7 +229,7 @@ def main():
         "POLYVISION_LEVEL_SELECTION_MODE": "round_robin", "POLYVISION_INFO_MODE": "fast",
         "POLYVISION_MAX_TURNS": str(max_turns), "POLYVISION_RULES": rules,
         # Combat fog memory follows the checkpoint (it changes the observation); without one, the caller's setting.
-        "POLYVISION_FOG_MEMORY": "1" if fog_memory else "0",
+        "POLYVISION_FOG_MEMORY": "1" if fog_memory else "0", "POLYVISION_UNIT_STATUS": "1" if unit_status else "0",
         "POLYVISION_MAX_LEGAL_ACTIONS": str(max_legal),
     })
 

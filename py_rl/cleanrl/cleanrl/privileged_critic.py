@@ -73,6 +73,17 @@ def load_privileged_critic_for_init(critic: nn.Module, init_from: str, map_locat
         state["value_head.4.weight"] = state["value_head.4.weight"] * std
         state["value_head.4.bias"] = state["value_head.4.bias"] * std + mean
         print(f"[PRIVILEGED_CRITIC] init: folded saved value-normalisation statistics into the output layer")
+    stem = "spatial_backbone.stem.0.weight"
+    if stem in state and stem in own and state[stem].dim() == 4 and tuple(state[stem].shape) != tuple(own[stem].shape) \
+            and state[stem].shape[0] == own[stem].shape[0] and state[stem].shape[2:] == own[stem].shape[2:] \
+            and state[stem].shape[1] < own[stem].shape[1]:
+        # The run's observation adds spatial channels after the saved ones (POLYVISION_UNIT_STATUS=1 appends its
+        # planes after every existing plane): they start with zero weight, so V(s) is unchanged at first.
+        grown = torch.zeros_like(own[stem])
+        grown[:, : state[stem].shape[1]] = state[stem]
+        state = dict(state)
+        state[stem] = grown
+        print(f"[PRIVILEGED_CRITIC] init: input channels grown to {own[stem].shape[1]}; the new ones start at zero")
     bad = [f"{k}: saved {tuple(v.shape)} vs run {tuple(own[k].shape)}" for k, v in state.items()
            if k in own and hasattr(v, "shape") and tuple(v.shape) != tuple(own[k].shape)]
     if bad:

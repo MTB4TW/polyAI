@@ -2,6 +2,55 @@
 
 All notable changes to this project are documented in this file.
 
+## [Phase2-Combat_Unit_Status-087] - (2026-11-18)
+
+### Problem
+- The policy could not see unit health. `_dict_to_array` encodes each unit as type and owner only (±1).
+- It also had no HP, no veteran status, and nothing saying whether a unit has already moved or attacked. The 47
+  legal-action features describe no attack outcome.
+- So it could not tell whether an attack kills, or order attacks. In a human game it attacked a capital's defender
+  with its weakest units first and gave the finishing blow p 0.003 (`docs/human-games.md`).
+
+### Scope (opt-in, `POLYVISION_UNIT_STATUS=1`, combat only; Phase 1 and existing combat runs unchanged)
+- **Observation:** 5 planes after the fog-memory planes (`environment_contract.UNIT_STATUS_CHANNELS`):
+  - HP as a fraction of max;
+  - HP / 40 (absolute);
+  - veteran;
+  - for our own units: can still move (status FRESH) and can still attack (FRESH or MOVED).
+  - Visible units only. 6,695 → 7,300 dims on 11×11 under 2.15 rules.
+- **Action features:** 4 extra legal-action features for ATTACK (`UNIT_STATUS_ACTION_FEATURES`), from the engine's
+  deterministic damage formula, the one the tactical search uses:
+  - damage / 10;
+  - retaliation / 10;
+  - kills;
+  - attacker dies.
+  - 47 → 51 features; feature version `+attack_outcome_v1`.
+- **Engine:** `PythonEnv.setCombatDetail(true)` (off by default) adds `maxHP` to the unit JSON and the attack
+  outcome to ATTACK actions. No extra Py4J calls per step.
+- **Contract:** the environment version gains `+unit_status_v1`, so checkpoints with and without it are told apart.
+  `ppo.py` raises `--legal-action-feature-dim` to 51 by itself when the flag is on.
+- **Warm start from a current checkpoint:**
+  - `--init-from` maps the grown observation (a new `unit_status` layout block) and the grown feature encoder,
+    with new inputs at zero weight. The warm-started policy then chooses exactly as the source did.
+  - The privileged-critic warm start grows its stem's input channels the same way.
+- **League and evaluation:**
+  - Older snapshots still play as league opponents in a unit-status run: `combat_selfplay.without_unit_status`
+    drops the new planes and features for them.
+  - `evaluate_combat.py` and `evaluate_combat_h2h.py` set the flag from the checkpoint's version.
+
+### Validation
+- `tools/tests/test_combat_unit_status.py`:
+  - **Contract:** layout and version suffix; refused outside combat.
+  - **Live engine:**
+    - the planes match the engine's HP / max HP, and a unit's can-move plane clears after it moves;
+    - on real attacks, the damage, retaliation, kill and attacker-dies features equal what the attack then does;
+    - a model warm-started from an old checkpoint gives identical logits on the same game;
+    - an old snapshot acts in the new env.
+- Existing live combat suites pass with the flag off (84 tests: self-play, seat swap, h2h, init-from, privileged
+  critic, fog memory, integration, eval), and so does core CI.
+- Smoke training run with the flag on, warm-started from `combat_pcritic_t1_league_swap_4m` with the privileged
+  critic: observation remapped 6,695 → 7,300, features 47 → 51, critic channels 54 → 59. It ran to the end and saved.
+
 ## [Phase2-Combat_League_Seat_Swap-072] - (2026-11-16)
 
 ### Problem

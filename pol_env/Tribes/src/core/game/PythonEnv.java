@@ -51,6 +51,9 @@ public class PythonEnv {
     // Combat only, opt-in (POLYVISION_FOG_MEMORY=1): one FogMemory per tribe; null when off.
     private boolean fogMemoryEnabled = false;
     private boolean fogMemorySeeMoves = true;
+    // Combat unit status (POLYVISION_UNIT_STATUS=1): unit JSON gains "maxHP", ATTACK actions gain the engine's
+    // attack outcome. Off by default; when off every output is unchanged.
+    private boolean combatDetail = false;
     private FogMemory[] fogMemories = null;
 
     /**
@@ -80,6 +83,11 @@ public class PythonEnv {
      * nothing is tracked and every output is unchanged. Takes effect from the next initFromLevel.
      * @param seeMoves follow a watched move (the unit was visible, or had just attacked us) into the fog
      */
+    /** Combat only: add max HP to units and the deterministic attack outcome to ATTACK actions in the JSON. */
+    public void setCombatDetail(boolean enabled) { this.combatDetail = enabled; }
+
+    public boolean getCombatDetail() { return combatDetail; }
+
     public void setFogMemory(boolean enabled, boolean seeMoves) {
         this.fogMemoryEnabled = enabled;
         this.fogMemorySeeMoves = seeMoves;
@@ -366,6 +374,17 @@ public class PythonEnv {
                 jo.put("dst_y", defender.getPosition().y);
                 jo.put("target_x", defender.getPosition().x);
                 jo.put("target_y", defender.getPosition().y);
+            }
+            if (combatDetail && attacker != null && defender != null) {
+                // Engine damage formula (deterministic): what this attack does, as the tactical search computes it.
+                utils.Pair<Integer, Integer> r = core.actions.unitactions.command.AttackCommand.computeAttackResults(attacker, defender, gs, false);
+                boolean kills = r.getFirst() >= defender.getCurrentHP();
+                boolean retaliates = !kills && utils.Vector2d.chebychevDistance(attacker.getPosition(), defender.getPosition()) <= defender.RANGE;
+                int retaliation = retaliates ? r.getSecond() : 0;
+                jo.put("attack_damage", r.getFirst());
+                jo.put("attack_retaliation", retaliation);
+                jo.put("attack_kills", kills);
+                jo.put("attack_attacker_dies", retaliates && retaliation >= attacker.getCurrentHP());
             }
             return;
         }
@@ -753,6 +772,7 @@ public class PythonEnv {
             uInfo.put("cityID", u.getCityId());
             uInfo.put("tribeId", u.getTribeId());
             uInfo.put("currentHP", u.getCurrentHP());
+            if (combatDetail) uInfo.put("maxHP", u.getMaxHP());
             uInfo.put("status", u.getStatus() != null ? u.getStatus().toString() : "FRESH");
             DiplomacyJson.addUnitFields(uInfo, u);  // 2.15 rules Cloak only
             unit.put(String.valueOf(u.getActorId()), uInfo);

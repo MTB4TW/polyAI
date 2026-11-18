@@ -47,6 +47,13 @@ from .environment_contract import (
     fog_memory_sees_moves,
     resolve_fog_memory,
     versioned_for_fog_memory,
+    resolve_unit_status,
+    versioned_for_unit_status,
+    UNIT_STATUS_CHANNELS,
+    UNIT_STATUS_HP_SCALE,
+    UNIT_STATUS_ACTION_FEATURES,
+    UNIT_STATUS_DAMAGE_SCALE,
+    UNIT_STATUS_FEATURE_VERSION_SUFFIX,
     PRIVILEGED_OBS_INFO_KEY,
     resolve_privileged_obs,
 )
@@ -400,6 +407,14 @@ class TribesGymWrapper(gym.Env):
         # Combat fog memory (POLYVISION_FOG_MEMORY=1, combat only): extra observation channels and a version suffix.
         self.FOG_MEMORY = resolve_fog_memory()
         self.PHASE1_ENVIRONMENT_VERSION = versioned_for_fog_memory(self.PHASE1_ENVIRONMENT_VERSION, self.FOG_MEMORY)
+        # Combat unit status (POLYVISION_UNIT_STATUS=1, combat only): HP, veteran and has-acted channels, plus the
+        # engine's attack outcome as extra legal-action features. A version suffix keeps old checkpoints out.
+        self.UNIT_STATUS = resolve_unit_status()
+        self.PHASE1_ENVIRONMENT_VERSION = versioned_for_unit_status(self.PHASE1_ENVIRONMENT_VERSION, self.UNIT_STATUS)
+        if self.UNIT_STATUS:
+            self.LEGAL_ACTION_FEATURE_NAMES = tuple(type(self).LEGAL_ACTION_FEATURE_NAMES) + tuple(UNIT_STATUS_ACTION_FEATURES)
+            self.ACTION_FEATURE_DIM = len(self.LEGAL_ACTION_FEATURE_NAMES)
+            self.LEGAL_ACTION_FEATURE_VERSION = type(self).LEGAL_ACTION_FEATURE_VERSION + UNIT_STATUS_FEATURE_VERSION_SUFFIX
         self.PHASE1_ENVIRONMENT_VERSION = versioned_for_rules(self.PHASE1_ENVIRONMENT_VERSION, self.RULES_VERSION)
         self._has_diplomacy = rules_have_diplomacy(self.RULES_VERSION)
         if self._is_combat_mode and self._has_diplomacy:
@@ -409,6 +424,8 @@ class TribesGymWrapper(gym.Env):
             self.tribes_env._env.setSoloNoOpponentMode(False)
         if self.FOG_MEMORY:
             self.tribes_env._env.setFogMemory(True, bool(fog_memory_sees_moves()))
+        if self.UNIT_STATUS:
+            self.tribes_env._env.setCombatDetail(True)  # unit JSON gains maxHP, ATTACK actions their outcome
         # Privileged critic (POLYVISION_PRIVILEGED_OBS=1, combat only): info["privileged_obs"] is the unfogged state.
         self._privileged_obs = resolve_privileged_obs()
         self._init_search_teacher()
@@ -2759,6 +2776,14 @@ class TribesGymWrapper(gym.Env):
         return features
 
     def _build_legal_action_features_padded(self, legal_global_ids_padded, legal_action_valid_mask, legal_id_to_raw_index, legal_actions, obs):
+        features = self._build_legal_action_features_padded_base(
+            legal_global_ids_padded, legal_action_valid_mask, legal_id_to_raw_index, legal_actions, obs)
+        if getattr(self, "UNIT_STATUS", False):
+            features = self._append_attack_outcome_features(
+                features, legal_global_ids_padded, legal_action_valid_mask, legal_id_to_raw_index, legal_actions)
+        return features
+
+    def _build_legal_action_features_padded_base(self, legal_global_ids_padded, legal_action_valid_mask, legal_id_to_raw_index, legal_actions, obs):
         profile = {
             "feature_alloc_zero_fill_s": 0.0,
             "feature_mask_construct_s": 0.0,
@@ -6216,7 +6241,8 @@ class TribesGymWrapper(gym.Env):
             width, height = int(dims[0]), int(dims[1])
         else:
             width, height = 0, 0
-        layout = observation_layout(width, height, getattr(self, "RULES_VERSION", None), getattr(self, "FOG_MEMORY", None))
+        layout = observation_layout(width, height, getattr(self, "RULES_VERSION", None), getattr(self, "FOG_MEMORY", None),
+                                    getattr(self, "UNIT_STATUS", None))
 
         # 1. Terrain Channel (1 channel: width x height)
         terrain_raw = np.asarray(board.get("terrain", []), dtype=np.int16)
@@ -6371,6 +6397,11 @@ class TribesGymWrapper(gym.Env):
         if layout.fog_memory_end > layout.fog_memory_start:
             features.extend(self._fog_memory_channels(obs_dict.get("fogMemory"), width, height))
 
+        # 6d. Combat unit status only: HP (fraction of max and absolute), veteran, and for our own units whether
+        # they can still move / attack this turn (engine status). Visible units only.
+        if layout.unit_status_end > layout.unit_status_start:
+            features.extend(self._unit_status_channels(unit_map, fog_mask, width, height, controlled_tribe))
+
         # 7. Legacy Scalars (6 values)
         tribes_info = obs_dict.get("tribes", {})
         tribe0 = tribes_info.get(str(controlled_tribe), {}) if isinstance(tribes_info, dict) else {}
@@ -6451,6 +6482,63 @@ class TribesGymWrapper(gym.Env):
 
         return np.array(features, dtype=np.float32)
     
+    # Engine turn statuses (core.Types.TURN_STATUS) under which an own unit can still move / attack this turn.
+    UNIT_CAN_MOVE_STATUSES = frozenset({"FRESH"})
+    UNIT_CAN_ATTACK_STATUSES = frozenset({"FRESH", "MOVED"})
+
+    def _unit_status_channels(self, unit_map, fog_mask, width, height, controlled_tribe):
+        """UNIT_STATUS_CHANNELS. Needs maxHP in the unit JSON (PythonEnv.setCombatDetail); HP planes cover every
+        visible unit (owner is in the unit-type planes); move/attack planes are for our own units."""
+        planes = {name: np.zeros((width, height), dtype=np.float32) for name in UNIT_STATUS_CHANNELS}
+        for u in (unit_map or {}).values() if isinstance(unit_map, dict) else []:
+            if not isinstance(u, dict):
+                continue
+            try:
+                x, y = int(u.get("x", -1)), int(u.get("y", -1))
+                hp = float(u.get("currentHP", 0))
+                max_hp = float(u.get("maxHP", 0) or 0)
+            except (TypeError, ValueError):
+                continue
+            if not (0 <= x < width and 0 <= y < height) or fog_mask[x, y]:
+                continue
+            if max_hp <= 0:
+                raise ObservationContractError("POLYVISION_UNIT_STATUS=1 needs maxHP in the unit JSON (setCombatDetail)")
+            planes["unit_hp_fraction"][x, y] = min(hp / max_hp, 1.0)
+            planes["unit_hp_absolute"][x, y] = hp / UNIT_STATUS_HP_SCALE
+            planes["unit_veteran"][x, y] = 1.0 if u.get("isVeteran") else 0.0
+            if int(u.get("tribeId", -1)) == int(controlled_tribe):
+                status = str(u.get("status", "FRESH"))
+                planes["unit_can_move"][x, y] = 1.0 if status in self.UNIT_CAN_MOVE_STATUSES else 0.0
+                planes["unit_can_attack"][x, y] = 1.0 if status in self.UNIT_CAN_ATTACK_STATUSES else 0.0
+        out = []
+        for name in UNIT_STATUS_CHANNELS:
+            out.extend(planes[name].flatten())
+        return out
+
+    def _append_attack_outcome_features(self, features, legal_global_ids_padded, legal_action_valid_mask,
+                                        legal_id_to_raw_index, legal_actions):
+        """Fill the UNIT_STATUS_ACTION_FEATURES columns for ATTACK actions from the engine's outcome (in the action
+        JSON with setCombatDetail): damage and retaliation / 10, kills, attacker dies."""
+        base = len(type(self).LEGAL_ACTION_FEATURE_NAMES)
+        if features.shape[1] < base + len(UNIT_STATUS_ACTION_FEATURES):
+            return features
+        if legal_global_ids_padded is None or legal_action_valid_mask is None or not isinstance(legal_id_to_raw_index, dict):
+            return features
+        ids = np.asarray(legal_global_ids_padded, dtype=np.int64).reshape(-1)
+        valid = np.asarray(legal_action_valid_mask, dtype=bool).reshape(-1)
+        for slot in np.flatnonzero(valid[: features.shape[0]]):
+            raw = legal_id_to_raw_index.get(int(ids[slot]))
+            if raw is None or not (0 <= int(raw) < len(legal_actions)):
+                continue
+            a = legal_actions[int(raw)]
+            if not isinstance(a, dict) or a.get("type") != "ATTACK" or "attack_damage" not in a:
+                continue
+            features[slot, base] = float(a["attack_damage"]) / UNIT_STATUS_DAMAGE_SCALE
+            features[slot, base + 1] = float(a.get("attack_retaliation", 0)) / UNIT_STATUS_DAMAGE_SCALE
+            features[slot, base + 2] = 1.0 if a.get("attack_kills") else 0.0
+            features[slot, base + 3] = 1.0 if a.get("attack_attacker_dies") else 0.0
+        return features
+
     # Java FogMemory grid keys, in FOG_MEMORY_CHANNELS order.
     FOG_MEMORY_GRID_KEYS = ("presence", "attack", "lastSeen", "unseen")
 
