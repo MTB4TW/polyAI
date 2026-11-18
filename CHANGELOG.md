@@ -2,6 +2,26 @@
 
 All notable changes to this project are documented in this file.
 
+## [Phase2-Combat_Map_Pool_Version-088] - (2026-11-18)
+
+### Scope
+- `POLYVISION_COMBAT_POOL` selects the combat map pool version: a folder under `pol_env/Tribes/levels`.
+  The default is `phase2_pool_1v1`, so nothing changes unless it is set.
+- New pool `phase2_pool_1v1_wiki`, made by the wiki-parity generator (086) with the same seeds and tribe pairings.
+  It has train 50, validation 10, eval_validation 120 and eval_test 120 maps, plus `eval_manifest.json`.
+- All 50 train maps differ from the old pool.
+- `tools/audit_map_generation.py` on train and eval_validation: no rule violations.
+  - Terrain: Bardur field 55.0 / forest 30.8 / mountain 14.3% (wiki 55.6 / 30.4 / 14.0).
+  - Ruins: 4 per map, as the wiki's table gives for 11x11.
+- Wiring:
+  - The training jobs (`train_combat_cpu.sbatch`, `train_farmshare_combat.sbatch`) read the setting.
+  - So do `tools/evaluate_combat.py` and `tools/evaluate_combat_h2h.py`, through `tools/combat_eval_core.py`.
+  - Evaluations record the manifest path and SHA-256, so results from different pool versions are never mixed up.
+- `cluster/league_unit_status_wiki.sbatch`:
+  - Runs a league with unit status on the new pool, warm-started from league8m segment 1 at 1.2M steps.
+  - Its league settings are Devin's league8m settings.
+  - It resumes itself across the time limit (AUTO_RESUME).
+
 ## [Train-Stop_And_Resume-085] - (2026-11-18)
 
 ### Scope

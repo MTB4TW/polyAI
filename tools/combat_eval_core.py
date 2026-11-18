@@ -12,6 +12,7 @@ replicate count play exactly the same (map, episode seed) games, so they can be 
 from __future__ import annotations
 
 import json
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -22,7 +23,21 @@ import numpy as np
 from tools.phase1_eval_core import bootstrap_ci, sha256_file, stable_seed
 
 SCHEMA_VERSION = "polyvision-combat-evaluation-v1"
-POOL_ROOT_REL = "pol_env/Tribes/levels/phase2_pool_1v1"
+# Map pool version (a folder under pol_env/Tribes/levels). POLYVISION_COMBAT_POOL selects another version, e.g.
+# phase2_pool_1v1_wiki (maps from the wiki-parity generator, CHANGELOG 086). Evaluations record the manifest
+# path and SHA-256, so results from different pool versions are never paired by mistake.
+DEFAULT_POOL_VERSION = "phase2_pool_1v1"
+
+
+def combat_pool_version(environ=os.environ) -> str:
+    name = environ.get("POLYVISION_COMBAT_POOL", "").strip() or DEFAULT_POOL_VERSION
+    if not re.fullmatch(r"phase2_pool_[A-Za-z0-9_]+", name):
+        raise ValueError(f"POLYVISION_COMBAT_POOL={name!r}: expected a folder name like phase2_pool_1v1_wiki")
+    return name
+
+
+POOL_VERSION = combat_pool_version()
+POOL_ROOT_REL = f"pol_env/Tribes/levels/{POOL_VERSION}"
 MANIFEST_REL = f"{POOL_ROOT_REL}/eval_manifest.json"
 EVAL_POOLS = ("eval_validation", "eval_test")
 TEST_POOLS = ("eval_test",)

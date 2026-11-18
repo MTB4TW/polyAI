@@ -32,7 +32,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from tools.combat_eval_core import (  # noqa: E402
-    ALL_POLICIES, MANIFEST_REL, OPTIONAL_POLICIES, OUTCOMES, SCHEMA_VERSION, TEST_POOLS, aggregate, build_schedule, is_canonical,
+    ALL_POLICIES, MANIFEST_REL, OPTIONAL_POLICIES, OUTCOMES, POOL_VERSION, SCHEMA_VERSION, TEST_POOLS, aggregate, build_schedule, is_canonical,
     load_verified_pool, paired_difference, per_map_rates,
 )
 from tools.phase1_eval_core import PPOPolicy, RandomLegalPolicy, json_safe, sha256_file, write_csv  # noqa: E402
@@ -225,7 +225,7 @@ def main():
         del os.environ[key]
     os.environ.update({
         "POLYVISION_PHASE": "2", "POLYVISION_COMBAT_MODE": "1", "POLYVISION_SOLO_NO_OPPONENT_MODE": "0",
-        "POLYVISION_LEVEL_POOL_GLOB": f"levels/phase2_pool_1v1/{args.pool}/*.csv",
+        "POLYVISION_LEVEL_POOL_GLOB": f"levels/{POOL_VERSION}/{args.pool}/*.csv",
         "POLYVISION_LEVEL_SELECTION_MODE": "round_robin", "POLYVISION_INFO_MODE": "fast",
         "POLYVISION_MAX_TURNS": str(max_turns), "POLYVISION_RULES": rules,
         # Combat fog memory follows the checkpoint (it changes the observation); without one, the caller's setting.

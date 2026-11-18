@@ -50,7 +50,10 @@ if torch.cuda.is_available():
 export POLYVISION_PHASE="2"
 export POLYVISION_COMBAT_MODE="1"
 export POLYVISION_SOLO_NO_OPPONENT_MODE="0"
-export POLYVISION_LEVEL_POOL_GLOB="levels/phase2_pool_1v1/train/*.csv"
+# POLYVISION_COMBAT_POOL picks the map pool version (default phase2_pool_1v1; phase2_pool_1v1_wiki = CHANGELOG 086)
+export POLYVISION_COMBAT_POOL="${POLYVISION_COMBAT_POOL:-phase2_pool_1v1}"
+export POLYVISION_LEVEL_POOL_GLOB="levels/$POLYVISION_COMBAT_POOL/train/*.csv"
+echo "Map pool: $POLYVISION_COMBAT_POOL"
 export POLYVISION_MAX_TURNS="${POLYVISION_MAX_TURNS:-20}"
 export POLYVISION_INFO_MODE="fast"
 # Combat reward weights (see docs/rewards.md); set any of these before sbatch to override:
