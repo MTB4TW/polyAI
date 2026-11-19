@@ -74,6 +74,32 @@ Baselines on the same 250 validation maps: visible greedy 7.93, random legal 6.6
 | 2026-11-15 | combat_v2b_s1_pcritic_warm_2m | 2M | 1, 2 (3 pending) | Devin (Claude agent) | `outputs/evaluations/20261115_combat_v2b_s1_pcritic_warm_2m_seed{1,2}_combat_eval_validation_canonical` | 84.3% (80.0 [74.7, 85.0], 88.5 [84.0, 92.5]) | 3.5% | 12.3% | 84.3% (81.0, 87.7) | Warm start from v2b seed 1 with `--privileged-critic --critic-warmup-steps 150000 --learning-rate 1e-4 --target-kl 0.015 --ent-coef 0.005`. Paired vs v2b seed 1: win −4.5 [−10.5, +1.3] and +4.0 [−1.3, +9.3] points, so no measurable change; the warm start keeps the policy near its source. Seed 3 trained (job 1986036) but its evaluation (job 1987832) had not run when this was recorded. Commit `11bcd1c`, W&B `ewyc9la3`, `ywdiu3qi` (seed 3 `4cll3jee`). |
 | 2026-11-14 | combat_cap_all_v2b_2m | 2M | 1, 2, 3 | Devin | `outputs/evaluations/20261114_combat_cap_all_v2b_2m_seed{1,2,3}_combat_eval_validation_canonical` | **76.1%** (84.5 [79.5, 89.3], 73.5 [67.7, 79.2], 70.2 [64.3, 75.7]) | 5.3% | 18.7% | 48.7% (65.3, 40.0, 40.8) | 2.15 rules, `spatial_resnet_composed`, `cluster/combat_cap_all_v2.env` (win 60, loss −15, timeout −10, early win 60, rider potential). First canonical combat result; no earlier checkpoint exists to pair against (Kevin's cap_all checkpoints are not shared; the 2.15 cap_all runs saved none). Paired vs `random_legal` (0.3%): +84.2, +73.2, +69.8 points, no map worse. Training-game diagnostic (last 500 games, final 250k steps): 60.2 / 37.0 / 37.2% win. W&B `eeocxup2`, `97zognmo`, `5m7758zh`. |
 
+### Wrapper rules switched off at evaluation time (diagnostic, 2026-11-18, Kevin's Claude agent)
+
+This switches off the optional wrapper rules (CHANGELOG 090) for a checkpoint trained with them on. The checkpoint is
+`combat_pcritic_t1_league_swap_4m` (Devin), and the code is `feat/combat-optional-rules` (PR #34).
+
+**Against SimpleAgent** (eval_validation, 120 maps × 5, seed 42; paired by map with `tools/compare_combat_evals.py`):
+
+| Rules | Evaluation | argmax win | sampled win | random_legal loss | Paired argmax win vs rules on |
+|---|---|---:|---:|---:|---|
+| all on (as trained; canonical) | `20261118_league_swap_4m_rules_on_eval_validation` | 100.0% | 99.0% | 18.2% | — |
+| village rules off | `20261118_league_swap_4m_rules_village_off_eval_validation_diagnostic` | 99.7% | 99.2% | 24.2% | −0.3 [−0.8, +0.0] |
+| all off | `20261118_league_swap_4m_rules_all_off_eval_validation_diagnostic` | 99.2% | 98.2% | 24.8% | −0.8 [−1.7, −0.2] |
+
+SimpleAgent is at the ceiling for this checkpoint, so the comparison cannot show a gain. Without the rules, a random
+player loses 6.7 points more often ([+2.5, +11.2]): the rules mainly protect weak play.
+
+**Against itself** (`20261118_league_swap_4m_rules_off_vs_on_selfplay_diagnostic`):
+- Setup: the same checkpoint plays both sides, sampling. One side has every rule off, the other every rule on, and
+  each side plays both seats and both code paths. 800 games; win 1, timeout 0.5, loss 0.
+- The rules-off side scores **0.419 [0.388, 0.450]**: 0.62 moving first and 0.22 moving second. The same matchup with
+  the same rules on both sides scores 0.685 and 0.320.
+- So a policy trained with the rules is about 8 points weaker without them. It learned to rely on them.
+- An example: with fewer than 2 cities it never saw a village CAPTURE it could choose, because the rule made that
+  capture itself.
+- Whether training without the rules ends up stronger needs a run trained with them off, compared head to head.
+
 ### Training-game diagnostics (before the canonical evaluation)
 
 Combat is judged by win rate against SimpleAgent (11×11, 1v1, CAPITALS mode, 20 turns). The canonical combat
