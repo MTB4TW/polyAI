@@ -336,6 +336,80 @@ def with_rules_off(environment_version, rules_off) -> str:
     return v[:i] + suffix + v[i:] if i >= 0 else v + suffix
 
 
+# Optional extra action families (combat only): engine actions the wrapper never offers by default. Each one asked
+# for with POLYVISION_COMBAT_EXTRA_ACTIONS (comma-separated names, or "all") gets a block of global ids appended
+# to the catalog, after every existing block, in this order. The catalog grows, so the environment version gains
+# "+extra_actions_<names>" and action_space_n grows; observations are unchanged. Kinds: "tile" (one id per tile:
+# the unit's, the city action's or the road's tile), "pair" (source tile x target tile) and "tribe" (one id per
+# target tribe; SEND_STARS: per target tribe and star amount 1..SEND_STARS_MAX).
+COMBAT_EXTRA_ACTIONS_ENV_VAR = "POLYVISION_COMBAT_EXTRA_ACTIONS"
+COMBAT_EXTRA_ACTION_FAMILIES = {
+    "BUILD_ROAD": "tile",     # Roads tech; roads are rewarded but were never offered
+    "DISBAND": "tile",        # Free Spirit
+    "BURN_FOREST": "tile",    # Chivalry: forest -> field (city action, its target tile)
+    "DESTROY": "tile",        # Construction: remove a building (city action, its target tile)
+    "MAKE_VETERAN": "tile",   # a unit with 3 kills becomes a veteran: the only promotion the engine has
+    "HEAL_OTHERS": "tile",    # Mind bender
+    "CONVERT": "pair",        # Mind bender: source unit tile x target unit tile
+    "DECLARE_WAR": "tribe",
+    "SEND_STARS": "tribe_stars",
+}
+SEND_STARS_MAX = 14  # the engine offers 1 .. min(stars, 15) - 1
+COMBAT_EXTRA_ACTIONS_PREFIX = "+extra_actions_"
+
+
+def resolve_combat_extra_actions(environ: Mapping[str, str] | None = None) -> tuple:
+    """The extra action families asked for, in catalog order. Combat-only."""
+    environ = os.environ if environ is None else environ
+    raw = str(environ.get(COMBAT_EXTRA_ACTIONS_ENV_VAR, "") or "").strip()
+    if not raw or raw.lower() == "none":
+        return ()
+    names = set(COMBAT_EXTRA_ACTION_FAMILIES) if raw.lower() == "all" else {n.strip().upper() for n in raw.split(",") if n.strip()}
+    unknown = sorted(names - set(COMBAT_EXTRA_ACTION_FAMILIES))
+    if unknown:
+        raise ValueError(f"{COMBAT_EXTRA_ACTIONS_ENV_VAR}: unknown action(s) {unknown}; known: {list(COMBAT_EXTRA_ACTION_FAMILIES)}")
+    combat = str(environ.get("POLYVISION_COMBAT_MODE", "")).strip() == "1" or \
+        str(environ.get("POLYVISION_PHASE", "")).strip() == "2"
+    if not combat:
+        raise ValueError(f"{COMBAT_EXTRA_ACTIONS_ENV_VAR} is combat-only (Phase 1 behaviour stays unchanged)")
+    return tuple(n for n in COMBAT_EXTRA_ACTION_FAMILIES if n in names)
+
+
+def versioned_for_extra_actions(environment_version: str, extra_actions) -> str:
+    if not extra_actions:
+        return str(environment_version)
+    return f"{environment_version}{COMBAT_EXTRA_ACTIONS_PREFIX}{'-'.join(n.lower() for n in extra_actions)}"
+
+
+def extra_actions_of_version(environment_version) -> tuple:
+    v = str(environment_version or "")
+    if COMBAT_EXTRA_ACTIONS_PREFIX not in v:
+        return ()
+    names = {n.upper() for n in v.split(COMBAT_EXTRA_ACTIONS_PREFIX, 1)[1].split("+", 1)[0].split("-") if n}
+    return tuple(n for n in COMBAT_EXTRA_ACTION_FAMILIES if n in names)
+
+
+def extra_action_block_size(family: str, n_tiles: int) -> int:
+    kind = COMBAT_EXTRA_ACTION_FAMILIES[family]
+    return {"tile": n_tiles, "pair": n_tiles * n_tiles, "tribe": DIPLOMACY_MAX_TRIBES,
+            "tribe_stars": DIPLOMACY_MAX_TRIBES * SEND_STARS_MAX}[kind]
+
+
+def with_extra_actions(environment_version, extra_actions) -> str:
+    """`environment_version` with its extra-actions part replaced, where the wrapper puts it: after unit status and
+    before the rules-off part and the game-rules suffix."""
+    v = str(environment_version or "")
+    if COMBAT_EXTRA_ACTIONS_PREFIX in v:
+        head, tail = v.split(COMBAT_EXTRA_ACTIONS_PREFIX, 1)
+        v = head + ("+" + tail.split("+", 1)[1] if "+" in tail else "")
+    if not extra_actions:
+        return v
+    suffix = f"{COMBAT_EXTRA_ACTIONS_PREFIX}{'-'.join(n.lower() for n in extra_actions)}"
+    cut = [i for i in (v.find(COMBAT_RULES_OFF_PREFIX), v.find("+rules_")) if i >= 0]
+    i = min(cut) if cut else len(v)
+    return v[:i] + suffix + v[i:]
+
+
 # Privileged critic observation (opt-in, POLYVISION_PRIVILEGED_OBS=1, combat only): the env also returns the same
 # observation layout built from the true, unfogged game state in info["privileged_obs"]. Training-time only (the
 # PPO critic reads it; the policy never does), so it changes neither the observation nor any version string.

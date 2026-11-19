@@ -223,7 +223,7 @@ def main():
     unit_status = (unit_status_of_version(checkpoint_meta.get("phase1_environment_version")) if checkpoint_meta
                    else os.environ.get("POLYVISION_UNIT_STATUS", "0").strip() == "1")
     from pol_env.Tribes.py.environment_contract import (
-        COMBAT_RULES_OFF_ENV_VAR, resolve_combat_rules_off, rules_off_of_version, with_rules_off)
+        COMBAT_RULES_OFF_ENV_VAR, extra_actions_of_version, resolve_combat_rules_off, rules_off_of_version, with_rules_off)
     trained_rules_off = rules_off_of_version(checkpoint_meta.get("phase1_environment_version")) if checkpoint_meta else frozenset()
     if args.rules_off is None:
         rules_off = trained_rules_off
@@ -251,6 +251,8 @@ def main():
         "POLYVISION_FOG_MEMORY": "1" if fog_memory else "0", "POLYVISION_UNIT_STATUS": "1" if unit_status else "0",
         "POLYVISION_MAX_LEGAL_ACTIONS": str(max_legal),
         COMBAT_RULES_OFF_ENV_VAR: ",".join(sorted(rules_off)),
+        # Extra action families follow the checkpoint: they are part of its action catalog.
+        "POLYVISION_COMBAT_EXTRA_ACTIONS": ",".join(extra_actions_of_version(checkpoint_meta.get("phase1_environment_version"))) if checkpoint_meta else "",
     })
 
     from pol_env.Tribes.py.register_env import TribesGymWrapper

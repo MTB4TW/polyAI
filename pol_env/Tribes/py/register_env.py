@@ -51,6 +51,8 @@ from .environment_contract import (
     versioned_for_unit_status,
     resolve_combat_rules_off,
     versioned_for_rules_off,
+    resolve_combat_extra_actions,
+    versioned_for_extra_actions,
     UNIT_STATUS_CHANNELS,
     UNIT_STATUS_HP_SCALE,
     UNIT_STATUS_ACTION_FEATURES,
@@ -64,7 +66,7 @@ from .environment_contract import (
 class GlobalActionCatalog:
     """Deterministic flat global action-ID catalog for fixed map dimensions."""
 
-    def __init__(self, width, height, tech_types, train_unit_types, resource_types, building_types, levelup_choices, enable_combat=False, enable_diplomacy=False):
+    def __init__(self, width, height, tech_types, train_unit_types, resource_types, building_types, levelup_choices, enable_combat=False, enable_diplomacy=False, extra_actions=()):
         self.width = int(width)
         self.height = int(height)
         self.n_tiles = int(width * height)
@@ -135,6 +137,13 @@ class GlobalActionCatalog:
                 self.offsets[a_type] = cur
                 cur += DIPLOMACY_MAX_TRIBES
 
+        # Optional extra families (POLYVISION_COMBAT_EXTRA_ACTIONS, combat only), after every other block.
+        from pol_env.Tribes.py.environment_contract import COMBAT_EXTRA_ACTION_FAMILIES, extra_action_block_size
+        self.extra_actions = tuple(n for n in COMBAT_EXTRA_ACTION_FAMILIES if n in set(extra_actions or ())) if self.enable_combat else ()
+        for family in self.extra_actions:
+            self.offsets[family] = cur
+            cur += extra_action_block_size(family, self.n_tiles)
+
         self.total_size = int(cur)
         self.end_turn_id = int(self.offsets["END_TURN"])
 
@@ -147,6 +156,25 @@ class GlobalActionCatalog:
         if unit_tile is None or "RECOVER" not in self.offsets:
             return None
         return int(self.offsets["RECOVER"] + unit_tile)
+
+    def id_extra(self, action_type, tile=None, target_tile=None, target_tribe=None, stars=None):
+        """Global id of an extra-family action (environment_contract.COMBAT_EXTRA_ACTION_FAMILIES); None if absent."""
+        from pol_env.Tribes.py.environment_contract import COMBAT_EXTRA_ACTION_FAMILIES, SEND_STARS_MAX
+        a_type = str(action_type or "").upper()
+        if a_type not in self.extra_actions:
+            return None
+        base, kind = int(self.offsets[a_type]), COMBAT_EXTRA_ACTION_FAMILIES[a_type]
+        if kind == "tile":
+            return None if tile is None else base + int(tile)
+        if kind == "pair":
+            return None if tile is None or target_tile is None else base + int(tile) * self.n_tiles + int(target_tile)
+        if target_tribe is None or not 0 <= int(target_tribe) < DIPLOMACY_MAX_TRIBES:
+            return None
+        if kind == "tribe":
+            return base + int(target_tribe)
+        if stars is None or not 1 <= int(stars) <= SEND_STARS_MAX:
+            return None
+        return base + int(target_tribe) * SEND_STARS_MAX + int(stars) - 1
 
     def id_infiltrate(self, src_tile, city_tile):
         if src_tile is None or city_tile is None or "INFILTRATE" not in self.offsets:
@@ -414,6 +442,11 @@ class TribesGymWrapper(gym.Env):
         self.UNIT_STATUS = resolve_unit_status()
         self.PHASE1_ENVIRONMENT_VERSION = versioned_for_unit_status(self.PHASE1_ENVIRONMENT_VERSION, self.UNIT_STATUS)
         # Optional wrapper rules (POLYVISION_COMBAT_RULES_OFF, combat only; environment_contract.COMBAT_OPTIONAL_RULES).
+        # Optional extra action families (POLYVISION_COMBAT_EXTRA_ACTIONS, combat only): appended catalog blocks.
+        self.EXTRA_ACTIONS = resolve_combat_extra_actions()
+        self.PHASE1_ENVIRONMENT_VERSION = versioned_for_extra_actions(self.PHASE1_ENVIRONMENT_VERSION, self.EXTRA_ACTIONS)
+        if self.EXTRA_ACTIONS:
+            self.ALLOWED_ACTION_TYPES = set(self.ALLOWED_ACTION_TYPES) | set(self.EXTRA_ACTIONS)
         self.RULES_OFF = resolve_combat_rules_off()
         self.PHASE1_ENVIRONMENT_VERSION = versioned_for_rules_off(self.PHASE1_ENVIRONMENT_VERSION, self.RULES_OFF)
         if self.UNIT_STATUS:
@@ -575,6 +608,7 @@ class TribesGymWrapper(gym.Env):
                 levelup_choices=vocab["CITY_LEVEL_UP"],
                 enable_combat=bool(getattr(self, "_is_combat_mode", False)),
                 enable_diplomacy=bool(getattr(self, "_has_diplomacy", False)),
+                extra_actions=getattr(self, "EXTRA_ACTIONS", ()),
             )
             self._tech_name_to_obs_idx = {
                 str(name).upper(): int(i)
@@ -4178,6 +4212,18 @@ class TribesGymWrapper(gym.Env):
         if a_type in DIPLOMACY_TRIBE_ACTION_TYPES:
             gid = self._catalog.id_diplomacy(a_type, self._action_int(action, "target_tribe_id", None))
             return gid, "missing_diplomacy_target" if gid is None else None
+
+        if a_type in getattr(self._catalog, "extra_actions", ()):
+            sx, sy = self._action_int(action, "src_x", None), self._action_int(action, "src_y", None)
+            tx, ty = self._action_int(action, "target_x", None), self._action_int(action, "target_y", None)
+            unit_kind = a_type in ("DISBAND", "HEAL_OTHERS", "MAKE_VETERAN", "CONVERT")
+            tile_x, tile_y = (sx, sy) if unit_kind else (tx, ty)
+            tile = self._catalog.tile_id(tile_x, tile_y) if None not in (tile_x, tile_y) else None
+            target_tile = self._catalog.tile_id(tx, ty) if None not in (tx, ty) else None
+            gid = self._catalog.id_extra(a_type, tile=tile, target_tile=target_tile,
+                                         target_tribe=self._action_int(action, "target_tribe_id", None),
+                                         stars=self._action_int(action, "num_stars", None))
+            return gid, f"missing_{a_type.lower()}_fields" if gid is None else None
 
         return None, f"unsupported_action_type:{a_type}"
 

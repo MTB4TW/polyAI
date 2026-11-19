@@ -2,7 +2,7 @@
 
 All notable changes to this project are documented in this file.
 
-## [Phase2-Combat_Optional_Wrapper_Rules-090] - (2026-11-18)
+## [Phase2-Combat_Optional_Wrapper_Rules_And_Actions-090] - (2026-11-18)
 
 ### Scope
 - `POLYVISION_COMBAT_RULES_OFF` (combat only; comma-separated names, `all` or `none`) switches off the wrapper's
@@ -28,8 +28,28 @@ All notable changes to this project are documented in this file.
     `canonical: false`). Its config records `wrapper_rules_off` and `wrapper_rules_override`.
   - `tools/evaluate_combat_h2h.py` follows checkpoint A.
   - `cluster/eval_combat_farmshare.sbatch` accepts `EXTRA_EVAL_ARGS`.
-- Not covered here: the action types the wrapper never offers (build road, disband, burn forest, destroy and
-  others). They have no ids in the action catalog; adding them is a separate change.
+- `POLYVISION_COMBAT_EXTRA_ACTIONS` (combat only; comma-separated families or `all`) offers engine actions the
+  wrapper never offered:
+  - `BUILD_ROAD`: roads are rewarded but were never available.
+  - `MAKE_VETERAN`: the only promotion the engine has. Without it, units with 3 kills never became veterans.
+  - `DISBAND`, `BURN_FOREST`, `DESTROY`, `HEAL_OTHERS`, `CONVERT`, `DECLARE_WAR` and `SEND_STARS`.
+- How the extra families are added:
+  - Each gets a block of global ids after every existing block, so the ids of older checkpoints are unchanged.
+    The order is `COMBAT_EXTRA_ACTION_FAMILIES`.
+  - Tile families have one id per tile, `CONVERT` one per source x target tile, `DECLARE_WAR` one per target
+    tribe, and `SEND_STARS` one per target tribe and star amount 1–14.
+  - The environment version gains `+extra_actions_<names>`, and `action_space_n` and the catalog fingerprint grow.
+- Engine: `PythonEnv` now reports the tiles of these actions (burn forest, destroy, disband, heal others,
+  convert), and the target tribe and amount of declare war and send stars.
+- Warm start: the composed network matches action types by name, so `--init-from` copies every old type and the
+  new families start fresh.
+- League snapshots with fewer extra families still play: `combat_selfplay.fewer_extra_actions` translates ids
+  into their catalog and never offers them a family they have not seen.
+- Evaluators set the extra families from the checkpoint.
+- Remaining rules, on purpose:
+  - BOAT, SHIP, BATTLESHIP, SUPERUNIT and DAGGER are never trained, because none can be on Drylands or from a
+    city.
+  - `UPGRADE_BOAT` / `UPGRADE_SHIP` and `CLIMB_MOUNTAIN` are never offered by the engine in these games.
 - Tests: `tools/tests/test_combat_optional_rules.py`.
 
 ## [Phase2-Combat_League_Opponent_Village_Capture-089] - (2026-11-18)
