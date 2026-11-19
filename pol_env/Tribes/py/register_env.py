@@ -5582,6 +5582,8 @@ class TribesGymWrapper(gym.Env):
         "avoid_fishing": 0.0,           # event: penalty for researching FISHING
         "avoid_philosophy_meditation": 0.0,  # event: penalty for researching PHILOSOPHY or MEDITATION
         "avoid_whaling": 0.0,           # event: penalty for researching WHALING
+        "roads_tech": 0.0,              # event: bonus for researching ROADS (roads must be discovered before the
+                                        # road potential can pay; POLYVISION_COMBAT_EXTRA_ACTIONS=BUILD_ROAD)
         "capital_hold": 0.0,            # event: per unit of ours on an enemy capital at the start of our turn
         "capital_region_kill": 0.0,     # event: per enemy unit killed inside an enemy capital's territory
         "rider": 0.0,                   # phi: per Rider of ours alive (prefer Riders; a potential, so a Rider
@@ -5701,7 +5703,7 @@ class TribesGymWrapper(gym.Env):
 
     COMBAT_EVENT_TERMS = ("regional_attack", "role_positioning", "damage_trade", "hanging_population", "tech_order",
                           "pop_tech", "unused_tech", "tech_cost", "avoid_fishing", "avoid_philosophy_meditation",
-                          "avoid_whaling", "capital_hold", "capital_region_kill", "train_rider", "train_infantry",
+                          "avoid_whaling", "roads_tech", "capital_hold", "capital_region_kill", "train_rider", "train_infantry",
                           "rider_attack", "embassy", "turn_penalty")
 
     def _combat_reset_turn_trackers(self):
@@ -5728,6 +5730,8 @@ class TribesGymWrapper(gym.Env):
                 out["avoid_philosophy_meditation"] = -w["avoid_philosophy_meditation"]
             if w["avoid_whaling"] and tech == "WHALING":
                 out["avoid_whaling"] = -w["avoid_whaling"]
+            if w["roads_tech"] and tech == "ROADS":
+                out["roads_tech"] = w["roads_tech"]
             if w["pop_tech"]:
                 offered = [str(a.get("tech_type")) for a in (legal_actions or []) if a.get("type") == "RESEARCH_TECH"]
                 board = (start_obs or {}).get("board")

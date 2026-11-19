@@ -171,6 +171,14 @@ class UnitPreferenceAndTempoTests(unittest.TestCase):
         attack = {"type": "ATTACK", "unit_id": 2, "target_unit_id": 3}
         self.assertEqual(w._combat_event_rewards(s, s, attack, "ATTACK"), {})
 
+    def test_roads_tech_bonus(self):
+        s = state([unit(1, 0, "WARRIOR", 2, 2)])
+        research = lambda tech: {"type": "RESEARCH_TECH", "tech_type": tech, "star_cost": 5}
+        self.assertEqual(self.wrapper()._combat_event_rewards(s, s, research("ROADS"), "RESEARCH_TECH"), {})
+        w = self.wrapper(roads_tech=1.5)
+        self.assertEqual(w._combat_event_rewards(s, s, research("ROADS"), "RESEARCH_TECH"), {"roads_tech": 1.5})
+        self.assertEqual(w._combat_event_rewards(s, s, research("RIDING"), "RESEARCH_TECH"), {})
+
     def test_embassy_and_turn_penalties(self):
         w = self.wrapper(embassy=5, turn_penalty=0.25)
         s = state([unit(1, 0, "RIDER", 2, 2)])

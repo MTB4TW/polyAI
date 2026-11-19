@@ -2,6 +2,23 @@
 
 All notable changes to this project are documented in this file.
 
+## [Phase2-Combat_Roads_Reward-091] - (2026-11-19)
+
+### Problem
+- With road building offered (`POLYVISION_COMBAT_EXTRA_ACTIONS`, CHANGELOG 090), the no-rules league run built
+  almost no roads by 2.3M steps: 0.00–0.02 per game. It never researched Roads: 0% of games, against 0–8% in the
+  rules-on run.
+- The road potential (`ROAD`, 0.05 per road tile in territory) only pays once a road exists, so it gives no reason
+  to research the tech first.
+
+### Change
+- New opt-in event term `roads_tech` (`POLYVISION_COMBAT_REWARD_ROADS_TECH`, default 0): a one-time bonus when the
+  learner researches ROADS.
+- The road potential is unchanged. A run raises `POLYVISION_COMBAT_REWARD_ROAD` to make roads worth building. It
+  is a potential, so a road that is lost takes its reward back and road churn cannot be farmed.
+- Defaults are unchanged, and observations and actions are unchanged, so no contract bump.
+- Test: `tools/tests/test_combat_shaping_terms.py` (`test_roads_tech_bonus`).
+
 ## [Phase2-Combat_Optional_Wrapper_Rules_And_Actions-090] - (2026-11-18)
 
 ### Scope

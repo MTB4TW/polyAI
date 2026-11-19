@@ -122,6 +122,9 @@ Opt-in terms (default 0; definitions in `pol_env/Tribes/py/combat_shaping.py` an
 Also opt-in (CHANGELOG entry 061): `RIDER` (potential: + per Rider of ours alive), `TRAIN_RIDER` (+ per Rider trained), `TRAIN_INFANTRY` (− per Warrior or
 Swordsman trained), `RIDER_ATTACK` (+ per attack by a Rider), `EMBASSY` (− per embassy built, 2.15 rules) and
 `TURN_PENALTY` (− per turn ended). `cluster/combat_cap_all_v2.env` sets them for the 2.15-rules cap_all run.
+Also opt-in (CHANGELOG entry 091): `ROADS_TECH` (+ once for researching Roads). Use it with
+`POLYVISION_COMBAT_EXTRA_ACTIONS=BUILD_ROAD`, because the wrapper never offered road building before CHANGELOG 090.
+Raise `ROAD` with it, so that roads are worth building once they are discovered.
 
 `POLYVISION_COMBAT_REWARD_SHAPING_SCALE` (default 1) multiplies every term except the outcome terms (`WIN`, `LOSS`,
 `TIMEOUT`, `EARLY_WIN`, `TERMINAL_POTENTIAL`, `TURN_PENALTY`); 0 trains on the game result alone. Outcome-only
