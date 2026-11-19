@@ -73,6 +73,14 @@ All notable changes to this project are documented in this file.
   - Only snapshots trained with other rules are affected, and the league's random stream is untouched at 0.
   - Those games are logged under `<opponent>@own_rules` (`league/...`, `league_stats.json`), and
     `combat_end_raw/opponent_own_rules` counts them.
+- `tools/evaluate_combat_h2h.py`:
+  - A and B must be trained for the same game: the same turn limit and game rules. They may differ in unit status,
+    optional wrapper rules and extra action families; B plays under A's settings through
+    `combat_selfplay.SnapshotOpponent`'s adapters.
+  - Tribe 0 now also plays through `SnapshotOpponent.act`. Before, it used `PPOPolicy` on the raw observation, so a
+    checkpoint on an older contract got the wrong inputs in seat 0.
+  - Sampling in seat 0 now uses `SnapshotOpponent`'s per-game generator. Results match earlier head-to-heads in
+    distribution, not game for game.
 - Tests: `tools/tests/test_combat_optional_rules.py`.
 
 ## [Phase2-Combat_League_Opponent_Village_Capture-089] - (2026-11-18)
