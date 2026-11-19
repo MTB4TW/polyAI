@@ -5866,17 +5866,23 @@ class TribesGymWrapper(gym.Env):
         self._combat_opponent = opponent
         self.tribes_env.learner_seat = self._combat_league.choose_seat()
         java = self.tribes_env._env
+        self._combat_opponent_own_rules = False
         if opponent is None:
             java.setOpponentAgent(SIMPLE_OPPONENT, 0)  # reseeded with the episode seed by the reset
             self.tribes_env.opponent_turn_hook = None
             return
         opponent.reseed(int(self._last_reset_seed or 0) * 31 + 7)
         java.setOpponentAgent(EXTERNAL_OPPONENT, 0)
+        # Some games: the snapshot plays under the optional wrapper rules it trained with (OWN_RULES_PROB).
+        own_rules = self._combat_league.choose_rules(opponent, getattr(self, "RULES_OFF", frozenset()))
+        self._combat_opponent_own_rules = own_rules is not None
         state = {}
 
         def hook():
             if "view" not in state:  # built at the first opponent turn (seat 1: during the reset, turn count 0)
                 state["view"] = OpponentView(self)
+                if own_rules is not None:
+                    state["view"].view.RULES_OFF = own_rules
             play_external_turn(self, opponent, state["view"])
 
         self.tribes_env.opponent_turn_hook = hook
@@ -5896,8 +5902,11 @@ class TribesGymWrapper(gym.Env):
                 f"combat_end_raw_win_vs_{kind}": won,
                 f"combat_end_raw_win_seat{seat}": won,
                 f"combat_end_raw_win_vs_{kind}_seat{seat}": won,
-                # Per-opponent picks and results, aggregated over env workers by ppo.py (league/...).
-                "combat_league_opponent": self._combat_league.label(snapshot.path if snapshot is not None else None),
+                "combat_end_raw_opponent_own_rules": float(bool(getattr(self, "_combat_opponent_own_rules", False))),
+                # Per-opponent picks and results, aggregated over env workers by ppo.py (league/...); games where
+                # the snapshot kept its own wrapper rules are listed separately.
+                "combat_league_opponent": self._combat_league.label(snapshot.path if snapshot is not None else None)
+                + ("@own_rules" if getattr(self, "_combat_opponent_own_rules", False) else ""),
                 "combat_league_learner_won": won}
         return info
 

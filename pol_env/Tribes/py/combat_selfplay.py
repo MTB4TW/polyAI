@@ -21,6 +21,9 @@ Settings (environment variables, read by the wrapper in combat mode):
   POLYVISION_COMBAT_LEAGUE_PFSP_POWER         p in (1 - learner win rate)^p (default 2)
   POLYVISION_COMBAT_LEAGUE_MAX_SELF           if > 0: keep every GLOB opponent and the newest N own checkpoints
                                               (instead of the newest MAX_SNAPSHOTS of all; default 0)
+  POLYVISION_COMBAT_LEAGUE_OWN_RULES_PROB     share of snapshot games (whose snapshot trained with other optional
+                                              wrapper rules, CHANGELOG 090) where the snapshot plays under its own
+                                              rules instead of the run's (default 0)
   POLYVISION_COMBAT_LEAGUE_SWAP_PROB          share of games where the learner plays tribe 1 (moves second, the
                                               opponent's usual tribe and start) and the opponent tribe 0 (default 0)
 
@@ -169,8 +172,9 @@ class SnapshotOpponent:
         if fewer is not None:
             env_meta, action_space, self.id_map = fewer
         # Optional wrapper rules (CHANGELOG 090) change what is legal, not what a snapshot sees: a snapshot trained
-        # with other rules switched off still plays here, under this run's rules.
+        # with other rules switched off still plays here, under this run's rules (or its own: choose_rules).
         from pol_env.Tribes.py.environment_contract import rules_off_of_version, with_rules_off
+        self.trained_rules_off = rules_off_of_version(meta.get("phase1_environment_version"))
         env_meta = dict(env_meta)
         env_meta["phase1_environment_version"] = with_rules_off(
             env_meta["phase1_environment_version"], rules_off_of_version(meta.get("phase1_environment_version")))
@@ -360,6 +364,9 @@ class CombatLeague:
         self.power = float(environ.get("POLYVISION_COMBAT_LEAGUE_PFSP_POWER", "2"))
         self.refresh_every = int(environ.get("POLYVISION_COMBAT_LEAGUE_REFRESH_EVERY", "20"))
         self.swap_prob = float(environ.get("POLYVISION_COMBAT_LEAGUE_SWAP_PROB", "0"))
+        self.own_rules_prob = float(environ.get("POLYVISION_COMBAT_LEAGUE_OWN_RULES_PROB", "0"))
+        if not 0.0 <= self.own_rules_prob <= 1.0:
+            raise ValueError("POLYVISION_COMBAT_LEAGUE_OWN_RULES_PROB must be between 0 and 1")
         if not 0.0 <= self.simple_prob <= 1.0:
             raise ValueError("POLYVISION_COMBAT_LEAGUE_SIMPLE_PROB must be between 0 and 1")
         if not 0.0 <= self.swap_prob <= 1.0:
@@ -425,6 +432,15 @@ class CombatLeague:
         if self.swap_prob <= 0.0:
             return 0
         return int(self.rng.random() < self.swap_prob)
+
+    def choose_rules(self, opponent, run_rules_off) -> Optional[frozenset]:
+        """The optional wrapper rules switched off for the snapshot's side this game: its own trained setting with
+        probability own_rules_prob, else None (the run's). The random stream is untouched when the probability is 0
+        or the snapshot trained with the run's rules."""
+        trained = getattr(opponent, "trained_rules_off", None)
+        if self.own_rules_prob <= 0.0 or trained is None or frozenset(trained) == frozenset(run_rules_off or ()):
+            return None
+        return frozenset(trained) if self.rng.random() < self.own_rules_prob else None
 
     def label(self, path: Optional[str]) -> str:
         """Short, stable name of an opponent for logging: 'simple', 'self/<checkpoint>' or '<run dir>/<file>'."""

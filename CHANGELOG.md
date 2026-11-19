@@ -50,6 +50,12 @@ All notable changes to this project are documented in this file.
   - BOAT, SHIP, BATTLESHIP, SUPERUNIT and DAGGER are never trained, because none can be on Drylands or from a
     city.
   - `UPGRADE_BOAT` / `UPGRADE_SHIP` and `CLIMB_MOUNTAIN` are never offered by the engine in these games.
+- `POLYVISION_COMBAT_LEAGUE_OWN_RULES_PROB` (default 0) sets the share of snapshot games in which the snapshot keeps
+  the wrapper rules it trained with, instead of playing under the run's.
+  - Example: in a rules-off run, an old opponent sometimes still plays the scripted village rules.
+  - Only snapshots trained with other rules are affected, and the league's random stream is untouched at 0.
+  - Those games are logged under `<opponent>@own_rules` (`league/...`, `league_stats.json`), and
+    `combat_end_raw/opponent_own_rules` counts them.
 - Tests: `tools/tests/test_combat_optional_rules.py`.
 
 ## [Phase2-Combat_League_Opponent_Village_Capture-089] - (2026-11-18)
