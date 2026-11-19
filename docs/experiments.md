@@ -91,6 +91,18 @@ Baselines on the same 250 validation maps: visible greedy 7.93, random legal 6.6
 | 1.0M | `league_us_wiki_norules_8m` | 52.1% | 21.9% | 26.0% | 0.651 | +0.30 [+0.23, +0.38] | `outputs/evaluations/20261119_progress_norules_1000000_vs_seg1_1200000_wiki_h2h_diagnostic` |
 | 2.2M | no rules | 42.9% | 19.0% | 38.1% | 0.620 | +0.24 [+0.18, +0.30] | `outputs/evaluations/20261119_progress_norules_2200000_vs_seg1_1200000_wiki_h2h_diagnostic` |
 
+Top-move replays (`--mode argmax`, otherwise identical; 474 and 471 of 480 games distinct):
+
+| A | Moves | A win | A loss | Timeout | Margin | Folder |
+|---|---|---:|---:|---:|---|---|
+| rules on 3.4M | sampled | 55.8% | 20.8% | 23.3% | [+0.28, +0.43] | (above) |
+| rules on 3.4M | top move | 53.7% | 28.3% | 17.9% | [+0.18, +0.33] | `outputs/evaluations/20261119_progress_ruleson_3400000_vs_seg1_1200000_wiki_h2h_argmax_diagnostic` |
+| no rules 2.2M | sampled | 42.9% | 19.0% | 38.1% | [+0.18, +0.30] | (above) |
+| no rules 2.2M | top move | 37.7% | 22.9% | 39.4% | [+0.07, +0.23] | `outputs/evaluations/20261119_progress_norules_2200000_vs_seg1_1200000_wiki_h2h_argmax_diagnostic` |
+
+Timeouts barely change without sampling (23 → 18%, 38 → 39%), so sampling noise is not why games time out. Decisive
+games end around turn 14–15 either way.
+
 ### Wrapper rules switched off at evaluation time (diagnostic, 2026-11-18, Kevin's Claude agent)
 
 This switches off the optional wrapper rules (CHANGELOG 090) for a checkpoint trained with them on. The checkpoint is

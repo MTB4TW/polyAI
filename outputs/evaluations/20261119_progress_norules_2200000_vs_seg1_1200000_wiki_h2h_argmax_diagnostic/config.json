@@ -1,0 +1,1086 @@
+{
+  "canonical": false,
+  "classification": "h2h-partial-diagnostic-noncanonical",
+  "ended_utc": "2026-11-19T20:07:35.771798Z",
+  "evaluated_map_count": 120,
+  "evaluation_id": "20261119_progress_norules_2200000_vs_seg1_1200000_wiki_h2h_argmax_diagnostic",
+  "evaluation_schema_version": "polyvision-combat-h2h-v1",
+  "evaluation_seed": 42,
+  "fog_memory": false,
+  "game_mode": "CAPITALS",
+  "manifest_path": "pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_manifest.json",
+  "manifest_sha256": "b84ef0a48c64f214e494ebb18b4d3548adf2d9fd04c5704518d8880c5fcd5420",
+  "max_turns": 20,
+  "mode": "argmax",
+  "model_a": "/home/users/kevlai/polyAI/.claude/worktrees/rules/runs/progress_ckpts/norules_2200000.cleanrl_model",
+  "model_a_metadata": {
+    "action_catalog_fingerprint": "67c46bc2e2f7b659775d0ad6ee6d0a871473fd528add5a88b52364ee86297037",
+    "action_offset_table_hash": "67c46bc2e2f7b659775d0ad6ee6d0a871473fd528add5a88b52364ee86297037",
+    "action_space_n": "108881",
+    "actor_mode": "legal_features",
+    "canonicalizer_version": "flat-v1-structured",
+    "catalog_version": "flat-v1",
+    "global_action_space_n": "108881",
+    "gymnasium_version": "1.3.0",
+    "legal_action_feature_dim": 51,
+    "legal_action_feature_version": "v1_4_parity_spatial_and_cost+attack_outcome_v1",
+    "map_height": "11",
+    "map_width": "11",
+    "max_legal_actions": "512",
+    "network_arch": "spatial_resnet_composed",
+    "observation_dim": "7300",
+    "phase1_environment_version": "combat_v5_scaled_scalars_horizon_20+unit_status_v1+extra_actions_build_road-disband-burn_forest-destroy-make_veteran-heal_others-convert-declare_war-send_stars+wrapper_rules_off_city_wall_mask-fishing_mask-unit2_backtrack-village_capture_freeze-village_forced_moves-village_progress_moves+rules_polytopia_2_15_r2",
+    "phase1_opening_version": "combat_no_scripted_opening_v1",
+    "privileged_critic": "privileged_critic_v2",
+    "resumed_from": {
+      "checkpoint": "model_checkpoint_16384.cleanrl_model",
+      "global_step": 16384
+    },
+    "vector_autoreset_mode": "SameStep"
+  },
+  "model_a_sha256": "f605bc3845370bc7b4af6b6acd187bb6b37fc633fbbeedb1ddb119f959b1b177",
+  "model_b": "/home/users/kevlai/polyAI/.claude/worktrees/league-us/runs/init_league8m_seg1_1200000/model_checkpoint_1200000.cleanrl_model",
+  "model_b_metadata": {
+    "action_catalog_fingerprint": "8dda48f09b15c629270b07a2f921c85d017772db454ef1ebc46f101ce02163a0",
+    "action_offset_table_hash": "8dda48f09b15c629270b07a2f921c85d017772db454ef1ebc46f101ce02163a0",
+    "action_space_n": "93454",
+    "actor_mode": "legal_features",
+    "canonicalizer_version": "flat-v1-structured",
+    "catalog_version": "flat-v1",
+    "global_action_space_n": "93454",
+    "gymnasium_version": "1.3.0",
+    "init_from": {
+      "copied": 39,
+      "extended": [],
+      "folded": [],
+      "kept_fresh_count": 0,
+      "path": "/home/users/devinlai/polyAI-wt/league3/runs/Tribes-v0__combat_pcritic_t1_league_swap_4m__1__1794900049/combat_pcritic_t1_league_swap_4m.cleanrl_model",
+      "remapped": [],
+      "reset": [],
+      "reset_prefixes": [],
+      "scalar_conversion": null,
+      "sha256": "c3b62b9fd1147dd4858071e28b9749d1db5665d53401c2f1fc9f82331103aee3",
+      "source_action_space_n": 93454,
+      "source_environment_version": "combat_v5_scaled_scalars_horizon_20+rules_polytopia_2_15_r2",
+      "source_network_arch": "spatial_resnet_composed",
+      "source_observation_dim": 6695,
+      "target_action_space_n": 93454,
+      "target_environment_version": "combat_v5_scaled_scalars_horizon_20+rules_polytopia_2_15_r2",
+      "target_observation_dim": 6695,
+      "type_rows_from_ids": 0,
+      "unused_source_keys": []
+    },
+    "legal_action_feature_dim": 47,
+    "legal_action_feature_version": "v1_4_parity_spatial_and_cost",
+    "map_height": "11",
+    "map_width": "11",
+    "max_legal_actions": "512",
+    "network_arch": "spatial_resnet_composed",
+    "observation_dim": "6695",
+    "phase1_environment_version": "combat_v5_scaled_scalars_horizon_20+rules_polytopia_2_15_r2",
+    "phase1_opening_version": "combat_no_scripted_opening_v1",
+    "privileged_critic": "privileged_critic_v2",
+    "privileged_critic_init": "loaded",
+    "vector_autoreset_mode": "SameStep"
+  },
+  "model_b_sha256": "edd24ef9ecf36bae4fe6e35d3f708b4f4efb855fad10fba1a6b8290bb8e97334",
+  "ordered_maps": [
+    {
+      "csv_sha256": "9a137bff818cadc26a9c1a040c5172ffa1b4b59bc2caa73d4f2793d7d17ef86d",
+      "filename": "map_2p_030000.csv",
+      "map_seed": 30000,
+      "opponent_tribe": "IMPERIUS",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030000.csv"
+    },
+    {
+      "csv_sha256": "36d7d6dc765f32856ae7d15a4fb8289e1004d44de5221ebdb232e38e6379223c",
+      "filename": "map_2p_030001.csv",
+      "map_seed": 30001,
+      "opponent_tribe": "XIN_XI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030001.csv"
+    },
+    {
+      "csv_sha256": "fc5fb068a772fcdab7895d214ab34ddc6a9b41340d50fc2831f835b840e6f08e",
+      "filename": "map_2p_030002.csv",
+      "map_seed": 30002,
+      "opponent_tribe": "OUMAJI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030002.csv"
+    },
+    {
+      "csv_sha256": "54cc435bf504dad307bd945596ca7b4e6d55382fccd390d65a2e3a546c3a5582",
+      "filename": "map_2p_030003.csv",
+      "map_seed": 30003,
+      "opponent_tribe": "IMPERIUS",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030003.csv"
+    },
+    {
+      "csv_sha256": "b2c209c7386f790496050df1950200d4118c03eb576afac66244e47632227171",
+      "filename": "map_2p_030004.csv",
+      "map_seed": 30004,
+      "opponent_tribe": "XIN_XI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030004.csv"
+    },
+    {
+      "csv_sha256": "05e28fc46ca91400a507334250e6ac9e2e53614f23cc061b165bdeaa575d6ecd",
+      "filename": "map_2p_030005.csv",
+      "map_seed": 30005,
+      "opponent_tribe": "OUMAJI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030005.csv"
+    },
+    {
+      "csv_sha256": "a12461ac7451d6101255916a554c41a7efdbaab35a27b1a99a1daeef16d227a1",
+      "filename": "map_2p_030006.csv",
+      "map_seed": 30006,
+      "opponent_tribe": "IMPERIUS",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030006.csv"
+    },
+    {
+      "csv_sha256": "1f396783e7507315917da440bea7403fafcb900e2304c62740036ea7ffcd4bfb",
+      "filename": "map_2p_030007.csv",
+      "map_seed": 30007,
+      "opponent_tribe": "XIN_XI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030007.csv"
+    },
+    {
+      "csv_sha256": "4bb06316c8df5430a74536aa4b68fe73305717c10713f39af02e44fc4cdb8d59",
+      "filename": "map_2p_030008.csv",
+      "map_seed": 30008,
+      "opponent_tribe": "OUMAJI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030008.csv"
+    },
+    {
+      "csv_sha256": "1694b08f2eac6eabf848129c7ac1a1beadb7512b4c4039f6ba177c04fafdd03f",
+      "filename": "map_2p_030009.csv",
+      "map_seed": 30009,
+      "opponent_tribe": "IMPERIUS",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030009.csv"
+    },
+    {
+      "csv_sha256": "068a80c890b974bd77a124af914e9f4a257a1377fa54f3dfd611bf0a32fea2bc",
+      "filename": "map_2p_030010.csv",
+      "map_seed": 30010,
+      "opponent_tribe": "XIN_XI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030010.csv"
+    },
+    {
+      "csv_sha256": "c0b993e817414826d741df40e02dc651f7f84e52538abde886c50470658cc969",
+      "filename": "map_2p_030011.csv",
+      "map_seed": 30011,
+      "opponent_tribe": "OUMAJI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030011.csv"
+    },
+    {
+      "csv_sha256": "791b1dbeedfaaac0a5896b14aa0f185ef8064f2395f25fba1495c9ac78d90f1b",
+      "filename": "map_2p_030012.csv",
+      "map_seed": 30012,
+      "opponent_tribe": "IMPERIUS",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030012.csv"
+    },
+    {
+      "csv_sha256": "ec67c08bb064524fc1ed3781605a26ddc40f8235fbbe5a88cedfe23ac2002d04",
+      "filename": "map_2p_030013.csv",
+      "map_seed": 30013,
+      "opponent_tribe": "XIN_XI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030013.csv"
+    },
+    {
+      "csv_sha256": "13d90983cb606dbbd5e8f10d75863b9db9292edfe70f601cdcc43889bed5dc32",
+      "filename": "map_2p_030014.csv",
+      "map_seed": 30014,
+      "opponent_tribe": "OUMAJI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030014.csv"
+    },
+    {
+      "csv_sha256": "03dbaf4b355c1c5a741be7ddf24da9109fd277ac00bc98ea6e5570a72474a43c",
+      "filename": "map_2p_030015.csv",
+      "map_seed": 30015,
+      "opponent_tribe": "IMPERIUS",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030015.csv"
+    },
+    {
+      "csv_sha256": "1a5f3db0fb54bea7d4d54f79ba9072826c633d5e787c5f2fcced8ca096ef5189",
+      "filename": "map_2p_030016.csv",
+      "map_seed": 30016,
+      "opponent_tribe": "XIN_XI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030016.csv"
+    },
+    {
+      "csv_sha256": "eae9c970620a53da04afbf8dea00b416ec5f0a6dc1e11fd41bf73331f605a414",
+      "filename": "map_2p_030017.csv",
+      "map_seed": 30017,
+      "opponent_tribe": "OUMAJI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030017.csv"
+    },
+    {
+      "csv_sha256": "985ef49342025eb55684bcc54fdb5394a168df2a27abfc329c98e4905ec9d203",
+      "filename": "map_2p_030018.csv",
+      "map_seed": 30018,
+      "opponent_tribe": "IMPERIUS",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030018.csv"
+    },
+    {
+      "csv_sha256": "e945b2d9aa1d507cdee0519bc0d09d7c0519a04450e7e6b926a538ea50cc3da3",
+      "filename": "map_2p_030019.csv",
+      "map_seed": 30019,
+      "opponent_tribe": "XIN_XI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030019.csv"
+    },
+    {
+      "csv_sha256": "44651c58d73c589ef2c9edff1f69b90ea40c5959144e13768268dcaaedc6431e",
+      "filename": "map_2p_030020.csv",
+      "map_seed": 30020,
+      "opponent_tribe": "OUMAJI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030020.csv"
+    },
+    {
+      "csv_sha256": "924b5ba29e4e504bf96e522791193e3bd0ae2a5890d9ee4de1b8c8992dabfa0f",
+      "filename": "map_2p_030021.csv",
+      "map_seed": 30021,
+      "opponent_tribe": "IMPERIUS",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030021.csv"
+    },
+    {
+      "csv_sha256": "87c8a233f32f62eca12ca56e1c244a108b43b358b640e8cf3537ff5598bef9ad",
+      "filename": "map_2p_030022.csv",
+      "map_seed": 30022,
+      "opponent_tribe": "XIN_XI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030022.csv"
+    },
+    {
+      "csv_sha256": "7b921f62717bb79d2a08be3e3707ea312bdbd2321c26658a9d7b91e328827c6d",
+      "filename": "map_2p_030023.csv",
+      "map_seed": 30023,
+      "opponent_tribe": "OUMAJI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030023.csv"
+    },
+    {
+      "csv_sha256": "9fb5c1c04ee331c1594c1c3cf3e9f113918424a43324741627cf79e3bef97e70",
+      "filename": "map_2p_030024.csv",
+      "map_seed": 30024,
+      "opponent_tribe": "IMPERIUS",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030024.csv"
+    },
+    {
+      "csv_sha256": "f1c61d72d729357f9ebb6e4dbf7cde042f0b8a1554a38143d0978234288043fd",
+      "filename": "map_2p_030025.csv",
+      "map_seed": 30025,
+      "opponent_tribe": "XIN_XI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030025.csv"
+    },
+    {
+      "csv_sha256": "f609639135b5dd0ab979a83037a95bfd8c8ca69ef552c505d85e5900818fba1d",
+      "filename": "map_2p_030026.csv",
+      "map_seed": 30026,
+      "opponent_tribe": "OUMAJI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030026.csv"
+    },
+    {
+      "csv_sha256": "a46f7cc60f58c8b7c922b5db6c372b41147926ea210b87aeeaedb8f64ef0437d",
+      "filename": "map_2p_030027.csv",
+      "map_seed": 30027,
+      "opponent_tribe": "IMPERIUS",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030027.csv"
+    },
+    {
+      "csv_sha256": "d5248a44c17188ffa5c43a2e072f22bd53f88d3626ff6c97c0a94bad97874631",
+      "filename": "map_2p_030028.csv",
+      "map_seed": 30028,
+      "opponent_tribe": "XIN_XI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030028.csv"
+    },
+    {
+      "csv_sha256": "fd4177aec833ac5ab651f533056c15cf1c8a942b2be8edbebb7a919c31ad1162",
+      "filename": "map_2p_030029.csv",
+      "map_seed": 30029,
+      "opponent_tribe": "OUMAJI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030029.csv"
+    },
+    {
+      "csv_sha256": "247a16970ef9dc2bf2ae80b6d8c8032e50a8fdf17cd976fd3689be610c16286f",
+      "filename": "map_2p_030030.csv",
+      "map_seed": 30030,
+      "opponent_tribe": "IMPERIUS",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030030.csv"
+    },
+    {
+      "csv_sha256": "a24b21af52b7e9449f4237770f9c37a290cd007c1881fa3898c5217a0ac7859c",
+      "filename": "map_2p_030031.csv",
+      "map_seed": 30031,
+      "opponent_tribe": "XIN_XI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030031.csv"
+    },
+    {
+      "csv_sha256": "3c394beede895b0ef18d6f2fe2e3add1f1e64a30c3bb3bc99d571184eb3f05bf",
+      "filename": "map_2p_030032.csv",
+      "map_seed": 30032,
+      "opponent_tribe": "OUMAJI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030032.csv"
+    },
+    {
+      "csv_sha256": "6755955a63b277aad0a720e80369a4bc0d3f1406d4990b4908a2b6025660350c",
+      "filename": "map_2p_030033.csv",
+      "map_seed": 30033,
+      "opponent_tribe": "IMPERIUS",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030033.csv"
+    },
+    {
+      "csv_sha256": "b02226d1742401629610f2cacc1420dfec43af8d10da20ee3a2b0b7f031583a2",
+      "filename": "map_2p_030034.csv",
+      "map_seed": 30034,
+      "opponent_tribe": "XIN_XI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030034.csv"
+    },
+    {
+      "csv_sha256": "65b02736321bb7d9ccea2ad79cab39728881d099cdb6acf36bd5bfa6f501ff25",
+      "filename": "map_2p_030035.csv",
+      "map_seed": 30035,
+      "opponent_tribe": "OUMAJI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030035.csv"
+    },
+    {
+      "csv_sha256": "da563afd24e8e414e7a8186675d5d9909237c63f8444d0129bf275cd70ef4434",
+      "filename": "map_2p_030036.csv",
+      "map_seed": 30036,
+      "opponent_tribe": "IMPERIUS",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030036.csv"
+    },
+    {
+      "csv_sha256": "d9a28567575fda88b9dc08b799be5140e998c8472d82001100d61784280df1c8",
+      "filename": "map_2p_030037.csv",
+      "map_seed": 30037,
+      "opponent_tribe": "XIN_XI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030037.csv"
+    },
+    {
+      "csv_sha256": "de20f6f54f17daf0895ee4d6988f60590684148126e814e313b41dc4b58bce2b",
+      "filename": "map_2p_030038.csv",
+      "map_seed": 30038,
+      "opponent_tribe": "OUMAJI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030038.csv"
+    },
+    {
+      "csv_sha256": "b9670332122607a25f5675b442c58272a09bb93a32f5e9db1dd253a865ced0da",
+      "filename": "map_2p_030039.csv",
+      "map_seed": 30039,
+      "opponent_tribe": "IMPERIUS",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030039.csv"
+    },
+    {
+      "csv_sha256": "7388fa748005eb94d4a3b3e2ead653c6003283e161327f863facde6e95525af7",
+      "filename": "map_2p_030040.csv",
+      "map_seed": 30040,
+      "opponent_tribe": "XIN_XI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030040.csv"
+    },
+    {
+      "csv_sha256": "e76ec7259259f2a2d14855f269dfb8a9c065cf4229683bbe711659e3ce2c5fb9",
+      "filename": "map_2p_030041.csv",
+      "map_seed": 30041,
+      "opponent_tribe": "OUMAJI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030041.csv"
+    },
+    {
+      "csv_sha256": "8717789d55e73f8026d2aa8f02b67db4f19d70f30061e88dd6d65c6df3db60e8",
+      "filename": "map_2p_030042.csv",
+      "map_seed": 30042,
+      "opponent_tribe": "IMPERIUS",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030042.csv"
+    },
+    {
+      "csv_sha256": "6dd8b3ce7e0937b7c1967039d077d84f490826a7f4300dbafaa8064468f0579b",
+      "filename": "map_2p_030043.csv",
+      "map_seed": 30043,
+      "opponent_tribe": "XIN_XI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030043.csv"
+    },
+    {
+      "csv_sha256": "26244d4c1a584008f4eb2fef3ea7a181f3257a52cbfa6e09284730162f41185e",
+      "filename": "map_2p_030044.csv",
+      "map_seed": 30044,
+      "opponent_tribe": "OUMAJI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030044.csv"
+    },
+    {
+      "csv_sha256": "a512a7de16e6a8c56f4cdad0e06f9a5126a681d704666309aa666d08c8a23eb6",
+      "filename": "map_2p_030045.csv",
+      "map_seed": 30045,
+      "opponent_tribe": "IMPERIUS",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030045.csv"
+    },
+    {
+      "csv_sha256": "afde1b41efe10d14be894b147f6603408a8bd7a6953f0bd4a75d8064b57a426d",
+      "filename": "map_2p_030046.csv",
+      "map_seed": 30046,
+      "opponent_tribe": "XIN_XI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030046.csv"
+    },
+    {
+      "csv_sha256": "4754c9ec258f9cb113d51b59f44c5e6faff558816026a683347718c4119caa25",
+      "filename": "map_2p_030047.csv",
+      "map_seed": 30047,
+      "opponent_tribe": "OUMAJI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030047.csv"
+    },
+    {
+      "csv_sha256": "d0acc37fda95f8126c4f002212dc5c54cd662ae350e86be8097aef30218132cd",
+      "filename": "map_2p_030048.csv",
+      "map_seed": 30048,
+      "opponent_tribe": "IMPERIUS",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030048.csv"
+    },
+    {
+      "csv_sha256": "dfb96cde04a6029d05f720719ee341f9d3ccb509491bbe66737d03636c591300",
+      "filename": "map_2p_030049.csv",
+      "map_seed": 30049,
+      "opponent_tribe": "XIN_XI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030049.csv"
+    },
+    {
+      "csv_sha256": "7658b01566ad96af2d68364839a48766f9f57e19187191afdeb4e344a482dd20",
+      "filename": "map_2p_030050.csv",
+      "map_seed": 30050,
+      "opponent_tribe": "OUMAJI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030050.csv"
+    },
+    {
+      "csv_sha256": "5ecf58ad425d9c07fd00dfff7e3dc1bbdfbde1228925d13a9df3d2acb8a7efac",
+      "filename": "map_2p_030051.csv",
+      "map_seed": 30051,
+      "opponent_tribe": "IMPERIUS",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030051.csv"
+    },
+    {
+      "csv_sha256": "48fe5f66997a96126b4624d79635d73c08a10d049f240d8e456f2c8f5976e4e2",
+      "filename": "map_2p_030052.csv",
+      "map_seed": 30052,
+      "opponent_tribe": "XIN_XI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030052.csv"
+    },
+    {
+      "csv_sha256": "80d4dd4af90ec4c0f75c07cbd1bd6a480f404b56b8bcfff644553a76a440234c",
+      "filename": "map_2p_030053.csv",
+      "map_seed": 30053,
+      "opponent_tribe": "OUMAJI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030053.csv"
+    },
+    {
+      "csv_sha256": "35c1085ad947b4a421c30202e825df58411a99e2fa6c04e7979be8a260c57a28",
+      "filename": "map_2p_030054.csv",
+      "map_seed": 30054,
+      "opponent_tribe": "IMPERIUS",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030054.csv"
+    },
+    {
+      "csv_sha256": "0bd5c1b05303b55730f9d571ac88aefbc151b00fc1d42ffc4ec7af19aacba8b8",
+      "filename": "map_2p_030055.csv",
+      "map_seed": 30055,
+      "opponent_tribe": "XIN_XI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030055.csv"
+    },
+    {
+      "csv_sha256": "1bca7610698d2e627d94089b8bc25491bef5507b449096bfcb73f809e8c5f753",
+      "filename": "map_2p_030056.csv",
+      "map_seed": 30056,
+      "opponent_tribe": "OUMAJI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030056.csv"
+    },
+    {
+      "csv_sha256": "f93509c3aad9426224a3fbf43d4454fba3ff0875d2657b322c5e58465ec55f3f",
+      "filename": "map_2p_030057.csv",
+      "map_seed": 30057,
+      "opponent_tribe": "IMPERIUS",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030057.csv"
+    },
+    {
+      "csv_sha256": "5884f35fb6b0438d8bed1923fd5c4c72c5291e36626c1a42a3cf48195909c333",
+      "filename": "map_2p_030058.csv",
+      "map_seed": 30058,
+      "opponent_tribe": "XIN_XI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030058.csv"
+    },
+    {
+      "csv_sha256": "0ac5b2690b1148796ead565f714f85314fbbdea064b40383357ee7f92dee639f",
+      "filename": "map_2p_030059.csv",
+      "map_seed": 30059,
+      "opponent_tribe": "OUMAJI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030059.csv"
+    },
+    {
+      "csv_sha256": "6467eab4dad80608147d2a1b559ea2fd645fbed2ca4b8fe15ae8280a22a15505",
+      "filename": "map_2p_030060.csv",
+      "map_seed": 30060,
+      "opponent_tribe": "IMPERIUS",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030060.csv"
+    },
+    {
+      "csv_sha256": "1915f04788a9024635579b9cd1376b5892af6f1d12ca6adae8a9bcbd5080ee3b",
+      "filename": "map_2p_030061.csv",
+      "map_seed": 30061,
+      "opponent_tribe": "XIN_XI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030061.csv"
+    },
+    {
+      "csv_sha256": "b7a87a026e63521870c56273d44f6599ae7e8d0b5a4234824f1d585537ade838",
+      "filename": "map_2p_030062.csv",
+      "map_seed": 30062,
+      "opponent_tribe": "OUMAJI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030062.csv"
+    },
+    {
+      "csv_sha256": "3fe4ba038401fdb068104ef0f5acffd483956d8f4975e56790db2e56e553945f",
+      "filename": "map_2p_030063.csv",
+      "map_seed": 30063,
+      "opponent_tribe": "IMPERIUS",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030063.csv"
+    },
+    {
+      "csv_sha256": "8f050c648d523f322477d7e5a41bb4d1f22808e3b707fe7affa280a1f44082a2",
+      "filename": "map_2p_030064.csv",
+      "map_seed": 30064,
+      "opponent_tribe": "XIN_XI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030064.csv"
+    },
+    {
+      "csv_sha256": "9b163df8829127236d11f1872a3c9e2056b34b0f38d7f3eb21a8594fa2e20d47",
+      "filename": "map_2p_030065.csv",
+      "map_seed": 30065,
+      "opponent_tribe": "OUMAJI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030065.csv"
+    },
+    {
+      "csv_sha256": "6fda043dfd8247ffda41ac45726df770b161da404b7da3416f277a053d686deb",
+      "filename": "map_2p_030066.csv",
+      "map_seed": 30066,
+      "opponent_tribe": "IMPERIUS",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030066.csv"
+    },
+    {
+      "csv_sha256": "c2405b591b27fb1c94b8784f82da1f8d7d3047d5880a4a76a6a52d730ddf5473",
+      "filename": "map_2p_030067.csv",
+      "map_seed": 30067,
+      "opponent_tribe": "XIN_XI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030067.csv"
+    },
+    {
+      "csv_sha256": "d15a104dd16dc09826fefd7c1fd107f59f71cd20a71d788cad92ca7f0041b13f",
+      "filename": "map_2p_030068.csv",
+      "map_seed": 30068,
+      "opponent_tribe": "OUMAJI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030068.csv"
+    },
+    {
+      "csv_sha256": "e0f7d017561dd7481795b6bfb861e4d54898700c1c8db749645bf78697fc9f67",
+      "filename": "map_2p_030069.csv",
+      "map_seed": 30069,
+      "opponent_tribe": "IMPERIUS",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030069.csv"
+    },
+    {
+      "csv_sha256": "47cfde4faff1a5d1f62a2f7d847cab344b6dfba8f8f0ecba157b1dfd0d6ea468",
+      "filename": "map_2p_030070.csv",
+      "map_seed": 30070,
+      "opponent_tribe": "XIN_XI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030070.csv"
+    },
+    {
+      "csv_sha256": "929b3f4dd8a0c27c4a1e67436fdef65d99898b8e086716becb450bb6344a494d",
+      "filename": "map_2p_030071.csv",
+      "map_seed": 30071,
+      "opponent_tribe": "OUMAJI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030071.csv"
+    },
+    {
+      "csv_sha256": "ed7d723ce1617a344b8d19e35a3a7bc232acea3b08a6f061e97ffbde5c4d7cd6",
+      "filename": "map_2p_030072.csv",
+      "map_seed": 30072,
+      "opponent_tribe": "IMPERIUS",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030072.csv"
+    },
+    {
+      "csv_sha256": "ace603be8d01aae51a3a39ea40d9001b25b823086da89394b3cf0937322f3737",
+      "filename": "map_2p_030073.csv",
+      "map_seed": 30073,
+      "opponent_tribe": "XIN_XI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030073.csv"
+    },
+    {
+      "csv_sha256": "57f114eac0ac52b68fe72310fc9b42c0936ae1b7e8a052efe7f04c66205ce8b1",
+      "filename": "map_2p_030074.csv",
+      "map_seed": 30074,
+      "opponent_tribe": "OUMAJI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030074.csv"
+    },
+    {
+      "csv_sha256": "4eb4c124d89b577e2fddd8b9edbd9b00e7e695b708fe49c2df03f3e8f0f4e58a",
+      "filename": "map_2p_030075.csv",
+      "map_seed": 30075,
+      "opponent_tribe": "IMPERIUS",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030075.csv"
+    },
+    {
+      "csv_sha256": "ec8dcf51f865697de0e7e41fed53d5c607c8ce8a457b454bb41ec5b63871aab1",
+      "filename": "map_2p_030076.csv",
+      "map_seed": 30076,
+      "opponent_tribe": "XIN_XI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030076.csv"
+    },
+    {
+      "csv_sha256": "6904892152eed4d452c82c7554724f41fe7c91e4f5fc2bd52e3a965b5ca43c35",
+      "filename": "map_2p_030077.csv",
+      "map_seed": 30077,
+      "opponent_tribe": "OUMAJI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030077.csv"
+    },
+    {
+      "csv_sha256": "73b95c791ece6b9785048a47ed4ded09b1fb189c2dfb4f4c6f737013c8c2765b",
+      "filename": "map_2p_030078.csv",
+      "map_seed": 30078,
+      "opponent_tribe": "IMPERIUS",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030078.csv"
+    },
+    {
+      "csv_sha256": "3f9a2e2b6ed1265954013be1916a128714f17d380a704ad778a433f067bbe8d9",
+      "filename": "map_2p_030079.csv",
+      "map_seed": 30079,
+      "opponent_tribe": "XIN_XI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030079.csv"
+    },
+    {
+      "csv_sha256": "a040368e666e48c90943624441b14e72110602c3da4d7d918e2131ea2d311c94",
+      "filename": "map_2p_030080.csv",
+      "map_seed": 30080,
+      "opponent_tribe": "OUMAJI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030080.csv"
+    },
+    {
+      "csv_sha256": "8896b4a991af15f31a6186cb67b05a4458c3c44572e0ef808bcd313792d4945f",
+      "filename": "map_2p_030081.csv",
+      "map_seed": 30081,
+      "opponent_tribe": "IMPERIUS",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030081.csv"
+    },
+    {
+      "csv_sha256": "0badcdfd4bcd82e6f7c329d0f83909905be2726742544defd7740e4e3c15f836",
+      "filename": "map_2p_030082.csv",
+      "map_seed": 30082,
+      "opponent_tribe": "XIN_XI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030082.csv"
+    },
+    {
+      "csv_sha256": "a26d07921ad3876b7b756b50e15747b86e36a06add1e9ab56e86d596737cfbe3",
+      "filename": "map_2p_030083.csv",
+      "map_seed": 30083,
+      "opponent_tribe": "OUMAJI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030083.csv"
+    },
+    {
+      "csv_sha256": "4574dd1537ecd552ac4d49f3fc792c253c3d7823c85c86ccb9ed96855a1b807d",
+      "filename": "map_2p_030084.csv",
+      "map_seed": 30084,
+      "opponent_tribe": "IMPERIUS",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030084.csv"
+    },
+    {
+      "csv_sha256": "dd0f4c315318dce791732cc0b30548bc90e1f5deb33f7cfa37abbef8c366a9b8",
+      "filename": "map_2p_030085.csv",
+      "map_seed": 30085,
+      "opponent_tribe": "XIN_XI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030085.csv"
+    },
+    {
+      "csv_sha256": "29fd7b96f6bed93e7d91fec508a94df75645b5cc7e8bb0a04cfb6f60fa93f4f8",
+      "filename": "map_2p_030086.csv",
+      "map_seed": 30086,
+      "opponent_tribe": "OUMAJI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030086.csv"
+    },
+    {
+      "csv_sha256": "88ad302f2139865303566ea42748c11889d8a9c7f49a07b58c7ecdbccf222c80",
+      "filename": "map_2p_030087.csv",
+      "map_seed": 30087,
+      "opponent_tribe": "IMPERIUS",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030087.csv"
+    },
+    {
+      "csv_sha256": "8fb032f697a863dbce8e0a0345f219472c89f337e3eca29e4bca93db6830ccf7",
+      "filename": "map_2p_030088.csv",
+      "map_seed": 30088,
+      "opponent_tribe": "XIN_XI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030088.csv"
+    },
+    {
+      "csv_sha256": "d0e78fe1f05ae4906d38908c6a7542cd4f266341ddd480ccbb83c9f4bf2e6c08",
+      "filename": "map_2p_030089.csv",
+      "map_seed": 30089,
+      "opponent_tribe": "OUMAJI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030089.csv"
+    },
+    {
+      "csv_sha256": "9537860344bf79efef1ce47322c02ff11f17d73877601bd0a56ab5ca9d8505f5",
+      "filename": "map_2p_030090.csv",
+      "map_seed": 30090,
+      "opponent_tribe": "IMPERIUS",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030090.csv"
+    },
+    {
+      "csv_sha256": "f67f27128e2ca2e5ae3f00edbf3398d5e75856d80d816335ffbe739f645667fd",
+      "filename": "map_2p_030091.csv",
+      "map_seed": 30091,
+      "opponent_tribe": "XIN_XI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030091.csv"
+    },
+    {
+      "csv_sha256": "aef54f07fa47eeba7bdc64957bb39e08ec3eb4b1cbdbceac1fe80024e658c000",
+      "filename": "map_2p_030092.csv",
+      "map_seed": 30092,
+      "opponent_tribe": "OUMAJI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030092.csv"
+    },
+    {
+      "csv_sha256": "c29840c94eee9aadef046bea2c7132b6d0b6abd568444fd3aa8e92cadd4222cb",
+      "filename": "map_2p_030093.csv",
+      "map_seed": 30093,
+      "opponent_tribe": "IMPERIUS",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030093.csv"
+    },
+    {
+      "csv_sha256": "46d7e8dca7ed8351650c3c5670be877340813a003abb406a372f452ce88b7abf",
+      "filename": "map_2p_030094.csv",
+      "map_seed": 30094,
+      "opponent_tribe": "XIN_XI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030094.csv"
+    },
+    {
+      "csv_sha256": "e72f86564072732e19a97ba443b1898d4d3e336e960fdfbb3acbfd83e0204b97",
+      "filename": "map_2p_030095.csv",
+      "map_seed": 30095,
+      "opponent_tribe": "OUMAJI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030095.csv"
+    },
+    {
+      "csv_sha256": "598edd0d535c30b1ac7633c7ea4e70fc71842d2f8bdb46ca9795a1608a404680",
+      "filename": "map_2p_030096.csv",
+      "map_seed": 30096,
+      "opponent_tribe": "IMPERIUS",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030096.csv"
+    },
+    {
+      "csv_sha256": "1fc375f0fc57be2f8069547be58bb833931b7096c62200377ab3a7f427e71e9b",
+      "filename": "map_2p_030097.csv",
+      "map_seed": 30097,
+      "opponent_tribe": "XIN_XI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030097.csv"
+    },
+    {
+      "csv_sha256": "06598559a105a6d8109bb7d78d77ea8cd2ddf2db118fbfa4ea53e4c69713d91a",
+      "filename": "map_2p_030098.csv",
+      "map_seed": 30098,
+      "opponent_tribe": "OUMAJI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030098.csv"
+    },
+    {
+      "csv_sha256": "dc48e3df3e3599f3c58853e55197f1bce9a5778329a68154f7470ed29bf748f0",
+      "filename": "map_2p_030099.csv",
+      "map_seed": 30099,
+      "opponent_tribe": "IMPERIUS",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030099.csv"
+    },
+    {
+      "csv_sha256": "5e497bd6b09b3d2cd9b331e1199e44053ccf2af37426c117316416c84b183e0f",
+      "filename": "map_2p_030100.csv",
+      "map_seed": 30100,
+      "opponent_tribe": "XIN_XI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030100.csv"
+    },
+    {
+      "csv_sha256": "717f5671e07a5cc8fc79bcf5154a0d45d7dffcf8a26a18d6ed385b2cc79ca566",
+      "filename": "map_2p_030101.csv",
+      "map_seed": 30101,
+      "opponent_tribe": "OUMAJI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030101.csv"
+    },
+    {
+      "csv_sha256": "06f98ffa5ca060903777b1faad14306e1e5afe29b5bdf72a2478dc1bd52e5cf1",
+      "filename": "map_2p_030102.csv",
+      "map_seed": 30102,
+      "opponent_tribe": "IMPERIUS",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030102.csv"
+    },
+    {
+      "csv_sha256": "64d7d180a3d822a860219ed93264f766df5c17a231f4362ac3ccf40554f38545",
+      "filename": "map_2p_030103.csv",
+      "map_seed": 30103,
+      "opponent_tribe": "XIN_XI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030103.csv"
+    },
+    {
+      "csv_sha256": "4aa80894c770cae02f973fc22935462bd2d0c79f36e7f44dfb83f48145def5d0",
+      "filename": "map_2p_030104.csv",
+      "map_seed": 30104,
+      "opponent_tribe": "OUMAJI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030104.csv"
+    },
+    {
+      "csv_sha256": "c6f49b8bc7866895ed6b09a47922893f63ad083979215bbd279054b341cf459c",
+      "filename": "map_2p_030105.csv",
+      "map_seed": 30105,
+      "opponent_tribe": "IMPERIUS",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030105.csv"
+    },
+    {
+      "csv_sha256": "4a20c0b15c92ab2369c373994d71a92d8a5acdbc6a09e3183b111d7277e8abeb",
+      "filename": "map_2p_030106.csv",
+      "map_seed": 30106,
+      "opponent_tribe": "XIN_XI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030106.csv"
+    },
+    {
+      "csv_sha256": "b627ae5bd8701fe2d9bc9a1c89513647f12e18b327311ebe30114223a094bf84",
+      "filename": "map_2p_030107.csv",
+      "map_seed": 30107,
+      "opponent_tribe": "OUMAJI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030107.csv"
+    },
+    {
+      "csv_sha256": "f9c3ad96191f1e4fbe7a6f15286f9095fe4174a5f9633489ceda47aada9d18fb",
+      "filename": "map_2p_030108.csv",
+      "map_seed": 30108,
+      "opponent_tribe": "IMPERIUS",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030108.csv"
+    },
+    {
+      "csv_sha256": "74ccb2a28ab40213d6c8014e4272711ca6463141e80a942e0a52c43f8ffc2d1f",
+      "filename": "map_2p_030109.csv",
+      "map_seed": 30109,
+      "opponent_tribe": "XIN_XI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030109.csv"
+    },
+    {
+      "csv_sha256": "1086795dcd2ca73a6db7e39a442795c64b8f7077386cc173c003979340e34c1e",
+      "filename": "map_2p_030110.csv",
+      "map_seed": 30110,
+      "opponent_tribe": "OUMAJI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030110.csv"
+    },
+    {
+      "csv_sha256": "22fbd6fbf9db1b11c50b1e008cf1d14028cf8257960edf0f9496f224ef96ddf4",
+      "filename": "map_2p_030111.csv",
+      "map_seed": 30111,
+      "opponent_tribe": "IMPERIUS",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030111.csv"
+    },
+    {
+      "csv_sha256": "4803796598148cea917f81eed89be8e26bb7ae459f7024166a98f9a4e149e7eb",
+      "filename": "map_2p_030112.csv",
+      "map_seed": 30112,
+      "opponent_tribe": "XIN_XI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030112.csv"
+    },
+    {
+      "csv_sha256": "cc796f415abcdcaadea0308b48fd909eaa276da7a51405de03a36b75fbf19126",
+      "filename": "map_2p_030113.csv",
+      "map_seed": 30113,
+      "opponent_tribe": "OUMAJI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030113.csv"
+    },
+    {
+      "csv_sha256": "ec57fe2dab57c34eb4db71c04e38b5189dd2d3ad5c457a93d9a4426563bfcd63",
+      "filename": "map_2p_030114.csv",
+      "map_seed": 30114,
+      "opponent_tribe": "IMPERIUS",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030114.csv"
+    },
+    {
+      "csv_sha256": "8160ebad75b03c00fae5de7179260f34163d0c6fef99f0a524c5b67b7d49d741",
+      "filename": "map_2p_030115.csv",
+      "map_seed": 30115,
+      "opponent_tribe": "XIN_XI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030115.csv"
+    },
+    {
+      "csv_sha256": "db553dec16b8d5c01e445704ec4074e02f608a02aba7f1c623390c32c48d24b6",
+      "filename": "map_2p_030116.csv",
+      "map_seed": 30116,
+      "opponent_tribe": "OUMAJI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030116.csv"
+    },
+    {
+      "csv_sha256": "193cd4ca456260cb1cb29d2cc872de7f943206ccfa69b0221cccfa8e3897e251",
+      "filename": "map_2p_030117.csv",
+      "map_seed": 30117,
+      "opponent_tribe": "IMPERIUS",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030117.csv"
+    },
+    {
+      "csv_sha256": "6f5c0020142ad17e6f72f418854fba6912e9d68c2f5c2b675ee88107e75d86b3",
+      "filename": "map_2p_030118.csv",
+      "map_seed": 30118,
+      "opponent_tribe": "XIN_XI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030118.csv"
+    },
+    {
+      "csv_sha256": "89f19397c64f9229081326d7452a3e4ba66fb01f1a5c18f1c2f34280f697bf07",
+      "filename": "map_2p_030119.csv",
+      "map_seed": 30119,
+      "opponent_tribe": "OUMAJI",
+      "our_tribe": "BARDUR",
+      "path": "/home/users/kevlai/polyAI/.claude/worktrees/rules/pol_env/Tribes/levels/phase2_pool_1v1_wiki/eval_validation/map_2p_030119.csv"
+    }
+  ],
+  "point_of_view": "A: win = A won, loss = B won",
+  "polyvision_environment": {
+    "POLYVISION_COMBAT_EXTRA_ACTIONS": "BUILD_ROAD,DISBAND,BURN_FOREST,DESTROY,MAKE_VETERAN,HEAL_OTHERS,CONVERT,DECLARE_WAR,SEND_STARS",
+    "POLYVISION_COMBAT_MODE": "1",
+    "POLYVISION_COMBAT_POOL": "phase2_pool_1v1_wiki",
+    "POLYVISION_COMBAT_RULES_OFF": "city_wall_mask,fishing_mask,unit2_backtrack,village_capture_freeze,village_forced_moves,village_progress_moves",
+    "POLYVISION_FOG_MEMORY": "0",
+    "POLYVISION_INFO_MODE": "fast",
+    "POLYVISION_LEVEL_POOL_GLOB": "levels/phase2_pool_1v1_wiki/eval_validation/*.csv",
+    "POLYVISION_LEVEL_SELECTION_MODE": "round_robin",
+    "POLYVISION_MAX_LEGAL_ACTIONS": "512",
+    "POLYVISION_MAX_TURNS": "20",
+    "POLYVISION_PHASE": "2",
+    "POLYVISION_RULES": "polytopia_2_15",
+    "POLYVISION_SOLO_NO_OPPONENT_MODE": "0",
+    "POLYVISION_UNIT_STATUS": "1"
+  },
+  "pool": "eval_validation",
+  "repeats_per_map": 2,
+  "rules": "polytopia_2_15",
+  "runtime": {
+    "git_commit": "186ef9fb02eb67a389e406b4ac1fe52b6efe7caa",
+    "git_dirty": true,
+    "gymnasium": "1.3.0",
+    "java": "openjdk version \"11.0.22\" 2024-01-16\nOpenJDK Runtime Environment Temurin-11.0.22+7 (build 11.0.22+7)\nOpenJDK 64-Bit Server VM Temurin-11.0.22+7 (build 11.0.22+7, mixed mode)",
+    "platform": "Linux-7.0.0-34-generic-x86_64-with-glibc2.39",
+    "py4j": "0.10.9.9",
+    "python": "3.14.2",
+    "torch": "2.15.0+cu132"
+  },
+  "schedule_rules": "episode seed depends on map and replicate only (as in tools/evaluate_combat.py); both seat orders play every (map, replicate); per-player policy seeds depend on seat, tribe, map and replicate",
+  "seats": [
+    "a_tribe0",
+    "a_tribe1"
+  ],
+  "started_utc": "2026-11-19T19:09:30.912371Z",
+  "status": "complete"
+}
