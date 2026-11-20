@@ -137,7 +137,6 @@ def play_game(env, tribe0, tribe1, game: H2HGame, sampled: bool, max_decisions: 
     """One game: `tribe0` (a SnapshotOpponent, driven through the env's own observation) against `tribe1`
     (a SnapshotOpponent playing tribe 1's turns through the opponent hook). Returns (tribe-0 outcome, info, n)."""
     from pol_env.Tribes.py.combat_selfplay import EXTERNAL_OPPONENT, OpponentView, play_external_turn
-    from tools.phase1_eval_core import PPOPolicy
 
     env._level_pool = [game.map.path]
     env._level_pool_size = 1
@@ -152,7 +151,10 @@ def play_game(env, tribe0, tribe1, game: H2HGame, sampled: bool, max_decisions: 
 
     env.tribes_env._env.setOpponentAgent(EXTERNAL_OPPONENT, 0)
     env.tribes_env.opponent_turn_hook = hook
-    policy = PPOPolicy(tribe0.agent, torch.device("cpu"), sampled, game.seed_tribe0 if sampled else None)
+    # Tribe 0 also plays through SnapshotOpponent.act, so a checkpoint trained on an older contract (no unit status,
+    # fewer extra action families) gets its own inputs in either seat (CHANGELOG 090).
+    tribe0.deterministic = not sampled
+    tribe0.reseed(game.seed_tribe0)
     obs, info = env.reset(seed=game.episode_seed)
     actual = str(Path(env._current_level_file).resolve())
     if actual != game.map.path or sha256_file(Path(actual)) != game.map.csv_sha256:
@@ -162,9 +164,10 @@ def play_game(env, tribe0, tribe1, game: H2HGame, sampled: bool, max_decisions: 
     while not (terminated or truncated):
         ids = np.asarray(info["legal_global_ids_padded"], dtype=np.int64).reshape(-1)
         valid = np.asarray(info["legal_action_valid_mask"], dtype=bool).reshape(-1)
-        gid, slot = policy.choose_action(obs, info)
-        if slot < 0 or slot >= ids.size or not valid[slot] or int(ids[slot]) != int(gid):
-            raise RuntimeError("Tribe-0 policy selected an invalid legal slot")
+        feats = np.asarray(info["legal_action_features_padded"], dtype=np.float32).reshape(ids.size, -1)
+        gid = tribe0.act(np.asarray(obs), ids, valid, feats)
+        if int(gid) not in set(ids[valid].tolist()):
+            raise RuntimeError("Tribe-0 policy selected an invalid legal action")
         obs, _r, terminated, truncated, info = env.step(int(gid))
         decisions += 1
         if info.get("fallback_to_end_turn") or info.get("illegal_sampled_global_id"):
@@ -192,6 +195,16 @@ def print_summary(pool, n_maps, summary, out_dir):
     print(f"\nResults: {out_dir}")
 
 
+def game_of_version(environment_version) -> str:
+    """The game a checkpoint was trained for: its environment version without the parts B can be adapted across
+    (combat_selfplay.SnapshotOpponent): unit-status inputs, optional wrapper rules and extra action families. The
+    environment follows A; B plays under A's rules (CHANGELOG 090)."""
+    from pol_env.Tribes.py.environment_contract import (
+        UNIT_STATUS_VERSION_SUFFIX, with_extra_actions, with_rules_off)
+    v = with_rules_off(with_extra_actions(str(environment_version or ""), ()), ())
+    return v.replace(UNIT_STATUS_VERSION_SUFFIX, "")
+
+
 def main(argv=None):
     args = parse_args(argv)
     if args.pool in TEST_POOLS and not args.confirm_test:
@@ -203,8 +216,8 @@ def main(argv=None):
 
     path_a, path_b = args.model_a.resolve(), args.model_b.resolve()
     meta_a, meta_b = read_checkpoint_metadata(str(path_a)), read_checkpoint_metadata(str(path_b))
-    if meta_a.get("phase1_environment_version") != meta_b.get("phase1_environment_version"):
-        raise SystemExit("A and B have different environment versions: "
+    if game_of_version(meta_a.get("phase1_environment_version")) != game_of_version(meta_b.get("phase1_environment_version")):
+        raise SystemExit("A and B were trained for different games: "
                          f"{meta_a.get('phase1_environment_version')!r} vs {meta_b.get('phase1_environment_version')!r}")
     manifest, maps, manifest_path = load_verified_pool(REPO_ROOT, args.pool, args.max_maps)
     canonical = is_h2h_canonical(args.pool, len(maps), args.repeats_per_map, args.seed, args.mode, args.max_maps)
@@ -218,7 +231,7 @@ def main(argv=None):
     rules, max_turns, max_legal = environment_settings(meta_a)
     from pol_env.Tribes.py.environment_contract import fog_memory_of_version
     fog_memory = fog_memory_of_version(meta_a.get("phase1_environment_version"))
-    from pol_env.Tribes.py.environment_contract import unit_status_of_version
+    from pol_env.Tribes.py.environment_contract import extra_actions_of_version, rules_off_of_version, unit_status_of_version
     # The env follows checkpoint A; a B without unit status plays through the old-contract adapter (combat_selfplay).
     unit_status = unit_status_of_version(meta_a.get("phase1_environment_version"))
     for key in [k for k in os.environ if k.startswith(("POLYVISION_COMBAT_REWARD_", "POLYVISION_COMBAT_LEAGUE",
@@ -230,6 +243,9 @@ def main(argv=None):
         "POLYVISION_LEVEL_SELECTION_MODE": "round_robin", "POLYVISION_INFO_MODE": "fast",
         "POLYVISION_MAX_TURNS": str(max_turns), "POLYVISION_RULES": rules,
         "POLYVISION_FOG_MEMORY": "1" if fog_memory else "0", "POLYVISION_UNIT_STATUS": "1" if unit_status else "0", "POLYVISION_MAX_LEGAL_ACTIONS": str(max_legal),
+        # Optional wrapper rules follow checkpoint A; B plays under them (combat_selfplay.SnapshotOpponent).
+        "POLYVISION_COMBAT_RULES_OFF": ",".join(sorted(rules_off_of_version(meta_a.get("phase1_environment_version")))),
+        "POLYVISION_COMBAT_EXTRA_ACTIONS": ",".join(extra_actions_of_version(meta_a.get("phase1_environment_version"))),
     })
 
     from pol_env.Tribes.py.combat_selfplay import SnapshotOpponent

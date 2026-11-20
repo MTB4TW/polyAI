@@ -237,14 +237,22 @@ def _remap_input_layer(key, sval, tval, src, tgt, index_map) -> bool:
     return False
 
 
+def extra_actions_of_meta(meta) -> tuple:
+    """Optional extra action families a checkpoint's catalog has (environment_contract, CHANGELOG 090)."""
+    from pol_env.Tribes.py.environment_contract import extra_actions_of_version
+    return extra_actions_of_version((meta or {}).get("phase1_environment_version"))
+
+
 def _type_row_pairs(source_n, source_meta, target_n, target_meta, width, height) -> List[Tuple[int, int]]:
     """(source row, target row) of each action type present, by name, in both composed type tables."""
     from py_rl.cleanrl.cleanrl.action_types import action_type_table_for_action_space
 
     src = action_type_table_for_action_space(int(source_n), width, height,
-                                             rules_of_version(source_meta.get("phase1_environment_version")))
+                                             rules_of_version(source_meta.get("phase1_environment_version")),
+                                             extra_actions_of_meta(source_meta))
     tgt = action_type_table_for_action_space(int(target_n), width, height,
-                                             rules_of_version(target_meta.get("phase1_environment_version")))
+                                             rules_of_version(target_meta.get("phase1_environment_version")),
+                                             extra_actions_of_meta(target_meta))
     src_index = {name: i for i, (name, _, _) in enumerate(src)}
     return [(src_index[name], t) for t, (name, _, _) in enumerate(tgt) if name in src_index]
 
@@ -255,8 +263,8 @@ def _type_embedding_from_ids(source_ids: torch.Tensor, source_n, source_meta, ta
 
     src_rules = rules_of_version(source_meta.get("phase1_environment_version"))
     tgt_rules = rules_of_version(target_meta.get("phase1_environment_version"))
-    src_table = action_type_table_for_action_space(int(source_n), width, height, src_rules)
-    tgt_table = action_type_table_for_action_space(int(target_n), width, height, tgt_rules)
+    src_table = action_type_table_for_action_space(int(source_n), width, height, src_rules, extra_actions_of_meta(source_meta))
+    tgt_table = action_type_table_for_action_space(int(target_n), width, height, tgt_rules, extra_actions_of_meta(target_meta))
     ranges = {}
     for i, (name, start, _) in enumerate(src_table):
         end = src_table[i + 1][1] if i + 1 < len(src_table) else int(source_n)

@@ -49,6 +49,10 @@ from .environment_contract import (
     versioned_for_fog_memory,
     resolve_unit_status,
     versioned_for_unit_status,
+    resolve_combat_rules_off,
+    versioned_for_rules_off,
+    resolve_combat_extra_actions,
+    versioned_for_extra_actions,
     UNIT_STATUS_CHANNELS,
     UNIT_STATUS_HP_SCALE,
     UNIT_STATUS_ACTION_FEATURES,
@@ -62,7 +66,7 @@ from .environment_contract import (
 class GlobalActionCatalog:
     """Deterministic flat global action-ID catalog for fixed map dimensions."""
 
-    def __init__(self, width, height, tech_types, train_unit_types, resource_types, building_types, levelup_choices, enable_combat=False, enable_diplomacy=False):
+    def __init__(self, width, height, tech_types, train_unit_types, resource_types, building_types, levelup_choices, enable_combat=False, enable_diplomacy=False, extra_actions=()):
         self.width = int(width)
         self.height = int(height)
         self.n_tiles = int(width * height)
@@ -133,6 +137,13 @@ class GlobalActionCatalog:
                 self.offsets[a_type] = cur
                 cur += DIPLOMACY_MAX_TRIBES
 
+        # Optional extra families (POLYVISION_COMBAT_EXTRA_ACTIONS, combat only), after every other block.
+        from pol_env.Tribes.py.environment_contract import COMBAT_EXTRA_ACTION_FAMILIES, extra_action_block_size
+        self.extra_actions = tuple(n for n in COMBAT_EXTRA_ACTION_FAMILIES if n in set(extra_actions or ())) if self.enable_combat else ()
+        for family in self.extra_actions:
+            self.offsets[family] = cur
+            cur += extra_action_block_size(family, self.n_tiles)
+
         self.total_size = int(cur)
         self.end_turn_id = int(self.offsets["END_TURN"])
 
@@ -145,6 +156,25 @@ class GlobalActionCatalog:
         if unit_tile is None or "RECOVER" not in self.offsets:
             return None
         return int(self.offsets["RECOVER"] + unit_tile)
+
+    def id_extra(self, action_type, tile=None, target_tile=None, target_tribe=None, stars=None):
+        """Global id of an extra-family action (environment_contract.COMBAT_EXTRA_ACTION_FAMILIES); None if absent."""
+        from pol_env.Tribes.py.environment_contract import COMBAT_EXTRA_ACTION_FAMILIES, SEND_STARS_MAX
+        a_type = str(action_type or "").upper()
+        if a_type not in self.extra_actions:
+            return None
+        base, kind = int(self.offsets[a_type]), COMBAT_EXTRA_ACTION_FAMILIES[a_type]
+        if kind == "tile":
+            return None if tile is None else base + int(tile)
+        if kind == "pair":
+            return None if tile is None or target_tile is None else base + int(tile) * self.n_tiles + int(target_tile)
+        if target_tribe is None or not 0 <= int(target_tribe) < DIPLOMACY_MAX_TRIBES:
+            return None
+        if kind == "tribe":
+            return base + int(target_tribe)
+        if stars is None or not 1 <= int(stars) <= SEND_STARS_MAX:
+            return None
+        return base + int(target_tribe) * SEND_STARS_MAX + int(stars) - 1
 
     def id_infiltrate(self, src_tile, city_tile):
         if src_tile is None or city_tile is None or "INFILTRATE" not in self.offsets:
@@ -411,6 +441,14 @@ class TribesGymWrapper(gym.Env):
         # engine's attack outcome as extra legal-action features. A version suffix keeps old checkpoints out.
         self.UNIT_STATUS = resolve_unit_status()
         self.PHASE1_ENVIRONMENT_VERSION = versioned_for_unit_status(self.PHASE1_ENVIRONMENT_VERSION, self.UNIT_STATUS)
+        # Optional wrapper rules (POLYVISION_COMBAT_RULES_OFF, combat only; environment_contract.COMBAT_OPTIONAL_RULES).
+        # Optional extra action families (POLYVISION_COMBAT_EXTRA_ACTIONS, combat only): appended catalog blocks.
+        self.EXTRA_ACTIONS = resolve_combat_extra_actions()
+        self.PHASE1_ENVIRONMENT_VERSION = versioned_for_extra_actions(self.PHASE1_ENVIRONMENT_VERSION, self.EXTRA_ACTIONS)
+        if self.EXTRA_ACTIONS:
+            self.ALLOWED_ACTION_TYPES = set(self.ALLOWED_ACTION_TYPES) | set(self.EXTRA_ACTIONS)
+        self.RULES_OFF = resolve_combat_rules_off()
+        self.PHASE1_ENVIRONMENT_VERSION = versioned_for_rules_off(self.PHASE1_ENVIRONMENT_VERSION, self.RULES_OFF)
         if self.UNIT_STATUS:
             self.LEGAL_ACTION_FEATURE_NAMES = tuple(type(self).LEGAL_ACTION_FEATURE_NAMES) + tuple(UNIT_STATUS_ACTION_FEATURES)
             self.ACTION_FEATURE_DIM = len(self.LEGAL_ACTION_FEATURE_NAMES)
@@ -570,6 +608,7 @@ class TribesGymWrapper(gym.Env):
                 levelup_choices=vocab["CITY_LEVEL_UP"],
                 enable_combat=bool(getattr(self, "_is_combat_mode", False)),
                 enable_diplomacy=bool(getattr(self, "_has_diplomacy", False)),
+                extra_actions=getattr(self, "EXTRA_ACTIONS", ()),
             )
             self._tech_name_to_obs_idx = {
                 str(name).upper(): int(i)
@@ -3513,6 +3552,7 @@ class TribesGymWrapper(gym.Env):
             profile["allowed_after_tactical_count"] = 0
             profile["allowed_final_count"] = 0
         allowed_indices = []
+        rules_off = getattr(self, "RULES_OFF", frozenset())
         if use_profile:
             profile["raw_actions_count"] = int(len(legal_actions)) if isinstance(legal_actions, list) else 0
         for idx, a in enumerate(legal_actions):
@@ -3523,12 +3563,13 @@ class TribesGymWrapper(gym.Env):
             if a_type not in self.ALLOWED_ACTION_TYPES:
                 continue
             # Hard mask: never allow CITY_WALL level-up claims into the legal set.
-            if a_type == "LEVEL_UP":
+            if a_type == "LEVEL_UP" and "city_wall_mask" not in rules_off:
                 levelup_choice = self._resolve_action_levelup_choice(a)
                 if levelup_choice == "CITY_WALL":
                     continue
             # Drylands-only Fishing research mask
-            if getattr(self, "_current_map_type", "DRYLANDS") == "DRYLANDS" and a_type == "RESEARCH_TECH":
+            if (getattr(self, "_current_map_type", "DRYLANDS") == "DRYLANDS" and a_type == "RESEARCH_TECH"
+                    and "fishing_mask" not in rules_off):
                 tech_type = self._resolve_action_tech_type(a)
                 if tech_type == "FISHING":
                     continue
@@ -3556,7 +3597,8 @@ class TribesGymWrapper(gym.Env):
 
         # Hard guardrail: if <2 cities, prioritize village-capture lines.
         t_city_gate0 = time.perf_counter() if use_profile else None
-        if self._get_city_count(obs) < 2 and allowed_indices:
+        village_rules = {"village_capture_freeze", "village_forced_moves", "village_progress_moves"} - rules_off
+        if self._get_city_count(obs) < 2 and allowed_indices and village_rules:
             if use_profile:
                 profile["filter_city_count_tactical_s"] += time.perf_counter() - t_city_gate0
             forced_village_captures = []
@@ -3569,7 +3611,7 @@ class TribesGymWrapper(gym.Env):
                     forced_village_captures.append(idx)
             if use_profile:
                 profile["filter_capture_priority_s"] += time.perf_counter() - t_capture0
-            if forced_village_captures:
+            if forced_village_captures and "village_capture_freeze" in village_rules:
                 t_capture0 = time.perf_counter() if use_profile else None
                 frozen_units = set()
                 for idx in forced_village_captures:
@@ -3626,8 +3668,9 @@ class TribesGymWrapper(gym.Env):
                 if use_profile:
                     profile["filter_move_visible_village_s"] += time.perf_counter() - t_move_visible0
                 if forced_village_moves:
-                    allowed_indices = forced_village_moves
-                elif visible_village_positions:
+                    if "village_forced_moves" in village_rules:
+                        allowed_indices = forced_village_moves
+                elif visible_village_positions and "village_progress_moves" in village_rules:
                     t_closest0 = time.perf_counter() if use_profile else None
                     closest_unit_id, _closest_pos, _closest_dist = self._closest_owned_unit_to_targets(
                         obs,
@@ -3659,7 +3702,8 @@ class TribesGymWrapper(gym.Env):
 
         # Early-turn constraint: only block unit 2 immediate backtracking on T1/T2.
         t_backtrack0 = time.perf_counter() if use_profile else None
-        allowed_indices = self._apply_t1_t2_unit2_backtrack_mask(allowed_indices, legal_actions, obs)
+        if "unit2_backtrack" not in rules_off:
+            allowed_indices = self._apply_t1_t2_unit2_backtrack_mask(allowed_indices, legal_actions, obs)
         if use_profile:
             profile["filter_early_backtrack_s"] += time.perf_counter() - t_backtrack0
             profile["allowed_final_count"] = int(len(allowed_indices))
@@ -4168,6 +4212,18 @@ class TribesGymWrapper(gym.Env):
         if a_type in DIPLOMACY_TRIBE_ACTION_TYPES:
             gid = self._catalog.id_diplomacy(a_type, self._action_int(action, "target_tribe_id", None))
             return gid, "missing_diplomacy_target" if gid is None else None
+
+        if a_type in getattr(self._catalog, "extra_actions", ()):
+            sx, sy = self._action_int(action, "src_x", None), self._action_int(action, "src_y", None)
+            tx, ty = self._action_int(action, "target_x", None), self._action_int(action, "target_y", None)
+            unit_kind = a_type in ("DISBAND", "HEAL_OTHERS", "MAKE_VETERAN", "CONVERT")
+            tile_x, tile_y = (sx, sy) if unit_kind else (tx, ty)
+            tile = self._catalog.tile_id(tile_x, tile_y) if None not in (tile_x, tile_y) else None
+            target_tile = self._catalog.tile_id(tx, ty) if None not in (tx, ty) else None
+            gid = self._catalog.id_extra(a_type, tile=tile, target_tile=target_tile,
+                                         target_tribe=self._action_int(action, "target_tribe_id", None),
+                                         stars=self._action_int(action, "num_stars", None))
+            return gid, f"missing_{a_type.lower()}_fields" if gid is None else None
 
         return None, f"unsupported_action_type:{a_type}"
 
@@ -5526,6 +5582,9 @@ class TribesGymWrapper(gym.Env):
         "avoid_fishing": 0.0,           # event: penalty for researching FISHING
         "avoid_philosophy_meditation": 0.0,  # event: penalty for researching PHILOSOPHY or MEDITATION
         "avoid_whaling": 0.0,           # event: penalty for researching WHALING
+        "riding_tech": 0.0,             # event: bonus for researching RIDING (Riders, and the way to ROADS)
+        "roads_tech": 0.0,              # event: bonus for researching ROADS (roads must be discovered before the
+                                        # road potential can pay; POLYVISION_COMBAT_EXTRA_ACTIONS=BUILD_ROAD)
         "capital_hold": 0.0,            # event: per unit of ours on an enemy capital at the start of our turn
         "capital_region_kill": 0.0,     # event: per enemy unit killed inside an enemy capital's territory
         "rider": 0.0,                   # phi: per Rider of ours alive (prefer Riders; a potential, so a Rider
@@ -5645,7 +5704,7 @@ class TribesGymWrapper(gym.Env):
 
     COMBAT_EVENT_TERMS = ("regional_attack", "role_positioning", "damage_trade", "hanging_population", "tech_order",
                           "pop_tech", "unused_tech", "tech_cost", "avoid_fishing", "avoid_philosophy_meditation",
-                          "avoid_whaling", "capital_hold", "capital_region_kill", "train_rider", "train_infantry",
+                          "avoid_whaling", "riding_tech", "roads_tech", "capital_hold", "capital_region_kill", "train_rider", "train_infantry",
                           "rider_attack", "embassy", "turn_penalty")
 
     def _combat_reset_turn_trackers(self):
@@ -5672,6 +5731,10 @@ class TribesGymWrapper(gym.Env):
                 out["avoid_philosophy_meditation"] = -w["avoid_philosophy_meditation"]
             if w["avoid_whaling"] and tech == "WHALING":
                 out["avoid_whaling"] = -w["avoid_whaling"]
+            if w["roads_tech"] and tech == "ROADS":
+                out["roads_tech"] = w["roads_tech"]
+            if w["riding_tech"] and tech == "RIDING":
+                out["riding_tech"] = w["riding_tech"]
             if w["pop_tech"]:
                 offered = [str(a.get("tech_type")) for a in (legal_actions or []) if a.get("type") == "RESEARCH_TECH"]
                 board = (start_obs or {}).get("board")
@@ -5700,8 +5763,14 @@ class TribesGymWrapper(gym.Env):
         if action_type != "END_TURN":
             self._combat_turn_signatures.add(combat_shaping.action_signature(action))
         elif w["unused_tech"]:
+            # POLYVISION_COMBAT_UNUSED_TECH_EXEMPT (comma-separated techs, default none): techs that are not penalised
+            # for going unused on the turn they are researched (a road or a Rider often has to wait for stars).
+            exempt = getattr(self, "_combat_unused_tech_exempt", None)
+            if exempt is None:
+                exempt = self._combat_unused_tech_exempt = frozenset(
+                    t.strip().upper() for t in os.environ.get("POLYVISION_COMBAT_UNUSED_TECH_EXEMPT", "").split(",") if t.strip())
             unused = [t for t, _ in self._combat_turn_research
-                      if not combat_shaping.tech_used_by(t, self._combat_turn_signatures)]
+                      if t not in exempt and not combat_shaping.tech_used_by(t, self._combat_turn_signatures)]
             out["unused_tech"] = -w["unused_tech"] * float(len(unused))
         if w["regional_attack"] and action_type == "ATTACK" and action.get("dst_x") is not None:
             out["regional_attack"] = w["regional_attack"] * combat_shaping.regional_superiority(
@@ -5810,17 +5879,23 @@ class TribesGymWrapper(gym.Env):
         self._combat_opponent = opponent
         self.tribes_env.learner_seat = self._combat_league.choose_seat()
         java = self.tribes_env._env
+        self._combat_opponent_own_rules = False
         if opponent is None:
             java.setOpponentAgent(SIMPLE_OPPONENT, 0)  # reseeded with the episode seed by the reset
             self.tribes_env.opponent_turn_hook = None
             return
         opponent.reseed(int(self._last_reset_seed or 0) * 31 + 7)
         java.setOpponentAgent(EXTERNAL_OPPONENT, 0)
+        # Some games: the snapshot plays under the optional wrapper rules it trained with (OWN_RULES_PROB).
+        own_rules = self._combat_league.choose_rules(opponent, getattr(self, "RULES_OFF", frozenset()))
+        self._combat_opponent_own_rules = own_rules is not None
         state = {}
 
         def hook():
             if "view" not in state:  # built at the first opponent turn (seat 1: during the reset, turn count 0)
                 state["view"] = OpponentView(self)
+                if own_rules is not None:
+                    state["view"].view.RULES_OFF = own_rules
             play_external_turn(self, opponent, state["view"])
 
         self.tribes_env.opponent_turn_hook = hook
@@ -5840,8 +5915,11 @@ class TribesGymWrapper(gym.Env):
                 f"combat_end_raw_win_vs_{kind}": won,
                 f"combat_end_raw_win_seat{seat}": won,
                 f"combat_end_raw_win_vs_{kind}_seat{seat}": won,
-                # Per-opponent picks and results, aggregated over env workers by ppo.py (league/...).
-                "combat_league_opponent": self._combat_league.label(snapshot.path if snapshot is not None else None),
+                "combat_end_raw_opponent_own_rules": float(bool(getattr(self, "_combat_opponent_own_rules", False))),
+                # Per-opponent picks and results, aggregated over env workers by ppo.py (league/...); games where
+                # the snapshot kept its own wrapper rules are listed separately.
+                "combat_league_opponent": self._combat_league.label(snapshot.path if snapshot is not None else None)
+                + ("@own_rules" if getattr(self, "_combat_opponent_own_rules", False) else ""),
                 "combat_league_learner_won": won}
         return info
 

@@ -21,6 +21,9 @@ Settings (environment variables, read by the wrapper in combat mode):
   POLYVISION_COMBAT_LEAGUE_PFSP_POWER         p in (1 - learner win rate)^p (default 2)
   POLYVISION_COMBAT_LEAGUE_MAX_SELF           if > 0: keep every GLOB opponent and the newest N own checkpoints
                                               (instead of the newest MAX_SNAPSHOTS of all; default 0)
+  POLYVISION_COMBAT_LEAGUE_OWN_RULES_PROB     share of snapshot games (whose snapshot trained with other optional
+                                              wrapper rules, CHANGELOG 090) where the snapshot plays under its own
+                                              rules instead of the run's (default 0)
   POLYVISION_COMBAT_LEAGUE_SWAP_PROB          share of games where the learner plays tribe 1 (moves second, the
                                               opponent's usual tribe and start) and the opponent tribe 0 (default 0)
 
@@ -163,10 +166,26 @@ class SnapshotOpponent:
         old_contract = without_unit_status(wrapper, meta, env_meta)
         if old_contract is not None:
             env_meta, observation_space, self.strip = old_contract
+        action_space = wrapper.action_space
+        self.id_map = None  # run global id -> this snapshot's id (fewer extra action families), CHANGELOG 090
+        fewer = fewer_extra_actions(wrapper, meta, env_meta)
+        if fewer is not None:
+            env_meta, action_space, self.id_map = fewer
+        # Optional wrapper rules (CHANGELOG 090) change what is legal, not what a snapshot sees: a snapshot trained
+        # with other rules switched off still plays here, under this run's rules (or its own: choose_rules).
+        from pol_env.Tribes.py.environment_contract import rules_off_of_version, with_rules_off
+        self.trained_rules_off = rules_off_of_version(meta.get("phase1_environment_version"))
+        env_meta = dict(env_meta)
+        env_meta["phase1_environment_version"] = with_rules_off(
+            env_meta["phase1_environment_version"], rules_off_of_version(meta.get("phase1_environment_version")))
         validate_checkpoint_compatibility(meta, env_meta)  # raises if the snapshot does not fit this environment
         adapter = SimpleNamespace(single_observation_space=observation_space,
-                                  single_action_space=wrapper.action_space)
+                                  single_action_space=action_space)
+        from pol_env.Tribes.py.environment_contract import COMBAT_EXTRA_ACTIONS_ENV_VAR, extra_actions_of_version
         previous = os.environ.get("POLYVISION_UNIT_STATUS")
+        previous_extra = os.environ.get(COMBAT_EXTRA_ACTIONS_ENV_VAR)
+        # The composed network builds its action-type table from the snapshot's own extra families.
+        os.environ[COMBAT_EXTRA_ACTIONS_ENV_VAR] = ",".join(extra_actions_of_version(meta.get("phase1_environment_version"))) or "none"
         if self.strip is not None:
             os.environ["POLYVISION_UNIT_STATUS"] = "0"  # the network sizes itself from the snapshot's layout
         try:
@@ -175,6 +194,10 @@ class SnapshotOpponent:
                                     legal_action_feature_dim=meta["legal_action_feature_dim"],
                                     observation_normalization=observation_normalization_from_metadata(meta))
         finally:
+            if previous_extra is None:
+                os.environ.pop(COMBAT_EXTRA_ACTIONS_ENV_VAR, None)
+            else:
+                os.environ[COMBAT_EXTRA_ACTIONS_ENV_VAR] = previous_extra
             if self.strip is not None:
                 if previous is None:
                     os.environ.pop("POLYVISION_UNIT_STATUS", None)
@@ -195,6 +218,10 @@ class SnapshotOpponent:
             (start, end), base = self.strip
             vec = np.concatenate([np.asarray(vec).reshape(-1)[:start], np.asarray(vec).reshape(-1)[end:]])
             feats = np.asarray(feats)[:, :base]
+        run_ids = np.asarray(ids)
+        if self.id_map is not None:  # translate to this snapshot's catalog; families it never had are not offered
+            ids, keep = self.id_map(run_ids)
+            valid = np.asarray(valid, dtype=bool) & keep
         with torch.inference_mode():
             dist = self.agent.get_action_distribution(
                 torch.as_tensor(vec, dtype=torch.float32).reshape(1, -1),
@@ -208,7 +235,45 @@ class SnapshotOpponent:
                 slot = int(torch.multinomial(dist.probs[0], 1, generator=self.generator).item())
         if not valid[slot]:
             raise RuntimeError("Snapshot opponent picked an invalid slot")
-        return int(ids[slot])
+        return int(run_ids[slot])
+
+
+def fewer_extra_actions(wrapper, meta, env_meta):
+    """For a snapshot whose catalog has fewer optional extra action families than this run's (CHANGELOG 090):
+    (env metadata as the snapshot expects it, its action space, run ids -> (snapshot ids, offered mask)).
+    None when the families match. A snapshot with a family this run lacks cannot play here."""
+    from pol_env.Tribes.py.environment_contract import extra_actions_of_version, with_extra_actions
+    from py_rl.cleanrl.cleanrl.action_types import build_global_action_catalog
+    import gymnasium as gym
+
+    run = tuple(getattr(wrapper, "EXTRA_ACTIONS", ()) or ())
+    snap = extra_actions_of_version(meta.get("phase1_environment_version"))
+    if snap == run:
+        return None
+    if not set(snap) <= set(run):
+        raise ValueError(f"snapshot has extra action families {sorted(set(snap) - set(run))} this run does not offer")
+    cat = wrapper._catalog
+    snap_cat = build_global_action_catalog(cat.width, cat.height, True, getattr(wrapper, "RULES_VERSION", None), snap)
+    base = min(cat.offsets[f] for f in run)  # every id below the first extra block is the same in both catalogs
+    blocks = [(cat.offsets[f], snap_cat.offsets.get(f)) for f in run]
+    ends = [cat.offsets[f] for f in run[1:]] + [cat.total_size]
+    env_meta = dict(env_meta)
+    env_meta["phase1_environment_version"] = with_extra_actions(env_meta["phase1_environment_version"], snap)
+    env_meta["action_space_n"] = int(snap_cat.total_size)
+    env_meta["action_catalog_fingerprint"] = str(snap_cat.fingerprint())
+
+    def translate(ids):
+        ids = np.asarray(ids, dtype=np.int64)
+        out, keep = ids.copy(), ids < base
+        for (start, snap_start), end in zip(blocks, ends):
+            inside = (ids >= start) & (ids < end)
+            if snap_start is not None:
+                out[inside] = ids[inside] - start + snap_start
+                keep |= inside
+        out[~keep] = 0  # any id: the slot is masked
+        return out, keep
+
+    return env_meta, gym.spaces.Discrete(int(snap_cat.total_size)), translate
 
 
 def without_unit_status(wrapper, meta, env_meta):
@@ -299,6 +364,9 @@ class CombatLeague:
         self.power = float(environ.get("POLYVISION_COMBAT_LEAGUE_PFSP_POWER", "2"))
         self.refresh_every = int(environ.get("POLYVISION_COMBAT_LEAGUE_REFRESH_EVERY", "20"))
         self.swap_prob = float(environ.get("POLYVISION_COMBAT_LEAGUE_SWAP_PROB", "0"))
+        self.own_rules_prob = float(environ.get("POLYVISION_COMBAT_LEAGUE_OWN_RULES_PROB", "0"))
+        if not 0.0 <= self.own_rules_prob <= 1.0:
+            raise ValueError("POLYVISION_COMBAT_LEAGUE_OWN_RULES_PROB must be between 0 and 1")
         if not 0.0 <= self.simple_prob <= 1.0:
             raise ValueError("POLYVISION_COMBAT_LEAGUE_SIMPLE_PROB must be between 0 and 1")
         if not 0.0 <= self.swap_prob <= 1.0:
@@ -364,6 +432,15 @@ class CombatLeague:
         if self.swap_prob <= 0.0:
             return 0
         return int(self.rng.random() < self.swap_prob)
+
+    def choose_rules(self, opponent, run_rules_off) -> Optional[frozenset]:
+        """The optional wrapper rules switched off for the snapshot's side this game: its own trained setting with
+        probability own_rules_prob, else None (the run's). The random stream is untouched when the probability is 0
+        or the snapshot trained with the run's rules."""
+        trained = getattr(opponent, "trained_rules_off", None)
+        if self.own_rules_prob <= 0.0 or trained is None or frozenset(trained) == frozenset(run_rules_off or ()):
+            return None
+        return frozenset(trained) if self.rng.random() < self.own_rules_prob else None
 
     def label(self, path: Optional[str]) -> str:
         """Short, stable name of an opponent for logging: 'simple', 'self/<checkpoint>' or '<run dir>/<file>'."""

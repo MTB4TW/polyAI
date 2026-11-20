@@ -171,6 +171,27 @@ class UnitPreferenceAndTempoTests(unittest.TestCase):
         attack = {"type": "ATTACK", "unit_id": 2, "target_unit_id": 3}
         self.assertEqual(w._combat_event_rewards(s, s, attack, "ATTACK"), {})
 
+    def test_roads_tech_bonus(self):
+        s = state([unit(1, 0, "WARRIOR", 2, 2)])
+        research = lambda tech: {"type": "RESEARCH_TECH", "tech_type": tech, "star_cost": 5}
+        self.assertEqual(self.wrapper()._combat_event_rewards(s, s, research("ROADS"), "RESEARCH_TECH"), {})
+        w = self.wrapper(roads_tech=1.5)
+        self.assertEqual(w._combat_event_rewards(s, s, research("ROADS"), "RESEARCH_TECH"), {"roads_tech": 1.5})
+        self.assertEqual(w._combat_event_rewards(s, s, research("RIDING"), "RESEARCH_TECH"), {})
+
+    def test_riding_tech_bonus_and_unused_tech_exemption(self):
+        from unittest.mock import patch
+        s = state([unit(1, 0, "WARRIOR", 2, 2)])
+        research = lambda tech: {"type": "RESEARCH_TECH", "tech_type": tech, "star_cost": 5}
+        w = self.wrapper(riding_tech=1.0, unused_tech=0.5)
+        self.assertEqual(w._combat_event_rewards(s, s, research("RIDING"), "RESEARCH_TECH"), {"riding_tech": 1.0})
+        end = {"type": "END_TURN"}
+        self.assertEqual(w._combat_event_rewards(s, s, end, "END_TURN"), {"unused_tech": -0.5})  # Riding unused
+        with patch.dict(os.environ, {"POLYVISION_COMBAT_UNUSED_TECH_EXEMPT": "RIDING,ROADS"}):
+            w = self.wrapper(riding_tech=1.0, unused_tech=0.5)
+            w._combat_event_rewards(s, s, research("RIDING"), "RESEARCH_TECH")
+            self.assertEqual(w._combat_event_rewards(s, s, end, "END_TURN").get("unused_tech", 0.0), 0.0)
+
     def test_embassy_and_turn_penalties(self):
         w = self.wrapper(embassy=5, turn_penalty=0.25)
         s = state([unit(1, 0, "RIDER", 2, 2)])

@@ -423,6 +423,54 @@ public class PythonEnv {
                 jo.put("target_x", br.getPosition().x);
                 jo.put("target_y", br.getPosition().y);
             }
+            return;
+        }
+
+        // Action families the Python wrapper offers only when asked (POLYVISION_COMBAT_EXTRA_ACTIONS): their tiles.
+        if (a instanceof core.actions.cityactions.BurnForest || a instanceof core.actions.cityactions.Destroy) {
+            addCityFields(jo, (CityAction) a);
+            putTargetFieldsFromCityAction(jo, (CityAction) a);
+            return;
+        }
+        if (a instanceof core.actions.unitactions.Disband || a instanceof core.actions.unitactions.HealOthers) {
+            int unitId = ((core.actions.unitactions.UnitAction) a).getUnitId();
+            jo.put("unit_id", unitId);
+            Unit u = safeGetUnit(unitId);
+            if (u != null) {
+                jo.put("src_x", u.getPosition().x);
+                jo.put("src_y", u.getPosition().y);
+                jo.put("target_x", u.getPosition().x);
+                jo.put("target_y", u.getPosition().y);
+            }
+            return;
+        }
+        if (a instanceof core.actions.unitactions.Convert) {
+            core.actions.unitactions.Convert cv = (core.actions.unitactions.Convert) a;
+            jo.put("unit_id", cv.getUnitId());
+            jo.put("target_unit_id", cv.getTargetId());
+            Unit u = safeGetUnit(cv.getUnitId());
+            Unit t = safeGetUnit(cv.getTargetId());
+            if (u != null) {
+                jo.put("src_x", u.getPosition().x);
+                jo.put("src_y", u.getPosition().y);
+            }
+            if (t != null) {
+                jo.put("target_x", t.getPosition().x);
+                jo.put("target_y", t.getPosition().y);
+            }
+            return;
+        }
+        if (a instanceof core.actions.tribeactions.SendStars) {
+            core.actions.tribeactions.SendStars ss = (core.actions.tribeactions.SendStars) a;
+            jo.put("tribe_id", ss.getTribeId());
+            jo.put("target_tribe_id", ss.getTargetID());
+            jo.put("num_stars", ss.getNumStars());
+            return;
+        }
+        if (a instanceof core.actions.tribeactions.DeclareWar) {
+            core.actions.tribeactions.DeclareWar dw = (core.actions.tribeactions.DeclareWar) a;
+            jo.put("tribe_id", dw.getTribeId());
+            jo.put("target_tribe_id", dw.getTargetID());
         }
     }
 
@@ -460,6 +508,9 @@ public class PythonEnv {
         }
         if (a instanceof core.actions.tribeactions.BuildRoad) {
             return core.TribesConfig.roadCost();
+        }
+        if (a instanceof core.actions.tribeactions.SendStars) {
+            return ((core.actions.tribeactions.SendStars) a).getNumStars();  // the stars given away
         }
         if (a instanceof core.actions.unitactions.Upgrade) {
             core.actions.unitactions.Upgrade u = (core.actions.unitactions.Upgrade) a;

@@ -24,7 +24,8 @@ _TRAIN_EXCLUDED_UNITS = ("BOAT", "SHIP", "BATTLESHIP", "SUPERUNIT", "DAGGER")
 _CATALOG_RESOURCES = ("ANIMAL", "FISH", "WHALES", "FRUIT", "CROPS", "ORE")
 
 
-def build_global_action_catalog(width: int, height: int, enable_combat: bool, rules_version: str | None = None):
+def build_global_action_catalog(width: int, height: int, enable_combat: bool, rules_version: str | None = None,
+                                 extra_actions=()):
     """Build the environment's GlobalActionCatalog without starting Java.
 
     The vocabulary is parsed from `Types.java` exactly as the environment does it, for the given rules
@@ -48,6 +49,7 @@ def build_global_action_catalog(width: int, height: int, enable_combat: bool, ru
         levelup_choices=vocab["CITY_LEVEL_UP"],
         enable_combat=bool(enable_combat),
         enable_diplomacy=bool(enable_combat) and rules_have_diplomacy(rules_version),
+        extra_actions=tuple(extra_actions or ()),
     )
 
 
@@ -79,8 +81,17 @@ def action_type_table(catalog) -> List[Tuple[str, int, bool]]:
 
         tribe_slots = [f"T{j}" for j in range(DIPLOMACY_MAX_TRIBES)]
         blocks += [("INFILTRATE", None, n * n)] + [(family, tribe_slots, 1) for family in DIPLOMACY_TRIBE_ACTION_TYPES]
+    from pol_env.Tribes.py.environment_contract import COMBAT_EXTRA_ACTION_FAMILIES, SEND_STARS_MAX
+    for family in getattr(catalog, "extra_actions", ()):  # optional extra families, after everything else
+        kind = COMBAT_EXTRA_ACTION_FAMILIES[family]
+        if kind in ("tile", "pair"):
+            blocks.append((family, None, 0))
+        else:
+            from pol_env.Tribes.py.environment_contract import DIPLOMACY_MAX_TRIBES
+            per = SEND_STARS_MAX if kind == "tribe_stars" else 1
+            blocks.append((family, [f"T{j}" for j in range(DIPLOMACY_MAX_TRIBES)], per))
     for family, names, size in blocks:
-        has_tile = family not in NON_SPATIAL_FAMILIES
+        has_tile = family not in NON_SPATIAL_FAMILIES and COMBAT_EXTRA_ACTION_FAMILIES.get(family, "tile") in ("tile", "pair")
         if names is None:
             table.append((family, off[family], has_tile))
             continue
@@ -92,11 +103,20 @@ def action_type_table(catalog) -> List[Tuple[str, int, bool]]:
     return table
 
 
-def action_type_table_for_action_space(n_actions: int, width: int, height: int, rules_version: str | None = None) -> List[Tuple[str, int, bool]]:
-    """Find the catalog (Phase 1 or combat, active rules) whose size equals n_actions and return its type table."""
+def action_type_table_for_action_space(n_actions: int, width: int, height: int, rules_version: str | None = None,
+                                       extra_actions=None) -> List[Tuple[str, int, bool]]:
+    """Find the catalog (Phase 1 or combat, active rules) whose size equals n_actions and return its type table.
+
+    extra_actions: the optional extra families of the combat catalog (default: POLYVISION_COMBAT_EXTRA_ACTIONS)."""
+    if extra_actions is None:
+        from pol_env.Tribes.py.environment_contract import COMBAT_EXTRA_ACTION_FAMILIES, COMBAT_EXTRA_ACTIONS_ENV_VAR
+        import os
+        raw = os.environ.get(COMBAT_EXTRA_ACTIONS_ENV_VAR, "").strip()
+        names = set(COMBAT_EXTRA_ACTION_FAMILIES) if raw.lower() == "all" else {n.strip().upper() for n in raw.split(",") if n.strip()}
+        extra_actions = tuple(n for n in COMBAT_EXTRA_ACTION_FAMILIES if n in names) if raw.lower() != "none" else ()
     sizes = {}
     for combat in (False, True):
-        catalog = build_global_action_catalog(width, height, combat, rules_version)
+        catalog = build_global_action_catalog(width, height, combat, rules_version, extra_actions if combat else ())
         if int(catalog.total_size) == int(n_actions):
             return action_type_table(catalog)
         sizes[combat] = int(catalog.total_size)

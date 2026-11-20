@@ -74,6 +74,71 @@ Baselines on the same 250 validation maps: visible greedy 7.93, random legal 6.6
 | 2026-11-15 | combat_v2b_s1_pcritic_warm_2m | 2M | 1, 2 (3 pending) | Devin (Claude agent) | `outputs/evaluations/20261115_combat_v2b_s1_pcritic_warm_2m_seed{1,2}_combat_eval_validation_canonical` | 84.3% (80.0 [74.7, 85.0], 88.5 [84.0, 92.5]) | 3.5% | 12.3% | 84.3% (81.0, 87.7) | Warm start from v2b seed 1 with `--privileged-critic --critic-warmup-steps 150000 --learning-rate 1e-4 --target-kl 0.015 --ent-coef 0.005`. Paired vs v2b seed 1: win −4.5 [−10.5, +1.3] and +4.0 [−1.3, +9.3] points, so no measurable change; the warm start keeps the policy near its source. Seed 3 trained (job 1986036) but its evaluation (job 1987832) had not run when this was recorded. Commit `11bcd1c`, W&B `ewyc9la3`, `ywdiu3qi` (seed 3 `4cll3jee`). |
 | 2026-11-14 | combat_cap_all_v2b_2m | 2M | 1, 2, 3 | Devin | `outputs/evaluations/20261114_combat_cap_all_v2b_2m_seed{1,2,3}_combat_eval_validation_canonical` | **76.1%** (84.5 [79.5, 89.3], 73.5 [67.7, 79.2], 70.2 [64.3, 75.7]) | 5.3% | 18.7% | 48.7% (65.3, 40.0, 40.8) | 2.15 rules, `spatial_resnet_composed`, `cluster/combat_cap_all_v2.env` (win 60, loss −15, timeout −10, early win 60, rider potential). First canonical combat result; no earlier checkpoint exists to pair against (Kevin's cap_all checkpoints are not shared; the 2.15 cap_all runs saved none). Paired vs `random_legal` (0.3%): +84.2, +73.2, +69.8 points, no map worse. Training-game diagnostic (last 500 games, final 250k steps): 60.2 / 37.0 / 37.2% win. W&B `eeocxup2`, `97zognmo`, `5m7758zh`. |
 
+### League runs in progress: head to head against their starting checkpoint (diagnostic, 2026-11-19, Kevin's Claude agent)
+
+- Starting checkpoint (B): Devin's league8m segment 1 at 1.2M. The pool is `phase2_pool_1v1_wiki` eval_validation:
+  120 maps × 2 replicates × both seat orders = 480 games per row, both sides sampling.
+- Margin = A's wins − B's wins, with a bootstrap 95% CI over maps.
+- In the no-rules rows, B plays under A's rules, with every wrapper rule off. That handicaps B by about 8 points
+  (see the next section).
+- Run on `feat/combat-optional-rules`, with the head-to-head fix of CHANGELOG 090.
+
+| A (step of its run) | Run | A win | A loss | Timeout | Score | Margin | Folder |
+|---|---|---:|---:|---:|---:|---|---|
+| 1.0M | `league_us_wiki_8m` (rules on) | 52.9% | 24.4% | 22.7% | 0.643 | +0.29 [+0.21, +0.35] | `outputs/evaluations/20261119_progress_ruleson_1000000_vs_seg1_1200000_wiki_h2h_diagnostic` |
+| 2.0M | rules on | 61.9% | 16.7% | 21.5% | 0.726 | +0.45 [+0.39, +0.52] | `outputs/evaluations/20261119_progress_ruleson_2000000_vs_seg1_1200000_wiki_h2h_diagnostic` |
+| 3.4M | rules on | 55.8% | 20.8% | 23.3% | 0.675 | +0.35 [+0.28, +0.43] | `outputs/evaluations/20261119_progress_ruleson_3400000_vs_seg1_1200000_wiki_h2h_diagnostic` |
+| 1.0M | `league_us_wiki_norules_8m` | 52.1% | 21.9% | 26.0% | 0.651 | +0.30 [+0.23, +0.38] | `outputs/evaluations/20261119_progress_norules_1000000_vs_seg1_1200000_wiki_h2h_diagnostic` |
+| 2.2M | no rules | 42.9% | 19.0% | 38.1% | 0.620 | +0.24 [+0.18, +0.30] | `outputs/evaluations/20261119_progress_norules_2200000_vs_seg1_1200000_wiki_h2h_diagnostic` |
+
+Top-move replays (`--mode argmax`, otherwise identical; 474 and 471 of 480 games distinct):
+
+| A | Moves | A win | A loss | Timeout | Margin | Folder |
+|---|---|---:|---:|---:|---|---|
+| rules on 3.4M | sampled | 55.8% | 20.8% | 23.3% | [+0.28, +0.43] | (above) |
+| rules on 3.4M | top move | 53.7% | 28.3% | 17.9% | [+0.18, +0.33] | `outputs/evaluations/20261119_progress_ruleson_3400000_vs_seg1_1200000_wiki_h2h_argmax_diagnostic` |
+| no rules 2.2M | sampled | 42.9% | 19.0% | 38.1% | [+0.18, +0.30] | (above) |
+| no rules 2.2M | top move | 37.7% | 22.9% | 39.4% | [+0.07, +0.23] | `outputs/evaluations/20261119_progress_norules_2200000_vs_seg1_1200000_wiki_h2h_argmax_diagnostic` |
+
+Timeouts barely change without sampling (23 → 18%, 38 → 39%), so sampling noise is not why games time out. Decisive
+games end around turn 14–15 either way.
+
+Later checkpoints against earlier ones of the same run (480 games each, sampled, same pool and seeds):
+
+| A vs B | A win | B win | Timeout | A score | Margin | Folder |
+|---|---:|---:|---:|---:|---|---|
+| rules on 4.8M vs rules on 2.0M | 31.7% | 33.1% | 35.2% | 0.493 | [−0.08, +0.05] | `outputs/evaluations/20261119_progress_ruleson_4800000_vs_ruleson_2000000_wiki_h2h_diagnostic` |
+| no rules 3.2M vs no rules 1.0M | 41.5% | 25.4% | 33.1% | 0.580 | [+0.09, +0.23] | `outputs/evaluations/20261119_progress_norules_3200000_vs_norules_1000000_wiki_h2h_diagnostic` |
+
+- The rules-on run has not improved since 2.0M: 2.8M more steps gave no measurable gain.
+- The no-rules run (road reward from 2.38M) is still improving.
+
+### Wrapper rules switched off at evaluation time (diagnostic, 2026-11-18, Kevin's Claude agent)
+
+This switches off the optional wrapper rules (CHANGELOG 090) for a checkpoint trained with them on. The checkpoint is
+`combat_pcritic_t1_league_swap_4m` (Devin), and the code is `feat/combat-optional-rules` (PR #34).
+
+**Against SimpleAgent** (eval_validation, 120 maps × 5, seed 42; paired by map with `tools/compare_combat_evals.py`):
+
+| Rules | Evaluation | argmax win | sampled win | random_legal loss | Paired argmax win vs rules on |
+|---|---|---:|---:|---:|---|
+| all on (as trained; canonical) | `20261118_league_swap_4m_rules_on_eval_validation` | 100.0% | 99.0% | 18.2% | — |
+| village rules off | `20261118_league_swap_4m_rules_village_off_eval_validation_diagnostic` | 99.7% | 99.2% | 24.2% | −0.3 [−0.8, +0.0] |
+| all off | `20261118_league_swap_4m_rules_all_off_eval_validation_diagnostic` | 99.2% | 98.2% | 24.8% | −0.8 [−1.7, −0.2] |
+
+SimpleAgent is at the ceiling for this checkpoint, so the comparison cannot show a gain. Without the rules, a random
+player loses 6.7 points more often ([+2.5, +11.2]): the rules mainly protect weak play.
+
+**Against itself** (`20261118_league_swap_4m_rules_off_vs_on_selfplay_diagnostic`):
+- Setup: the same checkpoint plays both sides, sampling. One side has every rule off, the other every rule on, and
+  each side plays both seats and both code paths. 800 games; win 1, timeout 0.5, loss 0.
+- The rules-off side scores **0.419 [0.388, 0.450]**: 0.62 moving first and 0.22 moving second. The same matchup with
+  the same rules on both sides scores 0.685 and 0.320.
+- So a policy trained with the rules is about 8 points weaker without them. It learned to rely on them.
+- An example: with fewer than 2 cities it never saw a village CAPTURE it could choose, because the rule made that
+  capture itself.
+- Whether training without the rules ends up stronger needs a run trained with them off, compared head to head.
+
 ### Training-game diagnostics (before the canonical evaluation)
 
 Combat is judged by win rate against SimpleAgent (11×11, 1v1, CAPITALS mode, 20 turns). The canonical combat
