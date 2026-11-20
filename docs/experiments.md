@@ -103,6 +103,16 @@ Top-move replays (`--mode argmax`, otherwise identical; 474 and 471 of 480 games
 Timeouts barely change without sampling (23 → 18%, 38 → 39%), so sampling noise is not why games time out. Decisive
 games end around turn 14–15 either way.
 
+Later checkpoints against earlier ones of the same run (480 games each, sampled, same pool and seeds):
+
+| A vs B | A win | B win | Timeout | A score | Margin | Folder |
+|---|---:|---:|---:|---:|---|---|
+| rules on 4.8M vs rules on 2.0M | 31.7% | 33.1% | 35.2% | 0.493 | [−0.08, +0.05] | `outputs/evaluations/20261119_progress_ruleson_4800000_vs_ruleson_2000000_wiki_h2h_diagnostic` |
+| no rules 3.2M vs no rules 1.0M | 41.5% | 25.4% | 33.1% | 0.580 | [+0.09, +0.23] | `outputs/evaluations/20261119_progress_norules_3200000_vs_norules_1000000_wiki_h2h_diagnostic` |
+
+- The rules-on run has not improved since 2.0M: 2.8M more steps gave no measurable gain.
+- The no-rules run (road reward from 2.38M) is still improving.
+
 ### Wrapper rules switched off at evaluation time (diagnostic, 2026-11-18, Kevin's Claude agent)
 
 This switches off the optional wrapper rules (CHANGELOG 090) for a checkpoint trained with them on. The checkpoint is
