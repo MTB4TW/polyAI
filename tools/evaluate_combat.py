@@ -54,6 +54,33 @@ DIAGNOSTICS = {  # episode field <- end-of-game info key (engine-side facts, not
 }
 
 
+# Training-only settings that must never reach an evaluation: reward weights (outcomes do not depend on them),
+# the self-play league (it would replace SimpleAgent with snapshots in some games), the search teacher, the
+# full-information critic input, and the fog-memory see-moves switch (evaluation uses its default, on).
+TRAINING_ONLY_ENV_PREFIXES = ("POLYVISION_COMBAT_REWARD_", "POLYVISION_COMBAT_LEAGUE")
+TRAINING_ONLY_ENV_KEYS = ("POLYVISION_TEACHER", "POLYVISION_PRIVILEGED_OBS", "POLYVISION_FOG_MEMORY_SEE_MOVES")
+
+
+def clear_training_only_environment(environ) -> list:
+    """Drop training-only POLYVISION_* settings from `environ` and force the league off; returns what was removed."""
+    removed = sorted(k for k in environ
+                     if k.startswith(TRAINING_ONLY_ENV_PREFIXES) or k in TRAINING_ONLY_ENV_KEYS)
+    for key in removed:
+        del environ[key]
+    environ["POLYVISION_COMBAT_LEAGUE"] = "0"
+    return removed
+
+
+def assert_evaluation_environment(env) -> None:
+    """Fail before any game if the wrapper would play a league opponent or run a teacher."""
+    if getattr(env, "_combat_league", None) is not None:
+        raise SystemExit("Combat evaluation must play SimpleAgent: the self-play league is active")
+    if getattr(env, "_teacher_enabled", False) or getattr(env, "_teacher_mode", None) is not None:
+        raise SystemExit("Combat evaluation must not run a search teacher (POLYVISION_TEACHER)")
+    if getattr(env, "_privileged_obs", False):
+        raise SystemExit("Combat evaluation must not export privileged observations (POLYVISION_PRIVILEGED_OBS)")
+
+
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
@@ -215,11 +242,9 @@ def main():
     from pol_env.Tribes.py.environment_contract import fog_memory_of_version
     fog_memory = (fog_memory_of_version(checkpoint_meta.get("phase1_environment_version")) if checkpoint_meta
                   else os.environ.get("POLYVISION_FOG_MEMORY", "0").strip() == "1")
-    for key in [k for k in os.environ if k.startswith(("POLYVISION_COMBAT_REWARD_", "POLYVISION_COMBAT_LEAGUE"))]:
-        # Outcomes do not depend on reward weights; keep the run's config clean. A league setting inherited from
-        # a training shell would swap seats or replace SimpleAgent: evaluation is always the learner as tribe 0
-        # against SimpleAgent.
-        del os.environ[key]
+    removed_settings = clear_training_only_environment(os.environ)
+    if removed_settings:
+        print("Ignoring training-only settings: " + ", ".join(removed_settings), flush=True)
     os.environ.update({
         "POLYVISION_PHASE": "2", "POLYVISION_COMBAT_MODE": "1", "POLYVISION_SOLO_NO_OPPONENT_MODE": "0",
         "POLYVISION_LEVEL_POOL_GLOB": f"levels/phase2_pool_1v1/{args.pool}/*.csv",
@@ -237,6 +262,7 @@ def main():
 
     device = torch.device(args.device if args.device == "cpu" or torch.cuda.is_available() else "cpu")
     env = TribesGymWrapper()
+    assert_evaluation_environment(env)
     agent, env_meta = None, None
     try:
         if checkpoint_meta:

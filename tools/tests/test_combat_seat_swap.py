@@ -1,4 +1,4 @@
-"""Combat league seat swap (CHANGELOG 072): the learner plays tribe 1 in some games.
+"""Combat league seat swap (CHANGELOG 094): the learner plays tribe 1 in some games.
 
 Pure tests always run; the live-engine tests need POLYVISION_RUN_JAVA_TESTS=1 (as test_combat_integration.py).
 """

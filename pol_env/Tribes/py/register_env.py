@@ -374,6 +374,13 @@ class TribesGymWrapper(gym.Env):
             self.PHASE1_OPENING_VERSION = "combat_no_scripted_opening_v1"
             self.PHASE1_ENVIRONMENT_VERSION = f"combat_v5_scaled_scalars_horizon_{self.MAX_TURNS}"
             self._combat_reward_weights = self._load_combat_reward_weights()
+            self._combat_prev_potential = 0.0
+            self._combat_first_contact_tick = -1
+            self._combat_prev_state = None
+            self._combat_turn_start_state = None
+            self._combat_prev_terms = {}
+            self._combat_ep_components = {}
+            self._combat_reset_turn_trackers()
         # Self-play league (combat_selfplay.py; opt-in, POLYVISION_COMBAT_LEAGUE=1): snapshots play tribe 1 in some games.
         self._combat_league = None
         self._combat_opponent = None
@@ -382,13 +389,6 @@ class TribesGymWrapper(gym.Env):
 
             self._combat_league = CombatLeague(rng=np.random.default_rng(
                 (int(os.environ.get("POLYVISION_BASE_SEED", "42")) * 7919 + os.getpid()) % (2**32)))
-            self._combat_prev_potential = 0.0
-            self._combat_first_contact_tick = -1
-            self._combat_prev_state = None
-            self._combat_turn_start_state = None
-            self._combat_prev_terms = {}
-            self._combat_ep_components = {}
-            self._combat_reset_turn_trackers()
         # Combat is won by holding every capital (in 1v1: taking the enemy capital while keeping ours);
         # SCORE mode would require taking every enemy city. Phase 1 keeps SCORE.
         self._engine_game_mode = "CAPITALS" if self._is_combat_mode else "SCORE"
@@ -5511,12 +5511,17 @@ class TribesGymWrapper(gym.Env):
         "embassy": 0.0,                 # event: penalty per embassy built (2.15 rules: in a 1v1 it pays the enemy
                                         # as much as us, and its stars buy no units)
         "turn_penalty": 0.0,            # event: penalty per turn ended (a cost of time, pushing for an early win)
+        "star_hoard": 0.0,              # event: penalty per star above star_hoard_threshold still held at END_TURN
+                                        # (stars carried into the next turn buy nothing; see CHANGELOG 081)
+        "star_hoard_threshold": 10.0,   # parameter, not a weight: stars that may be saved without penalty
     }
 
     # Outcome terms: what the game result and its timing pay. Everything else is shaping ("who is ahead" potential
     # terms and per-step events) and is multiplied by POLYVISION_COMBAT_REWARD_SHAPING_SCALE (default 1), so a run
     # can fade the shaping out or train on the outcome alone (0).
     COMBAT_OUTCOME_TERMS = ("win", "loss", "timeout", "early_win", "terminal_potential", "turn_penalty")
+    # Parameters read from POLYVISION_COMBAT_REWARD_<NAME> that are not reward weights (never scaled).
+    COMBAT_REWARD_PARAMETERS = ("star_hoard_threshold",)
 
     @classmethod
     def _load_combat_reward_weights(cls, environ=None):
@@ -5536,13 +5541,15 @@ class TribesGymWrapper(gym.Env):
             raise ValueError("Combat reward needs loss < timeout < win")
         if not 0.0 <= weights["terminal_potential"] <= 1.0:
             raise ValueError("POLYVISION_COMBAT_REWARD_TERMINAL_POTENTIAL must be between 0 and 1")
+        if weights["star_hoard"] < 0 or weights["star_hoard_threshold"] < 0:
+            raise ValueError("POLYVISION_COMBAT_REWARD_STAR_HOARD and _STAR_HOARD_THRESHOLD must be >= 0")
         raw_scale = environ.get("POLYVISION_COMBAT_REWARD_SHAPING_SCALE")
         scale = 1.0 if raw_scale is None or str(raw_scale).strip() == "" else float(raw_scale)
         if not (np.isfinite(scale) and scale >= 0.0):
             raise ValueError(f"POLYVISION_COMBAT_REWARD_SHAPING_SCALE must be >= 0, got {raw_scale!r}")
         if scale != 1.0:
             for name in weights:
-                if name not in cls.COMBAT_OUTCOME_TERMS:
+                if name not in cls.COMBAT_OUTCOME_TERMS and name not in cls.COMBAT_REWARD_PARAMETERS:
                     weights[name] *= scale
         return weights
 
@@ -5621,7 +5628,7 @@ class TribesGymWrapper(gym.Env):
     COMBAT_EVENT_TERMS = ("regional_attack", "role_positioning", "damage_trade", "hanging_population", "tech_order",
                           "pop_tech", "unused_tech", "tech_cost", "avoid_fishing", "avoid_philosophy_meditation",
                           "avoid_whaling", "capital_hold", "capital_region_kill", "train_rider", "train_infantry",
-                          "rider_attack", "embassy", "turn_penalty")
+                          "rider_attack", "embassy", "turn_penalty", "star_hoard")
 
     def _combat_reset_turn_trackers(self):
         self._combat_turn_research = []      # (tech, tier) researched this turn
@@ -5672,6 +5679,11 @@ class TribesGymWrapper(gym.Env):
             out["embassy"] = -w["embassy"]
         if w["turn_penalty"] and action_type == "END_TURN":
             out["turn_penalty"] = -w["turn_penalty"]
+        if w["star_hoard"] and action_type == "END_TURN":
+            # Stars still held when we end the turn (from the observation before END_TURN; a tribe's own stars
+            # are never fogged). Saving up to the threshold for a dearer unit or tech is free.
+            carried = float(self._get_tribe_stars(start_obs or {}, tribe_id=me))
+            out["star_hoard"] = -w["star_hoard"] * max(0.0, carried - w["star_hoard_threshold"])
         if action_type != "END_TURN":
             self._combat_turn_signatures.add(combat_shaping.action_signature(action))
         elif w["unused_tech"]:

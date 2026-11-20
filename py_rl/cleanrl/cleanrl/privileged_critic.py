@@ -55,7 +55,7 @@ def load_privileged_critic_for_init(critic: nn.Module, init_from: str, map_locat
     has_stats = all(k in state for k in stat_keys)
     run_norm = bool(getattr(critic, "value_norm", False))
     if run_norm and not any(k in state for k in stat_keys):
-        # Saved before value normalisation (CHANGELOG 071): its head emits raw returns. Mean 0 / std 1 (the std
+        # Saved before value normalisation (CHANGELOG 080): its head emits raw returns. Mean 0 / std 1 (the std
         # floor) gives V exactly as saved; marking the statistics initialised makes the first PopArt update
         # preserve those outputs instead of overwriting them.
         state = dict(state)

@@ -180,7 +180,7 @@ class CriticTests(unittest.TestCase):
                 load_privileged_critic_for_init(PrivilegedCritic(self.obs_dim, norm_obs=True, hidden_channels=32), model)
 
     def test_init_from_critic_saved_before_value_norm(self):
-        """A critic saved without PopArt statistics (runs before CHANGELOG 071, e.g. the teacher seeds) loads into
+        """A critic saved without PopArt statistics (runs before CHANGELOG 080, e.g. the teacher seeds) loads into
         a value-normalised critic with V(s) unchanged, also across the first statistics update; and back."""
         from py_rl.cleanrl.cleanrl.privileged_critic import (
             PrivilegedCritic, load_privileged_critic_for_init, privileged_critic_path)

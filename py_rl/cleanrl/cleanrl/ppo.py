@@ -3015,7 +3015,7 @@ if __name__ == "__main__":
         log_scalar("losses/value_std", float(np.std(y_pred)), global_step)
         log_scalar("losses/return_std", float(np.std(y_true)), global_step)
         if privileged_critic is not None:
-            # Critic health (CHANGELOG 071): feature spread, tanh saturation, grad norm, return statistics.
+            # Critic health (CHANGELOG 080): feature spread, tanh saturation, grad norm, return statistics.
             pc_diag = privileged_critic.diagnostics(b_priv_obs[: min(4096, b_priv_obs.shape[0])])
             for k, v in pc_diag.items():
                 log_scalar(f"privileged_critic/{k}", v, global_step)
