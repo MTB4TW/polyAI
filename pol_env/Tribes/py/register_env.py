@@ -5582,6 +5582,7 @@ class TribesGymWrapper(gym.Env):
         "avoid_fishing": 0.0,           # event: penalty for researching FISHING
         "avoid_philosophy_meditation": 0.0,  # event: penalty for researching PHILOSOPHY or MEDITATION
         "avoid_whaling": 0.0,           # event: penalty for researching WHALING
+        "riding_tech": 0.0,             # event: bonus for researching RIDING (Riders, and the way to ROADS)
         "roads_tech": 0.0,              # event: bonus for researching ROADS (roads must be discovered before the
                                         # road potential can pay; POLYVISION_COMBAT_EXTRA_ACTIONS=BUILD_ROAD)
         "capital_hold": 0.0,            # event: per unit of ours on an enemy capital at the start of our turn
@@ -5703,7 +5704,7 @@ class TribesGymWrapper(gym.Env):
 
     COMBAT_EVENT_TERMS = ("regional_attack", "role_positioning", "damage_trade", "hanging_population", "tech_order",
                           "pop_tech", "unused_tech", "tech_cost", "avoid_fishing", "avoid_philosophy_meditation",
-                          "avoid_whaling", "roads_tech", "capital_hold", "capital_region_kill", "train_rider", "train_infantry",
+                          "avoid_whaling", "riding_tech", "roads_tech", "capital_hold", "capital_region_kill", "train_rider", "train_infantry",
                           "rider_attack", "embassy", "turn_penalty")
 
     def _combat_reset_turn_trackers(self):
@@ -5732,6 +5733,8 @@ class TribesGymWrapper(gym.Env):
                 out["avoid_whaling"] = -w["avoid_whaling"]
             if w["roads_tech"] and tech == "ROADS":
                 out["roads_tech"] = w["roads_tech"]
+            if w["riding_tech"] and tech == "RIDING":
+                out["riding_tech"] = w["riding_tech"]
             if w["pop_tech"]:
                 offered = [str(a.get("tech_type")) for a in (legal_actions or []) if a.get("type") == "RESEARCH_TECH"]
                 board = (start_obs or {}).get("board")
@@ -5760,8 +5763,14 @@ class TribesGymWrapper(gym.Env):
         if action_type != "END_TURN":
             self._combat_turn_signatures.add(combat_shaping.action_signature(action))
         elif w["unused_tech"]:
+            # POLYVISION_COMBAT_UNUSED_TECH_EXEMPT (comma-separated techs, default none): techs that are not penalised
+            # for going unused on the turn they are researched (a road or a Rider often has to wait for stars).
+            exempt = getattr(self, "_combat_unused_tech_exempt", None)
+            if exempt is None:
+                exempt = self._combat_unused_tech_exempt = frozenset(
+                    t.strip().upper() for t in os.environ.get("POLYVISION_COMBAT_UNUSED_TECH_EXEMPT", "").split(",") if t.strip())
             unused = [t for t, _ in self._combat_turn_research
-                      if not combat_shaping.tech_used_by(t, self._combat_turn_signatures)]
+                      if t not in exempt and not combat_shaping.tech_used_by(t, self._combat_turn_signatures)]
             out["unused_tech"] = -w["unused_tech"] * float(len(unused))
         if w["regional_attack"] and action_type == "ATTACK" and action.get("dst_x") is not None:
             out["regional_attack"] = w["regional_attack"] * combat_shaping.regional_superiority(

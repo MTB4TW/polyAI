@@ -18,6 +18,16 @@ All notable changes to this project are documented in this file.
   is a potential, so a road that is lost takes its reward back and road churn cannot be farmed.
 - Defaults are unchanged, and observations and actions are unchanged, so no contract bump.
 - Test: `tools/tests/test_combat_shaping_terms.py` (`test_roads_tech_bonus`).
+- Also opt-in:
+  - `riding_tech` (`POLYVISION_COMBAT_REWARD_RIDING_TECH`): a one-time bonus for researching RIDING, which unlocks
+    Riders and leads to ROADS.
+  - `POLYVISION_COMBAT_UNUSED_TECH_EXEMPT` (comma-separated techs, default none): techs exempt from the
+    `unused_tech` penalty on the turn they are researched. A road or a Rider often has to wait for stars.
+- Why: at 3.4M steps the no-rules run researched RIDING in 50% of games, at about turn 13; ROADS in 0%; built 0
+  roads; and fielded 8.8 Warriors against 0.6 Riders. With ROADS costing about 6 stars, `tech_cost` 0.05 and
+  `unused_tech` 0.5 left the roads bonus about +0.2 net.
+- Test: `test_riding_tech_bonus_and_unused_tech_exemption`.
+
 
 ## [Phase2-Combat_Optional_Wrapper_Rules_And_Actions-090] - (2026-11-18)
 
