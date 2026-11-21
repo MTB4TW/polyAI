@@ -303,5 +303,24 @@ class EngineGameTests(unittest.TestCase):
                 server.session.abort()
 
 
+class CuratedLabelTests(unittest.TestCase):
+    def test_labels_json_names_curated_checkpoints(self):
+        import json
+        d = Path(tempfile.mkdtemp())
+        meta = {"phase1_environment_version": "combat_v5_scaled_scalars_horizon_20+rules_polytopia_2_15_r2",
+                "network_arch": "spatial_resnet_composed"}
+        for f in ("a.cleanrl_model", "b.cleanrl_model"):
+            (d / f).write_bytes(b"x")
+            (d / (f + ".action_interface.json")).write_text(json.dumps(meta))
+        (d / "labels.json").write_text(json.dumps({"b.cleanrl_model": {"order": -1, "group": "Best", "name": "Best one",
+                                                                     "step": 2000000, "note": "try this"}}))
+        models = P.find_models([str(d / "*.cleanrl_model")])
+        self.assertEqual([m.path.name for m in models], ["b.cleanrl_model", "a.cleanrl_model"])
+        best = models[0].public()
+        self.assertEqual((best["run"], best["name"], best["step"]), ("Best", "Best one", 2000000))
+        self.assertEqual(best["label"], "Best one · step 2,000,000 · try this")
+        self.assertIsNone(models[1].public()["name"])  # unlabelled checkpoints keep the old label
+
+
 if __name__ == "__main__":
     unittest.main()

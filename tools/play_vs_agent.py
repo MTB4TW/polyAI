@@ -116,6 +116,9 @@ class ModelInfo:
     arch: str
     init_from: Optional[str] = None
     evaluation: Optional[dict] = None
+    name: Optional[str] = None           # display name (labels.json next to the checkpoint)
+    note: Optional[str] = None           # one-line description shown with it
+    order: int = 0                       # position in the list (labels.json), before newest-first
     _sha: Optional[str] = field(default=None, repr=False)
 
     @property
@@ -131,13 +134,15 @@ class ModelInfo:
     def label(self) -> str:
         step = f"step {self.step:,}" if self.step is not None else "final"
         ev = f" · eval {self.evaluation['win']:.1%}" if self.evaluation and self.evaluation.get("win") is not None else ""
+        if self.name:
+            return f"{self.name} · {step}" + (f" · {self.note}" if self.note else "") + ev
         return f"{step} · saved {self.saved}{ev}"
 
     def public(self, with_sha: bool = False) -> dict:
         d = {"key": self.key, "run": self.run, "seed": self.seed, "step": self.step, "saved": self.saved,
              "file": self.path.name, "path": str(self.path), "env_version": self.env_version, "rules": self.rules,
              "max_turns": self.max_turns, "arch": self.arch, "init_from": self.init_from,
-             "evaluation": self.evaluation, "label": self.label()}
+             "evaluation": self.evaluation, "label": self.label(), "name": self.name, "note": self.note}
         if with_sha:
             d["sha256"] = self.sha256
         return d
@@ -196,8 +201,25 @@ def find_models(patterns: List[str]) -> List[ModelInfo]:
                 rules=rules_of_version(version), max_turns=int(horizon.group(1)),
                 arch=str(meta.get("network_arch", "mlp")), init_from=Path(init).parent.name if init else None,
                 evaluation=evaluations.get((path.parent.name, path.name))))
-    models.sort(key=lambda x: (-x.mtime, x.run, -(x.step or 10**12)))
+            # Optional labels.json next to the checkpoint: {"<file>": {"name", "group", "step", "note", "order"}},
+            # for curated copies whose file and folder names say nothing about the run (runs/play_models/).
+            labels = _labels_for(path.parent).get(path.name)
+            if labels:
+                info = models[-1]
+                info.name, info.note = labels.get("name"), labels.get("note")
+                info.run = labels.get("group", info.run)
+                info.step = int(labels["step"]) if labels.get("step") is not None else info.step
+                info.order = int(labels.get("order", 0))
+    models.sort(key=lambda x: (x.order, -x.mtime, x.run, -(x.step or 10**12)))
     return models
+
+
+def _labels_for(folder: Path) -> dict:
+    f = folder / "labels.json"
+    try:
+        return json.loads(f.read_text(encoding="utf-8")) if f.is_file() else {}
+    except (OSError, json.JSONDecodeError):
+        return {}
 
 
 # --- environment set-up -------------------------------------------------------------------------------------

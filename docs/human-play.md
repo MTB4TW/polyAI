@@ -36,6 +36,8 @@ cd /home/users/kevlai/polyAI/.claude/worktrees/play
   frozen on villages while you have fewer than 2 cities, and so on. Against the no-rules checkpoints, you have every
   legal engine action, as the agent does, including roads and promoting veterans.
 - `--map-pool phase2_pool_1v1_wiki`: these runs train on the wiki-parity maps (CHANGELOG 088).
+- `runs/play_models/labels.json` names each copy in the opponent list and the banner. Format:
+  `{"<file>": {"name", "group", "step", "note", "order"}}`. Any folder of checkpoints can have one.
 
 ## Choosing the opponent
 

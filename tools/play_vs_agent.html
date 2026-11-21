@@ -368,11 +368,12 @@ $("speed").onchange = e => { speed = +e.target.value; try { localStorage.setItem
 function stepText(m) { return m.step != null ? `step ${m.step.toLocaleString("en-US")}` : "final model"; }
 function banner(s) {
   const m = s.model;
-  $("opp").textContent = m ? `Opponent: ${m.run} — ${stepText(m)}` : "Opponent: random legal moves (no checkpoint)";
+  $("opp").textContent = m ? (m.name ? `Opponent: ${m.name} — ${stepText(m)}${m.note ? " · " + m.note : ""}`
+                                     : `Opponent: ${m.run} — ${stepText(m)}`) : "Opponent: random legal moves (no checkpoint)";
   $("opp").title = m ? m.path : "";
   const ev = m && m.evaluation && m.evaluation.win != null
     ? `canonical eval ${(m.evaluation.win * 100).toFixed(1)}% wins vs ${m.evaluation.against} (${m.evaluation.id})` : "no evaluation in this checkout";
-  $("oppdet").textContent = m ? `${m.file} · saved ${m.saved} · sha256 ${m.sha256.slice(0, 12)} · ${m.arch} · ${m.env_version}` +
+  $("oppdet").textContent = m ? `${m.name ? m.run + " · " : ""}${m.file} · saved ${m.saved} · sha256 ${m.sha256.slice(0, 12)} · ${m.arch} · ${m.env_version}` +
     `${m.init_from ? " · warm-started from " + m.init_from : ""} · ${ev} · plays ${s.agent.includes("sampled") ? "sampled" : "argmax"}` +
     `${s.search ? " + TACTICAL SEARCH" : " (policy only, no search)"}` : "";
   $("seatdet").textContent = `You play ${s.you} (tribe ${s.human_tribe}) and move ${s.you_move}; the agent plays ${s.opponent}. ` +
@@ -437,7 +438,7 @@ async function loadCatalog() {
   for (const m of CAT.models) { if (!groups.has(m.run)) groups.set(m.run, []); groups.get(m.run).push(m); }
   let html = "";
   for (const [run, ms] of groups) {
-    html += `<optgroup label="${esc(run)}">` + ms.map(m => `<option value="${m.key}">${esc(run)} · ${esc(m.label)}</option>`).join("") + "</optgroup>";
+    html += `<optgroup label="${esc(run)}">` + ms.map(m => `<option value="${m.key}">${m.name ? "" : esc(run) + " · "}${esc(m.label)}</option>`).join("") + "</optgroup>";
   }
   html += `<optgroup label="No checkpoint"><option value="random">Random legal moves</option></optgroup>`;
   $("modelsel").innerHTML = html;
