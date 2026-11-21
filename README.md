@@ -1,237 +1,251 @@
-# PolyVision
+# PolyAI
 
-PolyVision is a reinforcement-learning research environment for *The Battle of Polytopia*. It connects a Java implementation of the game to Python through Py4J, exposes a constrained task through Gymnasium, and trains legality-aware PPO policies with a heavily adapted CleanRL implementation.
+PolyAI trains PPO agents for *The Battle of Polytopia*. It runs the game on the Java Tribes engine
+(`pol_env/Tribes/`), drives it from Python through Py4J and Gymnasium, and trains with an adapted CleanRL PPO
+(`py_rl/cleanrl/cleanrl/ppo.py`).
 
-The project does **not** currently solve the full game. Its active curriculum is an economy-first Bardur task ending after Turn 10, with combat attacks excluded from the policy interface. This narrower setting is used to study reliable action representation, exploration, city growth, research, and evaluation before expanding toward full-game play.
+PolyAI is a fork of [PolyVision](https://github.com/NeoLorenzo/PolyVision) (pinned commit in
+`local/upstream-commit.txt`), which in turn grew out of
+[ClaireBookworm/polytopia_rl](https://github.com/ClaireBookworm/polytopia_rl). The engine is the Tribes research
+framework (Perez-Liebana et al., 2020). PolyVision built the Phase 1 task, the map corpus, the stable action
+interface, the canonical Phase 1 evaluator and the reference model; see [Attribution and licensing](#attribution-and-licensing).
+PolyAI is developed by Kevin and Devin.
 
-PolyVision originated from [ClaireBookworm/polytopia_rl](https://github.com/ClaireBookworm/polytopia_rl) and has since been substantially extended with a new experimental curriculum, action representation, map corpus, training infrastructure, evaluation system, and research documentation. See [Attribution and licensing](#attribution-and-licensing).
+The project works in two phases:
 
-## Overview
+- **Phase 1 (economy, from PolyVision).** Single player, Bardur on genuine 11×11 Drylands maps, no attacks,
+  ends after Turn 10. Scored by final Turn-10 stars per turn (SPT).
+- **Phase 2 (combat, ours).** 1v1 on 11×11 maps under fog: our agent plays Bardur as tribe 0 against Imperius,
+  Xin-xi or Oumaji, in CAPITALS mode with a 20-turn limit. A game is won by taking the enemy capital. Judged by
+  win rate, not shaped return. Combat code is opt-in behind `POLYVISION_COMBAT_MODE=1` / `POLYVISION_PHASE=2`, so
+  Phase 1 behaviour is unchanged.
 
-PolyVision runs on genuine Polytopia initial-map data. Compressed save states are converted into canonical, schema-versioned JSON and then into validated Tribes CSV maps. Phase 1 contains 5,517 genuine 11×11 Bardur Drylands maps in a frozen identity-based split: 5,000 train, 250 validation, 250 test, and 17 human benchmark maps.
+## What we've built
 
-The policy interacts through stable global action IDs rather than state-local Java indices. Each state also carries the current legal IDs, a fixed-capacity validity mask, and optional semantic/economic action features. Strict validation checks that every policy-visible legal action has one collision-free global identity and that selected IDs execute the intended Java action.
+Everything below is merged into `main`. [CHANGELOG.md](CHANGELOG.md) has the details for each item.
 
-## Current capabilities
+**Training and networks**
 
-- Java Tribes engine controlled from Python through Py4J
-- Gymnasium `Tribes-v0` environment with deterministic reset and cleanup behavior
-- 11×11 genuine Bardur corpus with a reproducible, hash-verified experimental split
-- geometry-derived observations and global action catalog
-- legality-aware PPO actor modes: `legal_features` (default), `legal_only` (ablation/baseline), and `dense_debug`
-- 47-dimensional semantic/economic legal-action features
-- shaped Phase 1 rewards for economy, expansion, exploration, and core Terminal-SPT bonus
-- strict pre-training action-interface validation with content-aware caching
-- checkpoint sidecars that enforce environment/interface compatibility
-- asynchronous multi-JVM training, TensorBoard/W&B telemetry, diagnostics, and SPS profiling
-- canonical deterministic/sampled validation evaluation with paired policy-visible baselines and machine-readable reports
-- persistent first-attempt human benchmarking with model-interface and information parity
+- Network choice with `--network-arch`: the PolyVision MLP (`mlp`), a spatial ResNet (`spatial_resnet`), a ResNet
+  that scores actions from features at their source and target tiles (`spatial_resnet_local`), and a composed action
+  representation without a per-action-ID embedding table (`spatial_resnet_composed`).
+  Code: `spatial_agent.py`, selected by `agent_factory.py`.
+- Opt-in PPO options: `--norm-obs`, `--norm-returns`, `--gamma-per-turn`, `--no-clip-vloss`, update size flags,
+  `--init-from` warm starts (with input-layer remapping) and `--critic-warmup-steps`.
+- Throughput: vectorised legal-action features with compact IPC, cached board scans, overlapped rollouts
+  (`--overlap-rollout`), MPS learner device on Mac.
+- Phase 1 search teacher: an SPT heuristic, one-step lookahead and within-turn MCTS
+  (`Phase1SptHeuristic.java`, `Phase1TurnMCTS.java`), usable for kickstarting with `--teacher lookahead_visible`.
 
-## Architecture
+**Combat (Phase 2)**
 
-```mermaid
-flowchart LR
-    A["Genuine Polytopia .state data"] --> B["Canonical JSON and validated CSV"]
-    B --> C["Java Tribes engine"]
-    C <--> D["Py4J bridge"]
-    D <--> E["Gymnasium environment"]
-    E --> F["Stable IDs and legal-action interface"]
-    F <--> G["Adapted CleanRL PPO"]
-    G --> H["Evaluation and diagnostics"]
-```
+- Combat environment with potential-based reward shaping and optional terms (capital, tech, Rider preference,
+  early-win bonus); the current reward is `cluster/combat_cap_all_v2.env`.
+- Polytopia 2.15 rules behind `POLYVISION_RULES=polytopia_2_15` (default: the original Tribes rules). See
+  [Rules parity](docs/rules-parity.md).
+- Full-information (privileged) critic, `--privileged-critic`: advantages come from a critic that sees the unfogged
+  state, while the policy still plays from the fogged observation and its checkpoint is unchanged. It has PopArt
+  value normalisation and a guard that reinitialises the critic if its output goes flat.
+- Tactical search teacher, `players/heuristics/CombatTactics.java`: a within-turn beam search over attacks, captures
+  and moves on a fogged copy of the state, used for kickstarting (`--teacher tactical_search`) and as a play-time
+  policy (`ppo_search`).
+- Fog memory, `core/game/FogMemory.java`: remembers enemy units seen going into the clouds and estimates unseen ones,
+  as extra observation channels.
+- Self-play league: frozen snapshots and fixed opponents chosen by prioritised fictitious self-play (PFSP), with seat
+  swap so the learner also plays tribe 1 (`pol_env/Tribes/py/combat_selfplay.py`, `cluster/combat_league_segment.sh`).
+- Optional star-hoarding penalty (`cluster/combat_star_hoard_v2.env`).
 
-The Java engine remains authoritative for game state and raw legal actions. The Python wrapper defines the research curriculum, observation, stable action interface, reward, horizon, and validation contract. See [Architecture](docs/architecture.md) for the full control flow.
+**Evaluation and tools**
 
-## Current Phase 1 task
+- Canonical Phase 1 evaluator (`tools/evaluate_phase1.py`, from PolyVision) and paired comparison
+  (`tools/compare_evals.py`).
+- Canonical combat evaluator against SimpleAgent (`tools/evaluate_combat.py`) and paired comparison
+  (`tools/compare_combat_evals.py`).
+- Head-to-head evaluator, checkpoint A against B in both seats (`tools/evaluate_combat_h2h.py`).
+- Combat replay viewer: a turn-by-turn HTML replay showing the true and the fogged board (`tools/export_combat_replay.py`).
+- Farmshare SLURM jobs that train and then evaluate automatically (`cluster/`), and W&B checkpoint sharing
+  (`tools/wandb_checkpoint.py`) and evaluation logging (`tools/wandb_log_eval.py`).
 
-The policy controls Bardur after the fail-closed `v2_guaranteed_two_unit` opening: two animals, Workshop, two original-warrior moves, a required second-warrior spawn, and handoff at Turn 2. Turn-1 opening selection alone excludes the capital; ordinary policy gameplay is unchanged. The corrected audit passed 5,517/5,517 maps. Historical Seed-1 used `v1_mixed_capital_regression` (55.07% two-unit) and is preserved but shelved before pristine capability test. See the [scripted-opening audit](docs/results/Phase1_Scripted_Opening_Audit.md) and [reflection](docs/results/Phase1_Seed1_Mixed_Opening_Validation_Reflection.md).
+## Results
 
-`ATTACK` is deliberately unavailable to the Phase 1 policy. The environment prioritizes early village-expansion lines through active action filters and trains on shaped SPT, city capture, village discovery/progress, and fog-clearing signals. Final T10 SPT and other economy metrics are reported separately from shaped return.
+Every number here comes from [docs/experiments.md](docs/experiments.md), which lists every trained model and its
+evaluation folder under `outputs/evaluations/`. Paired differences are map by map with 95% bootstrap CIs over maps.
 
-On the active maps, the observation has 6,424 values (under the `v5_human_information_parity` contract) and the global action space has 63,913 IDs. Only a small legal subset is selectable in a state; by default it is represented in 256 slots with 47 legal action features (`v1_4_parity_spatial_and_cost`). See [Actions](docs/actions.md), [Observations](docs/observations.md), and [Rewards](docs/rewards.md) for the exact current contract.
+### Combat (Phase 2)
+
+Canonical protocol: `tools/evaluate_combat.py`, all 120 `eval_validation` maps × 5 repeats, seed 42, against
+SimpleAgent. Win rates are for deterministic play (`ppo_argmax`).
+
+| Model | Steps | Seeds | Win | Paired win difference |
+|---|---:|---:|---:|---|
+| `combat_cap_all_v2b_2m` (2.15 rules, composed network) | 2M | 3 | 76.1% | first canonical result |
+| `combat_v2b_pcritic_2m` (+ privileged critic) | 2M | 3 | 95.1% | +19.0 [+15.4, +22.8] vs v2b, seeds pooled |
+| `combat_pcritic_teacher_2m` (+ tactical-search teacher) | 2M | 3 | 98.2% | +3.2 [+1.7, +4.8] vs privileged critic, seeds pooled |
+| `combat_pcritic_t1_league_swap_4m` (+ seat-swap league) | 4M | 1 | 100.0% (600/600) | +2.7 [+1.2, +4.5] vs its init (teacher seed 1) |
+
+- The privileged critic gained mostly by turning timeouts into wins (timeout −15.7 points).
+  `combat_v2b_pcritic_2m` is marked as the current combat reference in the experiment record.
+- The league model is one seed.
+- An 8M continuation of the league model (four chained 2M segments) brought no further gain against SimpleAgent:
+  −0.2 to −1.7 points per segment against the 4M model. SimpleAgent is at its ceiling for these models. A
+  head-to-head of the continuation against the 4M model is **pending**.
+- From-scratch ablations with the privileged critic: fog memory 91.5% and outcome-only reward 62.8%, both below the
+  privileged-critic run; one seed of each had a collapsed critic, which led to the PopArt and flat-critic fixes.
+  The star-hoarding penalty (96.0%) is a **one-seed diagnostic**.
+- Combat runs before 2026-11-14 (Kevin's `combat_cap_*` runs, 34–47% wins) are **training-game diagnostics**, not
+  canonical evaluations.
+
+### Phase 1 (economy)
+
+Canonical protocol: `tools/evaluate_phase1.py`, all 250 validation maps, all 4 policies, `--repeats-per-map 5`,
+`--seed 42`. Scores are mean final Turn-10 SPT of deterministic PPO.
+
+- **Reference (upstream PolyVision result):** v5 PARITY002 MLP, 16M steps, seed 3: 20.52 validation, 20.17 test.
+  On the same validation maps, visible greedy scores 7.93 and random legal 6.67.
+- **Ours, 1M-step CPU runs of `spatial_resnet_local`** (budget 1/16 of the reference's): with
+  `--norm-obs --no-clip-vloss --norm-returns --gamma-per-turn`, every finished run scores 23.67–25.11, above the
+  reference by +3.15 to +4.60 (all CIs above zero; 8 runs over 3 seeds and three update-size variants). Default
+  settings at the same budget score 16.36–17.30. Single-change effects are in the sweep table in
+  `docs/experiments.md`.
+- **Ours, `farmshare_resnet_5m`** (`spatial_resnet`, 5M steps, seed 1): 19.84, −0.67 [−1.21, −0.13] against the
+  reference.
+- **Search policies (diagnostics):** visible-information lookahead 21.84 on 250 validation maps; within-turn MCTS
+  22.32 on the first 50 validation maps; a privileged (full-information) lookahead oracle 27.51.
+
+We have not evaluated any of our models on the test pool.
 
 ## Quick start
 
-Requirements are Python 3.10+, a JDK with `java` and `javac`, and PowerShell for the commands below.
+**Mac.** See [local/START-HERE.md](local/START-HERE.md) for setup. The engine needs JDK 11.
 
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-python -m pip install -r requirements-lock.txt
-
-Set-Location pol_env/Tribes
-$sources = Get-ChildItem -Path src -Recurse -Filter *.java | ForEach-Object FullName
-javac -cp "lib/json.jar" -d out -sourcepath src $sources
-Set-Location ../..
+```sh
+.venv/bin/python local/playground.py build
+.venv/bin/python local/playground.py check
+.venv/bin/python local/playground.py smoke
 ```
 
-Verify the frozen split and live training-pool contract:
+**Farmshare.** See [cluster/FARMSHARE-GUIDE.md](cluster/FARMSHARE-GUIDE.md) for setup (`bash cluster/setup_farmshare.sh`).
+Train a Phase 1 model and evaluate it automatically:
 
-```powershell
-python tools/split_phase1_map_pool.py
-$env:POLYVISION_LEVEL_POOL_GLOB = 'levels/phase1_pool_bardur_real/train/*.csv'
-$env:POLYVISION_SOLO_NO_OPPONENT_MODE = '1'
-python tools/validate_environment_contract.py --expected-width 11 --expected-height 11
+```bash
+cluster/run_experiment.sh NAME ARCH STEPS [SEED]
 ```
 
-The wrapper defaults to the training pool only; the explicit setting above makes the experimental role visible in commands and run records. Static split verification checks all 5,517 hashes and assignments, while the live validator resets the selected pool and checks geometry, observation, catalog, and interface consistency. For detailed installation notes and a smaller smoke test, use [Getting started](docs/getting-started.md).
+Evaluate an existing Phase 1 checkpoint:
 
-## Training
-
-The primary PPO entrypoint is:
-
-```text
-py_rl/cleanrl/cleanrl/ppo.py
+```bash
+MODEL_PATH=... EVAL_ID=... sbatch cluster/eval_farmshare.sbatch
 ```
 
-A representative development training run (using default `legal_features` actor and Terminal-SPT reward):
+**Combat.** A short CPU run (starts fast), with the current reward:
 
-```powershell
-$env:POLYVISION_LEVEL_POOL_GLOB = 'levels/phase1_pool_bardur_real/train/*.csv'
-$env:POLYVISION_SOLO_NO_OPPONENT_MODE = '1'
-$env:POLYVISION_INFO_MODE = 'fast'
-python py_rl/cleanrl/cleanrl/ppo.py `
-    --total-timesteps 500000 `
-    --num-envs 12 `
-    --num-steps 128 `
-    --save-model `
-    --save-frequency 100000
+```bash
+source cluster/combat_cap_all_v2.env && EXP_NAME=combat_cap_all_v2_2m sbatch cluster/train_combat_cpu.sbatch
 ```
 
-Standard Phase-1 training automatically uses `legal_features` and Terminal-SPT without requiring explicit flags or reward environment variables. Strict 10,000-state interface validation runs before training by default and is cached by code, configuration, and map-pool identity. TensorBoard output and models are written under `runs/`; W&B is optional with `--track`. Each model is accompanied by an action-interface JSON sidecar required by current evaluators. See [Training](docs/training.md) for ablations, full options, and reproducibility commands.
+`cluster/train_farmshare_combat.sbatch` is for long GPU runs. Add the privileged critic with
+`EXTRA_PPO_ARGS="--privileged-critic"`; the teacher, fog memory and league settings are in `cluster/*.env` and
+[docs/combat-next-steps.md](docs/combat-next-steps.md). Evaluate and compare:
 
-## Evaluation and evidence
-
-Use `evaluate_brain.py` for compatible one-episode policy inspection:
-
-```powershell
-python evaluate_brain.py `
-    --model-path runs/<run>/ppo.cleanrl_model `
-    --level-pool-glob 'levels/phase1_pool_bardur_real/validation/*.csv' `
-    --seed 42
+```bash
+MODEL_PATH=runs/NAME/NAME.cleanrl_model EVAL_ID=20261114_NAME_combat_eval_validation_canonical \
+    sbatch cluster/eval_combat_farmshare.sbatch
+python tools/compare_combat_evals.py BASELINE_DIR CANDIDATE_DIR
+python tools/evaluate_combat_h2h.py --model-a runs/.../A.cleanrl_model --model-b runs/.../B.cleanrl_model
 ```
 
-The repository also includes visible-information scripted baselines, privileged diagnostics, action/feature audits, and a pool contract validator. These tools have different visibility and protocol assumptions; [Evaluation](docs/evaluation.md) identifies their intended use.
+Replay one evaluation game as HTML (map and episode seed from the evaluation's `episodes.jsonl`):
 
-Run the canonical 3,000-episode Phase 1 validation suite with:
-
-```powershell
-python tools/evaluate_phase1.py `
-    --model-path runs/<run>/ppo.cleanrl_model `
-    --pool validation `
-    --suite full `
-    --repeats-per-map 5 `
-    --seed 42
+```bash
+python tools/export_combat_replay.py --model-path runs/.../NAME.cleanrl_model \
+    --map map_2p_030048.csv --episode-seed 1028470471 --output-html replays/game.html
 ```
 
-This compares deterministic PPO, sampled PPO, visible greedy, and random legal on the same 250 validation maps. Final T10 SPT is primary; stochastic uncertainty is computed across per-map replicate means. Results and provenance are retained under `outputs/evaluations/`. Test evaluation is separately guarded and is not part of ordinary development evaluation.
+**Tests.** CI (`.github/workflows/core-contract-ci.yml`) runs:
 
-Run a permanent human challenge attempt with:
-
-```powershell
-python tools/human_benchmark.py
+```bash
+python tools/run_core_ci_checks.py
 ```
 
-The command selects an unplayed human-benchmark map and presents exactly the wrapper-filtered stable global IDs available to PPO. Results remain separate from pristine test evidence; see [Human benchmark](docs/human-benchmark.md).
+or run pytest on `pol_env/Tribes/py/tests` and `tools/tests`. Training and full evaluations take minutes to hours;
+run them in the background or as SLURM jobs.
 
-The current frozen reference result is the **Phase 1 v5 PARITY002 Seed3 16M Terminal-SPT frozen reference benchmark**: on 250 fixed held-out test maps, deterministic PPO achieved **20.17 mean Turn-10 SPT** (95% CI 19.67–20.67, median 20.00), compared with **7.96** for the policy-visible greedy baseline and **20.52** on the 250 validation maps. PPO beat visible greedy on all 250 test maps (250 W / 0 T / 0 L), with a mean paired advantage of **+12.22 SPT**. See [Phase 1 v5 PARITY002 Seed3 16M Terminal-SPT Reference Run](docs/results/Phase1_V5_PARITY002_Seed3_16M_TerminalSPT_Reference_Run.md) for full metrics, validation/test distributions, paired comparisons, and scientific interpretation.
+## Repository layout
 
-Phase 1 is **not** complete; active optimization remains ongoing and 20.17 test argmax SPT serves as the current frozen reference benchmark to beat. This reference remains a single-seed training result (Seed 3), and the fixed test pool has been used for prior reference benchmarks (and is thus a fixed held-out benchmark rather than newly pristine evidence).
-
-Historical Seed-1, Seed-2, the baseline 16M reference run, the superseded v3 Terminal-SPT reference run, and the superseded v4 PARITY001 reference run remain preserved for their respective historical task, interface, and reward definitions. See [Phase 1 v4 PARITY001 Seed3 16M Terminal-SPT Reference Run (Superseded)](docs/results/Phase1_V4_PARITY001_Seed3_16M_TerminalSPT_Reference_Run.md), [Phase 1 v3 Seed3 16M Terminal-SPT Reference Run (Superseded)](docs/results/Phase1_V3_Seed3_16M_TerminalSPT_Reference_Run.md), [Phase 1 v3 Seed3 16M Reference Run](docs/results/Phase1_V3_Seed3_16M_Reference_Run.md), [Phase 1 Seed-1 mixed-opening reflection](docs/results/Phase1_Seed1_Mixed_Opening_Validation_Reflection.md), and [Phase 1 scripted-opening audit](docs/results/Phase1_Scripted_Opening_Audit.md).
-
-## Non-combat ResNet training result
-
-The Farmshare `spatial_resnet` economy-only run completed on **October 20, 2026**. It used seed 1 and a requested budget of 5 million environment steps; PPO completed **4,999,168 steps** after rounding to full rollout batches. The saved checkpoint is `runs/Tribes-v0__farmshare_resnet_5m__1__1792495859/farmshare_resnet_5m.cleanrl_model`.
-
-An October 23 diagnostic evaluated this checkpoint on **two validation maps**, using episode seed 42 and deterministic PPO argmax. Scores below are final Turn-10 stars per turn (SPT):
-
-| Validation map | ResNet PPO argmax | ResNet + tactical heuristic |
-|---|---:|---:|
-| `map_004262.csv` | 22 | 22 |
-| `map_003722.csv` | 21 | 23 |
-| **Mean (2 maps)** | **21.5** | **22.5** |
-
-The tactical heuristic reranks legal actions using visible economic and exploration features; it does not simulate future states. See the [machine-readable diagnostic report](outputs/evaluations/training_fixes_20261023_diagnostic.json) for checkpoint identity, configuration, and episode results.
-
-**These are noncanonical diagnostic results, not a full validation benchmark.** Two maps do not establish superiority over the frozen 16M reference, a reliable improvement from the heuristic, human-level play, or combat ability. This completed economy-only run is separate from the later failed combat jobs. The final non-combat [ResNet checkpoint](runs/Tribes-v0__farmshare_resnet_5m__1__1792495859/farmshare_resnet_5m.cleanrl_model) (about 17 MB) and its required [action-interface metadata](runs/Tribes-v0__farmshare_resnet_5m__1__1792495859/farmshare_resnet_5m.cleanrl_model.action_interface.json) are included in this repository. Keep both files together when evaluating the model. Other training artifacts under `runs/` remain ignored. Checkpoint SHA-256: `da9894e0d6520f56f009c8d6551d4974bf42fe45419eb46a8a1d7071c5726f40`.
-
-## Repository structure
-
-| Path | Purpose |
+| Path | Contents |
 |---|---|
-| `pol_env/Tribes/src/` | Java Tribes engine and Py4J-facing environment |
-| `pol_env/Tribes/py/` | Bridge, Gymnasium wrapper, validators, and utilities |
-| `pol_env/Tribes/levels/phase1_pool_bardur_real/` | Frozen train/validation/test/human Phase 1 split and manifest |
-| `py_rl/cleanrl/cleanrl/ppo.py` | Primary PolyVision PPO trainer |
-| `tools/polytopia_state_converter/` | Compressed save to canonical JSON |
-| `tools/polytopia_map_converter/` | Canonical JSON to validated Tribes CSV |
-| `tools/evaluate_phase1.py` | Canonical Phase 1 validation evaluator |
-| `tools/` | Additional evaluation and environment-contract utilities |
-| `docs/` | Current project documentation |
+| `pol_env/Tribes/src/` | Java engine, including `CombatTactics`, `FogMemory` and the Phase 1 search |
+| `pol_env/Tribes/py/` | Gymnasium wrapper (`register_env.py`), environment contract, combat shaping and self-play |
+| `py_rl/cleanrl/cleanrl/` | PPO trainer (`ppo.py`), networks, privileged critic, teacher kickstarting |
+| `tools/` | Evaluators, comparisons, replay export, map tools, W&B helpers, tests (`tools/tests`) |
+| `cluster/` | Farmshare SLURM jobs and combat settings (`*.env`) |
+| `local/` | Mac playground |
+| `outputs/` | Committed evaluation folders, experiment records and comparisons |
+| `docs/` | Documentation; [experiments.md](docs/experiments.md) is the experiment record |
+
+## Contributing
+
+Read [CLAUDE.md](CLAUDE.md) first. In short:
+
+- Make development decisions on the validation pool only; the test pool is evaluated only when a person asks.
+- A result counts only if it is canonical; label anything smaller as a diagnostic.
+- Commit every evaluation folder and `outputs/experiments/NAME.json`, and record every trained model in
+  `docs/experiments.md` with its paired difference against the reference.
+- Add a `CHANGELOG.md` entry for any change to the environment, reward, observation, action space, network or
+  training loop, and bump the contract version if old checkpoints would see or do something different.
+- Work on a branch and open a pull request for the other person to review.
+
+## In progress (not merged)
+
+- **Other evaluation opponents:** a polyfish-style greedy opponent, and the engine's MCTS and RHEA agents (local
+  branches, not pushed).
+- **Resumable training** (PR [#30](https://github.com/MTB4TW/polyAI/pull/30)), **play against the agent in the
+  browser** ([#29](https://github.com/MTB4TW/polyAI/pull/29)), **saved-game engine**
+  ([#28](https://github.com/MTB4TW/polyAI/pull/28)), **map generation matched to the Polytopia wiki**
+  ([#31](https://github.com/MTB4TW/polyAI/pull/31)).
+- **Unit status** (HP, veteran, has-acted) in the combat observation
+  ([#32](https://github.com/MTB4TW/polyAI/pull/32)), a league run with it
+  ([#33](https://github.com/MTB4TW/polyAI/pull/33)), and optional wrapper rules plus missing engine actions
+  ([#34](https://github.com/MTB4TW/polyAI/pull/34)).
+- **An exact-rules engine:** exploring polybots-engine as an alternative to the Tribes engine.
 
 ## Documentation
 
-- [Getting started](docs/getting-started.md)
-- [Architecture](docs/architecture.md)
-- [Environment](docs/environment.md)
-- [Actions](docs/actions.md)
-- [Observations](docs/observations.md)
-- [Rewards](docs/rewards.md)
-- [Training](docs/training.md)
-- [Evaluation](docs/evaluation.md)
-- [Phase 1 v3 Seed3 16M Terminal-SPT Reference Run](docs/results/Phase1_V3_Seed3_16M_TerminalSPT_Reference_Run.md)
-- [Phase 1 v3 Seed3 16M Reference Run (Historical)](docs/results/Phase1_V3_Seed3_16M_Reference_Run.md)
-- [Phase 1 v3 Seed3 16M Behavioral Failure Analysis](docs/results/Phase1_V3_Seed3_16M_Behavioral_Failure_Analysis.md)
-- [First Phase 1 validation results (Historical)](docs/results/PolyVision_Phase1_Validation_Results.md)
-- [Phase 1 Seed-1 mixed-opening reflection](docs/results/Phase1_Seed1_Mixed_Opening_Validation_Reflection.md)
-- [Phase 1 scripted-opening audit](docs/results/Phase1_Scripted_Opening_Audit.md)
-- [Human benchmark](docs/human-benchmark.md)
-- [Human–AI Information Parity Audit](docs/Human_Information_Parity_Audit.md)
-- [Maps](docs/maps.md)
-- [Reproducibility](docs/reproducibility.md)
-- [Troubleshooting](docs/troubleshooting.md)
-
-Focused manuals remain beside the [state converter](tools/polytopia_state_converter/README.md), [map converter](tools/polytopia_map_converter/README.md), and optional [map harvester](tools/polytopia_harvester/README.md). `CHANGELOG.md` records implementation history; [historical benchmark evidence](docs/history/model-run-benchmark-log.md) is explicitly non-normative.
-
-## Current limitations
-
-- The task ends after Turn 10 and does not represent full-game strategy.
-- Combat attacks are excluded from policy control.
-- The active corpus covers one tribe and one 11×11 Drylands distribution.
-- The observation is a compact engineered vector, not the complete game state.
-- Reward and action filtering encode a Phase 1 curriculum and can bias learned behavior.
-- Checkpoints are tightly coupled to geometry and action-interface metadata.
-- The trainer saves weights and interface metadata, not full optimizer/RNG state for exact resume.
-- Current-interface multi-training-seed validation/test benchmark results are not yet established.
-
-## Roadmap
-
-Current-interface multi-seed Phase 1 training and evidence are deferred for the constrained Bardur Turn-10 task. They may begin only after the canonical human-benchmark gate is established under GitHub issue #3 and the applicable model or candidate passes it; see [Human benchmark](docs/human-benchmark.md) for the canonical workflow. Later phases can broaden map distributions and tribes, relax curriculum filters, add combat and opponents, extend observations and action semantics, and evaluate full-game policies. Those items are future work, not current capabilities.
+- [Experiments](docs/experiments.md), [Evaluation](docs/evaluation.md), [Combat next steps](docs/combat-next-steps.md),
+  [Combat recipe runs](docs/combat-recipe-runs.md), [Rules parity](docs/rules-parity.md)
+- [Getting started](docs/getting-started.md), [Architecture](docs/architecture.md), [Environment](docs/environment.md),
+  [Actions](docs/actions.md), [Observations](docs/observations.md), [Rewards](docs/rewards.md),
+  [Training](docs/training.md), [Maps](docs/maps.md), [Reproducibility](docs/reproducibility.md),
+  [Troubleshooting](docs/troubleshooting.md)
+- Upstream PolyVision results and audits: [Phase 1 v5 reference run](docs/results/Phase1_V5_PARITY002_Seed3_16M_TerminalSPT_Reference_Run.md),
+  [Human benchmark](docs/human-benchmark.md), [Human–AI information parity audit](docs/Human_Information_Parity_Audit.md)
 
 ## Attribution and licensing
 
-PolyVision originated as a fork of [ClaireBookworm/polytopia_rl](https://github.com/ClaireBookworm/polytopia_rl) and has since developed into a substantially expanded research project.
-
-The repository retains and modifies upstream code from `polytopia_rl`, including portions of the Tribes game engine, Python/Java bridge, environment code, and related utilities. Credit for that upstream work belongs to its original authors and contributors. Git history is retained to preserve authorship and provenance.
+PolyAI is a fork of [NeoLorenzo/PolyVision](https://github.com/NeoLorenzo/PolyVision). PolyVision originated as a
+fork of [ClaireBookworm/polytopia_rl](https://github.com/ClaireBookworm/polytopia_rl), and the game engine is the
+Tribes framework. Results marked "PolyVision upstream" in `docs/experiments.md` are PolyVision's, not ours. Git
+history is retained to preserve authorship and provenance.
 
 ### License status
 
-PolyVision does **not currently have a repository-wide open-source license**.
+PolyAI, like PolyVision, does **not currently have a repository-wide open-source license**.
 
-The upstream `ClaireBookworm/polytopia_rl` repository does not provide a root license covering the project as a whole. Because PolyVision contains substantial code derived from that repository, PolyVision cannot simply relicense the entire codebase under a new license without first resolving the licensing status of the inherited work.
+The upstream `ClaireBookworm/polytopia_rl` repository does not provide a root license covering the project as a
+whole, and this repository contains substantial code derived from it, so the codebase cannot be relicensed as a
+whole without first resolving the licensing status of the inherited work.
 
-Some components within the repository are separately licensed:
+Some components are separately licensed:
 
-- RL code under [`py_rl/cleanrl`](py_rl/cleanrl/) contains code derived from [CleanRL](https://github.com/vwxyzjn/cleanrl) and other projects. The applicable notices and licenses are preserved in [`py_rl/cleanrl/LICENSE`](py_rl/cleanrl/LICENSE).
+- RL code under [`py_rl/cleanrl`](py_rl/cleanrl/) contains code derived from [CleanRL](https://github.com/vwxyzjn/cleanrl)
+  and other projects. The applicable notices and licenses are preserved in [`py_rl/cleanrl/LICENSE`](py_rl/cleanrl/LICENSE).
 - Vendored dependencies and third-party components retain their own license and attribution notices where applicable.
-- Third-party game assets, trademarks, and other intellectual property are not relicensed by PolyVision.
+- Third-party game assets, trademarks, and other intellectual property are not relicensed.
 
-Unless a file or component explicitly states otherwise, the presence of source code in this repository should not be interpreted as granting additional rights beyond those provided by the applicable copyright holders and licenses.
-
-I intend to clarify the licensing of PolyVision's original contributions once the licensing status of the inherited upstream code has been resolved.
+Unless a file or component explicitly states otherwise, the presence of source code in this repository should not be
+interpreted as granting additional rights beyond those provided by the applicable copyright holders and licenses.
 
 ### Polytopia
 
-*The Battle of Polytopia* and related names, assets, and intellectual property belong to their respective rights holders. PolyVision is an independent research project and is not affiliated with or endorsed by Midjiwan AB.
+*The Battle of Polytopia* and related names, assets, and intellectual property belong to their respective rights
+holders. PolyAI is an independent research project and is not affiliated with or endorsed by Midjiwan AB.
