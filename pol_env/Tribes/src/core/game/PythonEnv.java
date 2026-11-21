@@ -760,6 +760,11 @@ public class PythonEnv {
         }
     }
 
+    /** Pushed units start their next turn fresh, as in the game (GameState.pushedUnitsStartFresh; play tool only). */
+    public void setPushedUnitsStartFresh(boolean v) {
+        GameState.pushedUnitsStartFresh = v;
+    }
+
     /** Combat seat swap: the tribe Python plays (0 or 1). Kept across initFromLevel calls. */
     public void setControlledTribe(int tribeId) {
         if (tribeId < 0) throw new IllegalArgumentException("controlled tribe must be >= 0");

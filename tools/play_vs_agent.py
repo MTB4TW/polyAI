@@ -265,13 +265,23 @@ def make_env(model_path: Optional[Path], pool: str, rules: str, max_turns: int, 
         os.environ["POLYVISION_MAX_TURNS"] = str(recorded.get("max_turns", settings["max_turns"]))
         os.environ["POLYVISION_FOG_MEMORY"] = "1" if recorded.get("fog_memory") else "0"
         os.environ["POLYVISION_MAX_LEGAL_ACTIONS"] = str(recorded.get("max_legal_actions", settings["max_legal_actions"]))
+        # What the checkpoint saw and could do (CHANGELOG 087, 090): the human's legal actions depend on it too.
+        os.environ["POLYVISION_UNIT_STATUS"] = "1" if recorded.get("unit_status") else "0"
+        os.environ["POLYVISION_COMBAT_RULES_OFF"] = ",".join(recorded.get("wrapper_rules_off") or [])
+        os.environ["POLYVISION_COMBAT_EXTRA_ACTIONS"] = ",".join(recorded.get("extra_actions") or [])
         if "map_pool" in recorded:
             os.environ["POLYVISION_LEVEL_POOL_GLOB"] = os.environ["POLYVISION_LEVEL_POOL_GLOB"].replace(
                 settings["map_pool"], str(recorded["map_pool"]), 1)
-        settings.update({k: recorded[k] for k in ("rules", "max_turns", "fog_memory", "max_legal_actions", "map_pool")
-                         if k in recorded})
+        settings.update({k: recorded[k] for k in ("rules", "max_turns", "fog_memory", "max_legal_actions", "map_pool",
+                                                  "unit_status", "wrapper_rules_off", "extra_actions") if k in recorded})
     from pol_env.Tribes.py.register_env import TribesGymWrapper
-    return TribesGymWrapper(), settings
+    env = TribesGymWrapper()
+    # As in the game, a unit pushed off a tile moves normally on its next turn (CHANGELOG 093). Records made before
+    # this replay without it.
+    fresh = bool(recorded.get("pushed_units_start_fresh", False)) if recorded else True
+    env.tribes_env._env.setPushedUnitsStartFresh(fresh)
+    settings["pushed_units_start_fresh"] = fresh
+    return env, settings
 
 
 class AgentPlayer:

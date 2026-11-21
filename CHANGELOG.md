@@ -2,6 +2,27 @@
 
 All notable changes to this project are documented in this file.
 
+## [Tools-Play_Fixes_Pushed_Units_And_Level_Up-093] - (2026-11-20)
+
+### Fixes from human games
+- **"Watch the replay" did nothing.** Its click handler had been lost in an earlier edit of `play_vs_agent.html`;
+  it is restored.
+- **A unit could not move after being pushed.**
+  - In the Tribes engine, a unit pushed off a tile (a Giant spawning on a city, a ruin's unit) starts its owner's
+    next turn as if it had already moved (`GameState`: PUSHED becomes MOVED).
+  - In the game it moves normally.
+  - New `GameState.pushedUnitsStartFresh` / `PythonEnv.setPushedUnitsStartFresh`, off by default: training keeps
+    the polytopia_2_15 r2 environment the checkpoints were trained in. Switching it on for training would be a
+    rules revision.
+  - The play tool turns it on. Records store `pushed_units_start_fresh`, and older records replay without it.
+  - The unit still cannot act again in the turn it is pushed.
+- **"A unit could not move out of a capital" while the city offered a Giant.**
+  - This is the engine's (and the game's) rule: while a city's level-up reward is waiting, nothing else can be
+    done, not even ending the turn.
+  - The page now says so in a notice and selects that city, so its reward choices are on screen.
+- **Saved games recorded against a checkpoint with unit status, optional rules or extra actions failed
+  `--verify-record`.** The replay environment ignored those settings; it now restores them from the record.
+
 ## [Tools-Play_Current_Models-092] - (2026-11-20)
 
 ### Scope
