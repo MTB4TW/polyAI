@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Play the Agent</title>
+<style>
+  :root {
+    --bg: #f6f5f1; --card: #ffffff; --text: #1d1f24; --muted: #6b6f78; --border: #dedcd4;
+    --you: #2563eb; --you-soft: #dbe6fd; --bot: #dc2626; --bot-soft: #fde0e0;
+    --win: #15803d; --loss: #b91c1c; --timeout: #a16207; --sel: #f59e0b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #15171c; --card: #1e2128; --text: #e7e8ec; --muted: #9aa0ab; --border: #30343d;
+      --you: #60a5fa; --you-soft: #1e3352; --bot: #f87171; --bot-soft: #4a2020;
+      --win: #4ade80; --loss: #f87171; --timeout: #facc15; --sel: #fbbf24;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  header { max-width: 1240px; margin: 0 auto; padding: 16px 16px 6px; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: baseline; }
+  h1 { font-size: 20px; margin: 0; }
+  .sub { color: var(--muted); font-size: 13px; }
+  main { max-width: 1240px; margin: 0 auto; padding: 8px 16px 32px; display: grid;
+         grid-template-columns: minmax(0, 640px) minmax(0, 1fr); gap: 16px; }
+  @media (max-width: 960px) { main { grid-template-columns: minmax(0, 1fr); } }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
+  .side { display: grid; gap: 12px; align-content: start; }
+  canvas { width: 100%; height: auto; display: block; border-radius: 6px; cursor: pointer; touch-action: manipulation; }
+  button { background: transparent; color: var(--text); border: 1px solid var(--border); border-radius: 6px;
+           padding: 6px 10px; font: inherit; cursor: pointer; }
+  button:hover:not(:disabled) { border-color: var(--muted); }
+  button:disabled { opacity: .45; cursor: default; }
+  button.primary { background: var(--you); border-color: var(--you); color: #fff; font-weight: 600; }
+  .acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; align-items: center; }
+  .acts button .c { color: var(--muted); font-size: 12px; margin-left: 4px; }
+  .status { font-weight: 600; font-size: 15px; }
+  .status.wait { color: var(--muted); }
+  .stats { display: grid; grid-template-columns: auto 1fr 1fr; gap: 2px 12px; font-variant-numeric: tabular-nums; margin-top: 8px; }
+  .stats .h { color: var(--muted); font-size: 12px; }
+  .you { color: var(--you); } .bot { color: var(--bot); }
+  h2 { font-size: 13px; margin: 0; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .03em; }
+  #log { max-height: 300px; overflow-y: auto; margin-top: 6px; font-size: 13px; }
+  #log div { padding: 2px 0 2px 8px; border-left: 3px solid var(--border); margin-bottom: 2px; }
+  #log .you { border-color: var(--you); color: var(--text); } #log .agent { border-color: var(--bot); color: var(--text); }
+  #log .t { color: var(--muted); font-weight: 600; border: 0; padding-left: 0; margin-top: 6px; }
+  .legend { color: var(--muted); font-size: 12px; margin-top: 8px; display: flex; flex-wrap: wrap; gap: 2px 14px; }
+  .notice { color: var(--loss); min-height: 1.2em; font-size: 13px; }
+  .over { font-size: 18px; font-weight: 700; }
+  .over.win { color: var(--win); } .over.loss { color: var(--loss); } .over.timeout { color: var(--timeout); }
+  select, input { font: inherit; color: var(--text); background: var(--card); border: 1px solid var(--border); border-radius: 6px; padding: 5px 6px; max-width: 100%; }
+  .row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .techs { font-size: 12px; color: var(--muted); }
+  .banner { max-width: 1240px; margin: 0 auto; padding: 0 16px 6px; }
+  .banner .card { display: grid; gap: 2px; border-left: 4px solid var(--bot); }
+  .banner .who { font-size: 16px; font-weight: 700; }
+  .notice { margin: 6px 0; padding: 8px 10px; border-radius: 6px; border: 2px solid #d9a400; background: #fff6d6; color: #5a4300; font-weight: 600; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .notice { background: #3a3000; color: #ffe08a; } }
+  .banner .det { color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+  .newgrid { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 10px; align-items: center; margin-top: 8px; }
+  .newgrid label { color: var(--muted); font-size: 13px; }
+  #modelsel, #gamesel { width: 100%; }
+  #inspect { margin-top: 6px; font-size: 13px; }
+  #inspect .k { color: var(--muted); }
+  .anim { color: var(--bot); font-weight: 600; min-height: 1.3em; margin-top: 4px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Play the agent</h1>
+  <span class="sub" id="meta">connecting…</span>
+</header>
+<div class="banner"><div class="card">
+  <div class="who" id="opp">Opponent: …</div>
+  <div class="det" id="oppdet"></div>
+  <div class="det" id="seatdet"></div>
+</div></div>
+<main>
+  <section class="card">
+    <canvas id="board" width="1100" height="1100" aria-label="Game board"></canvas>
+    <div class="anim" id="animtext"></div>
+    <div class="legend">
+      <span><b class="you">●</b> you</span><span><b class="bot">●</b> agent</span>
+      <span>■ city, ♛ capital, top-right number = level · city pips and "2/3" = population / needed for the next level · unit bar and number = HP</span>
+      <span>W warrior · R rider · D defender · S swordsman · A archer · C catapult · K knight · G giant</span>
+      <span>Resources (bottom right): 🍒 fruit · 🦌 wild animal · 🐟 fish · 🐋 whale · 🌾 crops · 🪨 ore · 🏛️ ruins</span>
+      <span>Buildings (bottom left): 🌽 farm · ⛏️ mine · ⚓ port · 🪵 lumber hut · 🔨 forge · 🌬️ windmill · 🪚 sawmill · 💰 customs house · ⛩️ temple · gold ring = monument</span>
+      <span>🗼 lighthouse (map corners; faint = not found yet; dots on found ones = who has found it)</span>
+      <span>Click any tile to inspect it; click your unit or city, then a highlighted tile, to act. <kbd>E</kbd> end turn · <kbd>Esc</kbd> deselect</span>
+    </div>
+  </section>
+  <div class="side">
+    <section class="card">
+      <div class="status wait" id="status">Waiting…</div>
+      <div class="notice" id="levelup" hidden></div>
+      <div class="notice" id="notice"></div>
+      <div class="stats" id="stats"></div>
+      <div class="techs" id="techs"></div>
+      <div class="acts"><button class="primary" id="end" disabled>End turn</button><button id="resign" disabled>Resign</button>
+        <button class="primary" id="replay" hidden>Watch the replay</button></div>
+      <div class="acts"><label class="sub" for="speed">Agent's moves:</label>
+        <select id="speed" aria-label="Animation speed"><option value="0">instant</option><option value="250">fast</option>
+          <option value="500" selected>normal</option><option value="1000">slow</option></select>
+        <button id="skip" hidden>Skip</button><button id="again" disabled>Show again</button></div>
+      <div class="sub" id="saved"></div>
+    </section>
+    <section class="card">
+      <h2 id="selh">Selected</h2>
+      <div class="acts" id="selacts"><span class="sub">Click one of your units or cities.</span></div>
+      <div id="inspect"></div>
+    </section>
+    <section class="card">
+      <h2>Research and other actions</h2>
+      <div class="acts" id="globalacts"></div>
+    </section>
+    <section class="card">
+      <h2>Game log</h2>
+      <div id="log"></div>
+    </section>
+    <section class="card">
+      <h2>New game</h2>
+      <div class="newgrid">
+        <label for="modelsel">Opponent</label><select id="modelsel"></select>
+        <label for="seatsel">Your seat</label>
+        <select id="seatsel"><option value="second">Second (tribe 1, SimpleAgent's seat in evaluation)</option>
+          <option value="first">First (tribe 0, the agent's usual seat)</option><option value="random">Random</option></select>
+        <label for="tribesel">Your tribe</label><select id="tribesel"><option value="any">Any</option><option value="BARDUR">Bardur</option><option value="IMPERIUS">Imperius</option><option value="XIN_XI">Xin-xi</option><option value="OUMAJI">Oumaji</option></select>
+        <label for="agenttribesel">Agent's tribe</label><select id="agenttribesel"><option value="any">Any</option><option value="BARDUR">Bardur</option><option value="IMPERIUS">Imperius</option><option value="XIN_XI">Xin-xi</option><option value="OUMAJI">Oumaji</option></select>
+        <span></span><span class="sub">Pool maps pair Bardur (moving first) with Imperius, Xin-xi or Oumaji. Any other choice of
+          tribes and seat gets a new map made by the same generator for those tribes.</span>
+        <label for="mapsel">Map</label><select id="mapsel"><option value="">Random map for the tribes and seat above</option></select>
+        <label for="seedin">Seed</label><input id="seedin" type="number" placeholder="random" aria-label="Episode seed">
+        <label for="sampled">Agent</label><label><input type="checkbox" id="sampled"> samples its moves (default: always its top choice)</label>
+        <label for="search">Search</label><label><input type="checkbox" id="search"> uses the tactical search (policy + search, like <code>ppo_search</code>)</label>
+      </div>
+      <div class="row" style="margin-top:8px"><button class="primary" id="newgame">Start</button>
+        <span class="sub">Starting a new game abandons the current one (it is still saved).</span></div>
+    </section>
+    <section class="card">
+      <h2>Past games</h2>
+      <div class="row" style="margin-top:8px"><select id="gamesel" aria-label="Saved game"></select></div>
+      <div class="row" style="margin-top:6px"><button id="opengame">Open replay</button><span class="sub" id="gamesdir"></span></div>
+    </section>
+  </div>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const canvas = $("board"), ctx = canvas.getContext("2d");
+const TERRAIN = { 0: "#b7d98b", 1: "#8fd0ea", 2: "#3f86c6", 3: "#9b9488", 4: "#d9bf7f", 5: "#c9b48a", 6: "#5e9a4f", 7: "#2a2c33" };
+const TERRAIN_NAME = { 0: "Plain", 1: "Shallow water", 2: "Ocean", 3: "Mountain", 4: "Village", 5: "City", 6: "Forest", 7: "Fog" };
+const LETTERS = ["W", "R", "D", "S", "A", "C", "K", "M", "B", "Sh", "Bs", "G", "Cl", "Dg"];
+const RES = { 0: ["🐟", "Fish"], 1: ["🍒", "Fruit"], 2: ["🦌", "Wild animal"], 3: ["🐋", "Whale"], 5: ["🪨", "Ore"], 6: ["🌾", "Crops"], 7: ["🏛️", "Ruins"] };
+const BUILD = { 0: ["⚓", "Port"], 1: ["⛏️", "Mine"], 2: ["🔨", "Forge"], 3: ["🌽", "Farm"], 4: ["🌬️", "Windmill"], 5: ["💰", "Customs house"],
+  6: ["🪵", "Lumber hut"], 7: ["🪚", "Sawmill"], 8: ["⛩️", "Temple"], 9: ["⛩️", "Water temple"], 10: ["⛩️", "Forest temple"],
+  11: ["⛩️", "Mountain temple"], 12: ["🕊️", "Altar of Peace (monument)"], 13: ["⚱️", "Emperor's Tomb (monument)"],
+  14: ["👁️", "Eye of God (monument)"], 15: ["🚪", "Gate of Power (monument)"], 16: ["🏪", "Grand Bazaar (monument)"],
+  17: ["🍀", "Park of Fortune (monument)"], 18: ["📚", "Tower of Wisdom (monument)"] };
+const isMonument = b => b >= 12 && b <= 18;
+let HUMAN = 1, CAT = null;
+let S = null, version = -1, sel = null, inspectTile = null, pending = false;
+let anim = null, playedSteps = 0, lastSteps = null;  // the agent's-moves animation
+const PAD = 40;
+let speed = 500;
+try { const v = localStorage.getItem("playSpeed"); if (v !== null) { speed = +v; $("speed").value = v; } } catch (e) {}
+
+function shownBoard() { return S && (S.phase === "over" && S.final_board ? S.final_board : S.board); }
+function N(b) { b = b || shownBoard(); return b ? b.terrain.length : 0; }
+function cell(b) { return (canvas.width - PAD) / Math.max(1, N(b)); }
+function legal() { return (!anim && S && S.phase === "your_turn" && S.legal) || []; }
+function same(a, b) { return a && b && a[0] === b[0] && a[1] === b[1]; }
+function fromSel() { return sel ? legal().filter(a => same(a.src, sel)) : []; }
+const sideCol = o => (o === HUMAN ? css("--you") : css("--bot"));
+
+function glyph(t, x, y, size, align, base) {
+  ctx.font = `${size}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif`;
+  ctx.textAlign = align; ctx.textBaseline = base; ctx.fillText(t, x, y);
+}
+
+function drawUnit(u, C, px) {
+  const [cx, cy] = px(u.x, u.y), mx = cx + C / 2, my = cy + C / 2;
+  ctx.beginPath(); ctx.arc(mx, my, C * 0.3, 0, Math.PI * 2);
+  ctx.fillStyle = sideCol(u.o); ctx.fill();
+  ctx.lineWidth = 3; ctx.strokeStyle = "#fff"; ctx.stroke();
+  ctx.fillStyle = "#fff"; ctx.font = `bold ${C * 0.26}px sans-serif`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  ctx.fillText(LETTERS[u.t] || "?", mx, my + 1);
+  const maxhp = Math.max(u.maxhp || u.hp, u.hp), bw = C * 0.7, bx = cx + C * 0.15, by = cy + C * 0.87, frac = u.hp / maxhp;
+  ctx.fillStyle = "rgba(0,0,0,.5)"; ctx.fillRect(bx, by, bw, 7);
+  ctx.fillStyle = frac > 0.5 ? "#22c55e" : frac > 0.25 ? "#eab308" : "#ef4444";
+  ctx.fillRect(bx, by, bw * Math.min(1, frac), 7);
+  ctx.font = `bold ${C * 0.17}px sans-serif`; ctx.textAlign = "left"; ctx.textBaseline = "top";
+  ctx.lineWidth = 3; ctx.strokeStyle = "rgba(0,0,0,.65)"; ctx.strokeText(u.hp, cx + 4, cy + 3); ctx.fillStyle = "#fff"; ctx.fillText(u.hp, cx + 4, cy + 3);
+  if (u.vet) { ctx.fillStyle = "#facc15"; ctx.font = `${C * 0.2}px sans-serif`; ctx.textAlign = "center"; ctx.fillText("★", cx + C * 0.84, cy + C * 0.08); }
+}
+
+function arrow(a, b, color, width) {
+  const ang = Math.atan2(b[1] - a[1], b[0] - a[0]), C = cell();
+  const end = [b[0] - Math.cos(ang) * C * 0.3, b[1] - Math.sin(ang) * C * 0.3];
+  ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = width;
+  ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(end[0], end[1]); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(end[0], end[1]);
+  ctx.lineTo(end[0] - 20 * Math.cos(ang - 0.45), end[1] - 20 * Math.sin(ang - 0.45));
+  ctx.lineTo(end[0] - 20 * Math.cos(ang + 0.45), end[1] - 20 * Math.sin(ang + 0.45)); ctx.closePath(); ctx.fill();
+}
+
+function drawBoard(board, overlay) {
+  ctx.fillStyle = css("--card"); ctx.fillRect(0, 0, canvas.width, canvas.height);
+  if (!board) return;
+  const n = board.terrain.length, C = cell(board), px = (x, y) => [PAD + y * C, PAD + x * C];  // arrays are [x][y]
+  const mid = p => { const [cx, cy] = px(p[0], p[1]); return [cx + C / 2, cy + C / 2]; };
+  ctx.fillStyle = css("--muted"); ctx.font = "20px sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  for (let i = 0; i < n; i++) { ctx.fillText(i, PAD + i * C + C / 2, PAD / 2); ctx.fillText(i, PAD / 2, PAD + i * C + C / 2); }
+  for (let x = 0; x < n; x++) for (let y = 0; y < n; y++) {
+    const [cx, cy] = px(x, y), t = board.terrain[x][y];
+    ctx.fillStyle = TERRAIN[t] || "#999"; ctx.fillRect(cx, cy, C, C);
+    if (t === 3) { ctx.fillStyle = "rgba(255,255,255,.5)"; ctx.beginPath(); ctx.moveTo(cx + C * .25, cy + C * .7);
+      ctx.lineTo(cx + C * .5, cy + C * .3); ctx.lineTo(cx + C * .75, cy + C * .7); ctx.closePath(); ctx.fill(); }
+    if (t === 6) { ctx.fillStyle = "rgba(0,60,0,.3)"; for (const [a, b] of [[.3, .35], [.65, .3], [.5, .6]]) {
+      ctx.beginPath(); ctx.arc(cx + C * a, cy + C * b, C * .11, 0, 7); ctx.fill(); } }
+    if (t === 4) { ctx.strokeStyle = "rgba(90,60,20,.8)"; ctx.lineWidth = 3; ctx.strokeRect(cx + C * .3, cy + C * .3, C * .4, C * .4); }
+    const r = board.resource && board.resource[x] ? board.resource[x][y] : -1;
+    if (t !== 7 && RES[r]) glyph(RES[r][0], cx + C - 3, cy + C - 2, C * 0.3, "right", "bottom");
+    const b = board.building && board.building[x] ? board.building[x][y] : -1;
+    if (t !== 7 && BUILD[b]) {
+      if (isMonument(b)) { ctx.strokeStyle = "#d4a017"; ctx.lineWidth = 5; ctx.beginPath(); ctx.arc(cx + C * .22, cy + C * .78, C * .2, 0, 7); ctx.stroke(); }
+      glyph(BUILD[b][0], cx + 4, cy + C - 2, C * (isMonument(b) ? 0.3 : 0.26), "left", "bottom");
+    }
+    ctx.strokeStyle = "rgba(0,0,0,.15)"; ctx.lineWidth = 1; ctx.strokeRect(cx, cy, C, C);
+  }
+  for (const c of board.cities) {
+    const [cx, cy] = px(c.x, c.y), mine = c.o === HUMAN;
+    ctx.fillStyle = mine ? css("--you-soft") : css("--bot-soft"); ctx.strokeStyle = mine ? css("--you") : css("--bot");
+    ctx.globalAlpha = 0.85; ctx.lineWidth = c.cap ? 7 : 4; ctx.fillRect(cx + 5, cy + 5, C - 10, C - 10); ctx.globalAlpha = 1;
+    ctx.strokeRect(cx + 5, cy + 5, C - 10, C - 10);
+    ctx.fillStyle = ctx.strokeStyle; ctx.font = `bold ${C * 0.2}px sans-serif`; ctx.textAlign = "right"; ctx.textBaseline = "top";
+    ctx.fillText((c.cap ? "♛" : "") + c.lvl + (c.walls ? "🧱" : ""), cx + C - 8, cy + 8);
+    if (c.need > 0) {  // population toward the next level: filled pips = current, hollow = still needed
+      const n = Math.min(c.need, 8), r = Math.min(C * 0.05, (C - 20) / (n * 2.6)), y0 = cy + C * 0.7;
+      const x0 = cx + C / 2 - (n - 1) * r * 1.3;
+      for (let k = 0; k < n; k++) {
+        ctx.beginPath(); ctx.arc(x0 + k * r * 2.6, y0, r, 0, 7);
+        ctx.fillStyle = k < Math.max(0, c.pop) ? "#16a34a" : "rgba(255,255,255,.85)"; ctx.fill();
+        ctx.lineWidth = 2; ctx.strokeStyle = "#14532d"; ctx.stroke();
+      }
+      ctx.font = `bold ${C * 0.16}px sans-serif`; ctx.textAlign = "left"; ctx.textBaseline = "top";
+      ctx.lineWidth = 3; ctx.strokeStyle = "rgba(255,255,255,.9)"; ctx.strokeText(`${c.pop}/${c.need}`, cx + 9, cy + 8);
+      ctx.fillStyle = "#14532d"; ctx.fillText(`${c.pop}/${c.need}`, cx + 9, cy + 8);
+    }
+  }
+  for (const l of board.lighthouses || []) {
+    const [cx, cy] = px(l.at[0], l.at[1]); ctx.globalAlpha = l.found ? 1 : 0.35;
+    glyph("🗼", cx + C - 3, cy + 3, C * 0.28, "right", "top"); ctx.globalAlpha = 1;
+    (l.found_by || []).forEach((t, k) => {  // who has found it (shown once you have found it, as in the game)
+      ctx.beginPath(); ctx.arc(cx + C * (0.55 - k * 0.14), cy + C * 0.14, C * 0.06, 0, 7);
+      ctx.fillStyle = sideCol(t); ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = "#fff"; ctx.stroke();
+    });
+  }
+  for (const u of board.units) drawUnit(u, C, px);
+  if (inspectTile && !overlay) { const [cx, cy] = px(inspectTile[0], inspectTile[1]); ctx.setLineDash([6, 4]); ctx.strokeStyle = css("--text");
+    ctx.lineWidth = 2; ctx.strokeRect(cx + 2, cy + 2, C - 4, C - 4); ctx.setLineDash([]); }
+  if (sel && !overlay) { const [cx, cy] = px(sel[0], sel[1]); ctx.strokeStyle = css("--sel"); ctx.lineWidth = 5; ctx.strokeRect(cx + 2, cy + 2, C - 4, C - 4); }
+  const seen = new Set();
+  for (const a of overlay ? [] : fromSel()) {
+    if (!a.dst || same(a.dst, a.src)) continue;
+    const k = a.dst.join(","); if (seen.has(k)) continue; seen.add(k);
+    const [cx, cy] = px(a.dst[0], a.dst[1]);
+    ctx.fillStyle = a.type === "ATTACK" ? "rgba(239,68,68,.45)" : "rgba(245,158,11,.35)"; ctx.fillRect(cx, cy, C, C);
+    ctx.strokeStyle = a.type === "ATTACK" ? "#ef4444" : css("--sel"); ctx.lineWidth = 3; ctx.strokeRect(cx + 3, cy + 3, C - 6, C - 6);
+  }
+  if (overlay) {  // one of the agent's moves: who moved or attacked whom, and the damage
+    if (overlay.src) { const [cx, cy] = px(overlay.src[0], overlay.src[1]); ctx.strokeStyle = "#facc15"; ctx.lineWidth = 6; ctx.strokeRect(cx + 3, cy + 3, C - 6, C - 6); }
+    if (overlay.action === "ATTACK" && overlay.dst) {
+      const [cx, cy] = px(overlay.dst[0], overlay.dst[1]); ctx.strokeStyle = "#ef4444"; ctx.lineWidth = 6; ctx.strokeRect(cx + 3, cy + 3, C - 6, C - 6);
+      if (overlay.src) { const a = mid(overlay.src), b = mid(overlay.dst); arrow(a, b, "#ef4444", 8);
+        glyph("⚔️", (a[0] + b[0]) / 2, (a[1] + b[1]) / 2, C * 0.35, "center", "middle"); }
+    } else if (overlay.src && overlay.dst && !same(overlay.src, overlay.dst)) {
+      arrow(mid(overlay.src), mid(overlay.dst), css("--bot"), 6);
+    } else if (overlay.dst) { const [cx, cy] = px(overlay.dst[0], overlay.dst[1]); ctx.strokeStyle = "#facc15"; ctx.lineWidth = 6; ctx.strokeRect(cx + 3, cy + 3, C - 6, C - 6); }
+    for (const h of overlay.hits || []) {
+      const [cx, cy] = px(h.at[0], h.at[1]);
+      if (h.killed) { ctx.strokeStyle = "#111"; ctx.lineWidth = 8; ctx.beginPath(); ctx.moveTo(cx + C * .2, cy + C * .2); ctx.lineTo(cx + C * .8, cy + C * .8);
+        ctx.moveTo(cx + C * .8, cy + C * .2); ctx.lineTo(cx + C * .2, cy + C * .8); ctx.stroke(); }
+      const txt = h.killed ? "killed" : (h.d > 0 ? "+" : "−") + Math.abs(h.d);
+      ctx.font = `bold ${C * 0.3}px sans-serif`; ctx.textAlign = "center"; ctx.textBaseline = "bottom";
+      ctx.lineWidth = 6; ctx.strokeStyle = "#000"; ctx.strokeText(txt, cx + C / 2, cy + 2);
+      ctx.fillStyle = h.d > 0 ? "#4ade80" : "#fca5a5"; ctx.fillText(txt, cx + C / 2, cy + 2);
+    }
+  }
+}
+function draw() { drawBoard(shownBoard(), null); }
+
+function tileOf(ev) {
+  const r = canvas.getBoundingClientRect(), k = canvas.width / r.width, C = cell();
+  const y = Math.floor(((ev.clientX - r.left) * k - PAD) / C), x = Math.floor(((ev.clientY - r.top) * k - PAD) / C);
+  return x >= 0 && y >= 0 && x < N() && y < N() ? [x, y] : null;
+}
+
+canvas.addEventListener("click", ev => {
+  const t = tileOf(ev); if (!t || !S || anim) return;
+  const toHere = fromSel().filter(a => a.dst && same(a.dst, t) && !same(a.dst, a.src));
+  if (toHere.length === 1) return act(toHere[0].i);
+  if (toHere.length > 1) { renderSel(toHere, `Actions on (${t[0]},${t[1]})`); return; }
+  inspectTile = t;
+  sel = legal().some(a => same(a.src, t)) ? t : null;
+  renderSel(); renderInspect(); draw();
+});
+
+function renderInspect() {
+  const box = $("inspect"), board = shownBoard();
+  if (!inspectTile || !board) { box.innerHTML = ""; return; }
+  const [x, y] = inspectTile, t = board.terrain[x][y];
+  const lines = [`<b>Tile (${x},${y})</b> — ${TERRAIN_NAME[t] || t}`];
+  const r = board.resource && board.resource[x] ? board.resource[x][y] : -1, b = board.building && board.building[x] ? board.building[x][y] : -1;
+  if (t !== 7 && RES[r]) lines.push(`<span class="k">Resource:</span> ${RES[r][0]} ${RES[r][1]}`);
+  if (t !== 7 && BUILD[b]) lines.push(`<span class="k">Building:</span> ${BUILD[b][0]} ${BUILD[b][1]}`);
+  const lh = (board.lighthouses || []).find(l => same(l.at, inspectTile));
+  if (lh) lines.push(`<span class="k">Lighthouse:</span> ${!lh.found ? "not found by you yet"
+    : (lh.found_by || []).includes(1 - HUMAN) ? "found by you and by the agent" : "found by you; the agent has not found it"}`);
+  const c = board.cities.find(c => c.x === x && c.y === y);
+  if (c) lines.push(`<span class="k">${c.o === HUMAN ? "Your" : "Agent's"} ${c.cap ? "capital" : "city"}:</span> level ${c.lvl}` +
+    (c.pop !== undefined ? `<br><span class="k">Population:</span> <b>${c.pop} of ${c.need}</b> needed for level ${c.lvl + 1}` +
+      ` (${Math.max(0, c.need - c.pop)} more)` + `<br><span class="k">Income:</span> +${c.prod}★ per turn` : "") + (c.walls ? ", walls" : ""));
+  const u = board.units.find(u => u.x === x && u.y === y);
+  if (u) lines.push(`<span class="k">${u.o === HUMAN ? "Your" : "Agent's"} unit:</span> ${(CAT ? CAT.unit_names[u.t] : "") || "Unit"} — ` +
+    `<b>HP ${u.hp} / ${u.maxhp}</b>${u.vet ? ", veteran" : ""}, ${u.kills} kill${u.kills === 1 ? "" : "s"}`);
+  box.innerHTML = lines.join("<br>");
+}
+
+function button(a) {
+  const b = document.createElement("button");
+  b.innerHTML = a.text + (a.cost ? `<span class="c">${a.cost}★</span>` : "");
+  b.title = a.type; b.disabled = pending || !!anim; b.onclick = () => act(a.i); return b;
+}
+
+function renderSel(list, head) {
+  const box = $("selacts"); box.innerHTML = "";
+  if (!sel || !S || S.phase !== "your_turn") { $("selh").textContent = "Selected"; box.innerHTML = '<span class="sub">Click one of your units or cities.</span>'; return; }
+  $("selh").textContent = head || `Your pieces at (${sel[0]},${sel[1]})`;
+  const items = list || fromSel().filter(a => !a.dst || same(a.dst, a.src));
+  const moves = list ? 0 : fromSel().filter(a => a.dst && !same(a.dst, a.src)).length;
+  items.forEach(a => box.appendChild(button(a)));
+  if (!items.length) box.innerHTML = `<span class="sub">${moves ? `Click a highlighted tile (${moves} target${moves > 1 ? "s" : ""}).` : "Nothing to do here."}</span>`;
+  else if (moves) box.insertAdjacentHTML("beforeend", `<span class="sub">or click a highlighted tile</span>`);
+}
+
+async function post(path, body) {
+  const r = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
+  const j = await r.json().catch(() => ({})); if (!r.ok) $("notice").textContent = j.error || `Error ${r.status}`; return r.ok;
+}
+async function act(i) {
+  if (pending || anim) return; pending = true; $("notice").textContent = "";
+  const ok = await post("/api/act", { i, version: S.version });
+  if (!ok) pending = false;
+}
+
+// --- the agent's moves, one at a time -------------------------------------------------------------------------
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+async function playSteps(steps) {
+  if (!steps.length || speed === 0) return;
+  const me = anim = { skip: false };
+  $("skip").hidden = false; render();
+  for (let k = 0; k < steps.length && !me.skip; k++) {
+    $("animtext").textContent = `Agent (${k + 1}/${steps.length}): ${steps[k].text}`;
+    drawBoard(steps[k].board, steps[k]);
+    await sleep(speed);
+  }
+  if (anim === me) { anim = null; $("skip").hidden = true; $("animtext").textContent = ""; render(); }
+}
+$("skip").onclick = () => { if (anim) anim.skip = true; };
+$("again").onclick = () => { if (lastSteps && !anim) { const keep = speed; speed = speed || 500; playSteps(lastSteps).then(() => { speed = keep; }); } };
+$("speed").onchange = e => { speed = +e.target.value; try { localStorage.setItem("playSpeed", String(speed)); } catch (err) {} };
+
+function stepText(m) { return m.step != null ? `step ${m.step.toLocaleString("en-US")}` : "final model"; }
+function banner(s) {
+  const m = s.model;
+  $("opp").textContent = m ? (m.name ? `Opponent: ${m.name} — ${stepText(m)}${m.note ? " · " + m.note : ""}`
+                                     : `Opponent: ${m.run} — ${stepText(m)}`) : "Opponent: random legal moves (no checkpoint)";
+  $("opp").title = m ? m.path : "";
+  const ev = m && m.evaluation && m.evaluation.win != null
+    ? `canonical eval ${(m.evaluation.win * 100).toFixed(1)}% wins vs ${m.evaluation.against} (${m.evaluation.id})` : "no evaluation in this checkout";
+  $("oppdet").textContent = m ? `${m.name ? m.run + " · " : ""}${m.file} · saved ${m.saved} · sha256 ${m.sha256.slice(0, 12)} · ${m.arch} · ${m.env_version}` +
+    `${m.init_from ? " · warm-started from " + m.init_from : ""} · ${ev} · plays ${s.agent.includes("sampled") ? "sampled" : "argmax"}` +
+    `${s.search ? " + TACTICAL SEARCH" : " (policy only, no search)"}` : "";
+  $("seatdet").textContent = `You play ${s.you} (tribe ${s.human_tribe}) and move ${s.you_move}; the agent plays ${s.opponent}. ` +
+    `${s.map} · seed ${s.episode_seed} · ${s.settings.rules}, ${s.settings.max_turns}-turn limit · take the agent's capital to win.` +
+    (s.human_tribe === 0 ? " In the first seat you choose from the agent's own legal-action list." : "");
+}
+
+function render() {
+  const s = S;
+  if (!s) return;
+  HUMAN = s.human_tribe ?? 1;
+  const board = shownBoard(), mine = board && board.tribes && board.tribes[String(HUMAN)], theirs = board && board.tribes && board.tribes[String(1 - HUMAN)];
+  $("meta").textContent = s.map ? `${s.you} vs ${s.opponent}` : "no game";
+  if (s.map) banner(s);
+  $("replay").hidden = !(s.phase === "over" && s.has_replay);
+  $("saved").textContent = s.phase === "over" && s.record ? `Saved: ${s.record}` : "";
+  $("again").disabled = !lastSteps || !lastSteps.length || !!anim;
+  const st = $("status");
+  if (anim) { st.className = "status wait"; st.textContent = "The agent's moves…"; }
+  else if (s.phase === "your_turn") { st.className = "status"; st.textContent = `Your turn — turn ${s.turn}`; }
+  else if (s.phase === "over") {
+    const word = { win: "You won!", loss: "You lost", timeout: "Turn limit reached (timeout)", aborted: "Game abandoned", error: "Error" }[s.result] || s.result;
+    st.className = `over ${s.result}`; st.textContent = `${word} — turn ${s.turn}`;
+    if (s.error) $("notice").textContent = s.error.split("\n").slice(-3).join(" ");
+  } else { st.className = "status wait"; st.textContent = s.phase === "agent_turn" ? "The agent is thinking…" : "Starting…"; }
+  if (s.notice) $("notice").textContent = s.notice;
+  if (mine && board) {
+    const cnt = (o) => { const us = board.units.filter(u => u.o === o); return [us.length, us.reduce((a, u) => a + u.hp, 0)]; };
+    const [yu, yh] = cnt(HUMAN), [bu, bh] = cnt(1 - HUMAN);
+    const lh = (board.lighthouses || []).filter(l => l.found).length;
+    $("stats").innerHTML = `<span class="h"></span><span class="h you">You</span><span class="h bot">Agent (${s.phase === "over" ? "true board" : "what you see"})</span>
+      <span>Stars</span><span>${mine.stars}</span><span>${s.phase === "over" && theirs ? theirs.stars : "—"}</span>
+      <span>Cities</span><span>${mine.cities}</span><span>${board.cities.filter(c => c.o !== HUMAN).length}${s.phase === "over" ? "" : " seen"}</span>
+      <span>Units (HP)</span><span>${yu} (${yh})</span><span>${bu} (${bh})${s.phase === "over" ? "" : " seen"}</span>
+      <span>Kills</span><span>${mine.kills}</span><span>${theirs ? theirs.kills : "—"}</span>` +
+      (board.lighthouses && s.phase !== "over" ? `<span>Lighthouses found</span><span>${lh} / 4</span><span>—</span>` : "");
+    $("techs").textContent = "Your tech: " + (mine.techs.map(t => t.replace(/_/g, " ").toLowerCase()).join(", ") || "none");
+  }
+  const L = legal(), endA = L.find(a => a.type === "END_TURN");
+  // The engine (as the game) blocks every other action while a city's level-up reward is waiting: say so and
+  // select that city, so its reward choices are on screen.
+  const ups = L.filter(a => a.type === "LEVEL_UP");
+  const blocked = ups.length > 0 && ups.length === L.length;
+  $("levelup").hidden = !blocked;
+  if (blocked) {
+    $("levelup").textContent = "A city levelled up: choose its reward first (highlighted city). Until you do, no unit can move or attack and you cannot end the turn, as in the game.";
+    if (!sel || !ups.some(a => same(a.src, sel))) sel = ups[0].src || sel;
+  }
+  $("end").disabled = !endA || pending; $("end").onclick = () => endA && act(endA.i);
+  $("resign").disabled = s.phase !== "your_turn" || pending || !!anim;
+  const g = $("globalacts"); g.innerHTML = "";
+  L.filter(a => !a.src && a.type !== "END_TURN").forEach(a => g.appendChild(button(a)));
+  if (!g.children.length) g.innerHTML = `<span class="sub">${s.phase === "your_turn" && !anim ? "None available." : "—"}</span>`;
+  let html = "", lastT = null;
+  const entries = (s.log || []).concat(s.phase === "over" && s.has_replay ? [{ side: "t", text: "Game over: watch the replay for the full board, both players' views and every move." }] : []);
+  for (const e of entries) {
+    if (e.side === "t") { html += `<div class="t">${e.text}</div>`; lastT = null; continue; }
+    if (e.turn !== lastT) { html += `<div class="t">Turn ${e.turn}</div>`; lastT = e.turn; }
+    html += `<div class="${e.side === "you" ? "you" : "agent"}">${e.side === "you" ? "You" : "Agent"}: ${e.text}</div>`;
+  }
+  $("log").innerHTML = html; $("log").scrollTop = $("log").scrollHeight;
+  if (sel && !legal().some(a => same(a.src, sel))) sel = null;
+  if (!anim) { renderSel(); renderInspect(); draw(); }
+}
+
+const esc = t => String(t ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+async function loadCatalog() {
+  try { CAT = await (await fetch("/api/catalog")).json(); } catch (e) { return; }
+  for (const m of CAT.maps) $("mapsel").insertAdjacentHTML("beforeend", `<option>${esc(m)}</option>`);
+  const groups = new Map();
+  for (const m of CAT.models) { if (!groups.has(m.run)) groups.set(m.run, []); groups.get(m.run).push(m); }
+  let html = "";
+  for (const [run, ms] of groups) {
+    html += `<optgroup label="${esc(run)}">` + ms.map(m => `<option value="${m.key}">${m.name ? "" : esc(run) + " · "}${esc(m.label)}</option>`).join("") + "</optgroup>";
+  }
+  html += `<optgroup label="No checkpoint"><option value="random">Random legal moves</option></optgroup>`;
+  $("modelsel").innerHTML = html;
+  syncPicker();
+}
+async function loadGames() {
+  let j; try { j = await (await fetch("/api/games")).json(); } catch (e) { return; }
+  const res = { win: "you won", loss: "agent won", timeout: "timeout", abandoned: "abandoned" };
+  $("gamesel").innerHTML = j.games.length ? j.games.map(g => {
+    const when = g.created ? `${g.created.slice(0, 4)}-${g.created.slice(4, 6)}-${g.created.slice(6, 8)} ${g.created.slice(9, 11)}:${g.created.slice(11, 13)} UTC` : "";
+    return `<option value="${esc(g.replay || "")}"${g.replay ? "" : " disabled"}>${esc(when)} · ${esc(res[g.result] || g.result)} · turn ${esc(g.turns)} · ` +
+      `${esc(g.model)} · you moved ${esc(g.you_moved)} · ${esc(g.map)}${g.player ? " · " + esc(g.player) : ""}${g.replay ? "" : " (no replay file)"}</option>`;
+  }).join("") : "<option disabled>No saved games yet</option>";
+  $("gamesdir").textContent = `Saved in ${j.dir}`;
+}
+$("replay").onclick = () => window.open("/replay", "_blank");
+$("opengame").onclick = () => { const v = $("gamesel").value; if (v) window.open("/saved/" + encodeURIComponent(v), "_blank"); };
+function syncPicker() {  // the picker starts on the model being played
+  if (!CAT || !S) return;
+  $("modelsel").value = S.model ? S.model.key : "random";
+  $("seatsel").value = S.human_tribe === 0 ? "first" : "second";
+  $("sampled").checked = S.agent.includes("sampled");
+  $("search").checked = !!S.search;
+}
+
+async function poll() {
+  try {
+    const r = await fetch("/api/state"); const s = await r.json();
+    const fresh = !S || s.episode_seed !== S.episode_seed || s.map !== S.map;
+    if (s.version !== version || fresh) {
+      const wasOver = S && S.phase === "over";
+      S = s; version = s.version; pending = false;
+      if (fresh) { syncPicker(); playedSteps = 0; lastSteps = null; inspectTile = null; sel = null; }
+      if (s.agent_steps && s.agent_steps.id !== playedSteps) {
+        playedSteps = s.agent_steps.id; lastSteps = s.agent_steps.steps; playSteps(lastSteps);
+      }
+      render();
+      if (s.phase === "over" && !wasOver) loadGames();
+    }
+  } catch (e) { $("status").textContent = "Lost connection to the game server"; }
+  setTimeout(poll, S && S.phase === "your_turn" ? 500 : 300);
+}
+$("resign").onclick = () => { if (confirm("Resign this game?")) post("/api/resign"); };
+$("newgame").onclick = async () => {
+  const seed = $("seedin").value.trim();
+  $("newgame").disabled = true; $("status").textContent = "Loading the model…";
+  const ok = await post("/api/new", { model: $("modelsel").value, seat: $("seatsel").value, sampled: $("sampled").checked,
+                                      your_tribe: $("tribesel").value, agent_tribe: $("agenttribesel").value,
+                                      search: $("search").checked,
+                                      map: $("mapsel").value || null, seed: seed ? parseInt(seed, 10) : null });
+  $("newgame").disabled = false;
+  if (ok) { sel = null; version = -1; S = null; $("notice").textContent = ""; setTimeout(loadGames, 1500); }
+};
+document.addEventListener("keydown", e => {
+  if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT") return;
+  if (e.key === "Escape") { sel = null; inspectTile = null; renderSel(); renderInspect(); draw(); }
+  if ((e.key === "e" || e.key === "E") && !$("end").disabled) $("end").click();
+});
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => S && !anim && draw());
+loadCatalog().then(loadGames).then(poll);
+</script>
+</body>
+</html>

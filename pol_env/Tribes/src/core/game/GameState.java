@@ -532,8 +532,9 @@ public class GameState {
         for(int unitId : allTribeUnits)
         {
             Unit unit = (Unit) getActor(unitId);
-            if(unit.getStatus() == Types.TURN_STATUS.PUSHED)
-                //Pushed units in the previous turn start as if they moved already.
+            if(unit.getStatus() == Types.TURN_STATUS.PUSHED && !pushedUnitsStartFresh)
+                //Pushed units in the previous turn start as if they moved already (Tribes default; see
+                //pushedUnitsStartFresh for the game's behaviour).
                 unit.setStatus(Types.TURN_STATUS.MOVED);
             else
                 unit.setStatus(Types.TURN_STATUS.FRESH);
@@ -554,6 +555,13 @@ public class GameState {
      * @param startX initial x position
      * @param startY initial y position.
      */
+    /**
+     * In the game a unit pushed off a tile (a Giant spawning on a city, a ruin's unit) moves normally on its owner's
+     * next turn. The Tribes engine instead starts it as if it had moved already. Off by default so training keeps the
+     * environment the checkpoints were trained in (polytopia_2_15 r2); the play tool turns it on (CHANGELOG 093).
+     */
+    public static boolean pushedUnitsStartFresh = false;
+
     public void pushUnit(Unit toPush, int startX, int startY)
     {
         pushUnit(toPush, startX, startY, toPush.getTribeId());

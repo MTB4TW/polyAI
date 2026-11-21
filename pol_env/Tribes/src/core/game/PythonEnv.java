@@ -655,6 +655,51 @@ public class PythonEnv {
     }
 
     /**
+     * Play-time analysis by the combat tactical search for the active tribe on its fogged view (see
+     * CombatTactics.analyze): best line and what it achieves, the value of stopping now, and the value of the line
+     * that starts with `forced` (the policy's planned move), optionally one turn deeper (the opponent's reply).
+     * Read-only: the live game is not changed. Used by tools/search_variants.py; training never calls it.
+     */
+    public double[] tacticalAnalyze(double[] weights, int[] allowed, int forced, int depth, int beam, int radius, long seed,
+                                    int replyActions) {
+        players.heuristics.CombatTactics t = new players.heuristics.CombatTactics(gs.getActiveTribeID(), weights, radius);
+        GameState root = searchCopy(false);
+        if (fogMemories != null) players.heuristics.CombatTactics.addRememberedUnits(root, fogMemories[gs.getActiveTribeID()]);
+        root.getRandomGenerator().setSeed(seed);
+        return t.analyze(root, gs.getAllAvailableActions(), allowed == null ? new int[0] : allowed, forced, depth, beam, seed,
+                         replyActions);
+    }
+
+    /**
+     * For each action in the current list: {damage dealt, retaliation taken, kills the target (0/1), attacker dies
+     * (0/1), target unit id} for ATTACK actions (engine damage formula, deterministic), NaN otherwise. Flattened,
+     * 5 values per action. Read-only.
+     */
+    public double[] attackPreviews() {
+        ArrayList<Action> acts = gs.getAllAvailableActions();
+        double[] out = new double[acts.size() * 5];
+        java.util.Arrays.fill(out, Double.NaN);
+        for (int i = 0; i < acts.size(); i++) {
+            Action a = acts.get(i);
+            if (a.getActionType() != Types.ACTION.ATTACK) continue;
+            core.actions.unitactions.Attack at = (core.actions.unitactions.Attack) a;
+            core.actors.Actor x = gs.getActor(at.getUnitId()), y = gs.getActor(at.getTargetId());
+            if (!(x instanceof Unit) || !(y instanceof Unit)) continue;
+            Unit attacker = (Unit) x, target = (Unit) y;
+            utils.Pair<Integer, Integer> r = core.actions.unitactions.command.AttackCommand.computeAttackResults(attacker, target, gs, false);
+            boolean kills = r.getFirst() >= target.getCurrentHP();
+            double distance = utils.Vector2d.chebychevDistance(attacker.getPosition(), target.getPosition());
+            boolean retaliates = !kills && distance <= target.RANGE;
+            out[i * 5] = r.getFirst();
+            out[i * 5 + 1] = retaliates ? r.getSecond() : 0;
+            out[i * 5 + 2] = kills ? 1 : 0;
+            out[i * 5 + 3] = retaliates && r.getSecond() >= attacker.getCurrentHP() ? 1 : 0;
+            out[i * 5 + 4] = target.getActorId();
+        }
+        return out;
+    }
+
+    /**
      * Diagnostic: the tactical search's next-turn danger term (quick value minus full value) for the active tribe
      * on its fogged view, with or without the remembered units the fog memory would add.
      */
@@ -713,6 +758,11 @@ public class PythonEnv {
         } else if (!gs.isGameOver() && opponentAgent != null && controlledTribeId == 0 && gs.getActiveTribeID() != 0) {
             playOpponentTurn();
         }
+    }
+
+    /** Pushed units start their next turn fresh, as in the game (GameState.pushedUnitsStartFresh; play tool only). */
+    public void setPushedUnitsStartFresh(boolean v) {
+        GameState.pushedUnitsStartFresh = v;
     }
 
     /** Combat seat swap: the tribe Python plays (0 or 1). Kept across initFromLevel calls. */
