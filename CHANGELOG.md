@@ -2,6 +2,25 @@
 
 All notable changes to this project are documented in this file.
 
+## [Tools-Play_Current_Models-092] - (2026-11-20)
+
+### Scope
+- `tools/play_vs_agent.py` and its page, replay viewer, search variants and tests are brought onto the league code:
+  unit status, optional rules, extra actions and map pools.
+  - From `feat/play-vs-agent` (PR #29), file by file rather than a full merge.
+  - The play branch's additions to `PythonEnv.java` (`tacticalAnalyze`, `attackPreviews`) and
+    `CombatTactics.analyze` come with them.
+- The game environment follows the checkpoint: `POLYVISION_UNIT_STATUS`, `POLYVISION_COMBAT_RULES_OFF` and
+  `POLYVISION_COMBAT_EXTRA_ACTIONS` come from its environment version.
+- New options:
+  - `--map-pool`, the map pool version (default `POLYVISION_COMBAT_POOL`, else `phase2_pool_1v1`);
+  - `--only-models`, which offers only the `--models` globs instead of every checkpoint in `runs/`.
+- Records store `map_pool` and replay with it.
+- Checks:
+  - The four curated checkpoints (`runs/play_models/`) load and play legal moves.
+  - A full game per checkpoint in each human seat.
+  - The play-tool, search-variant, optional-rules and self-play tests (29) pass.
+
 ## [Phase2-Combat_Roads_Reward-091] - (2026-11-19)
 
 ### Problem
