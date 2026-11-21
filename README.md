@@ -61,7 +61,8 @@ Everything below is merged into `main`. [CHANGELOG.md](CHANGELOG.md) has the det
   (`tools/compare_evals.py`).
 - Canonical combat evaluator against SimpleAgent (`tools/evaluate_combat.py`) and paired comparison
   (`tools/compare_combat_evals.py`).
-- Head-to-head evaluator, checkpoint A against B in both seats (`tools/evaluate_combat_h2h.py`).
+- Head-to-head evaluator, checkpoint A against B in both seats (`tools/evaluate_combat_h2h.py`; on this branch tribe 1
+  still has the village-capture bug fixed in PR [#33](https://github.com/MTB4TW/polyAI/pull/33)).
 - Combat replay viewer: a turn-by-turn HTML replay showing the true and the fogged board (`tools/export_combat_replay.py`).
 - Farmshare SLURM jobs that train and then evaluate automatically (`cluster/`), and W&B checkpoint sharing
   (`tools/wandb_checkpoint.py`) and evaluation logging (`tools/wandb_log_eval.py`).
@@ -88,9 +89,13 @@ SimpleAgent. Win rates are for deterministic play (`ppo_argmax`).
 - The league model is one seed.
 - An 8M continuation of the league model (four chained 2M segments) brought no further gain against SimpleAgent:
   −0.2 to −1.7 points per segment against the 4M model. SimpleAgent is at its ceiling for these models.
-  Head-to-head the continuation is **weaker** than the 4M model (A wins 43.7%, B 50.0%, margin −6.3 [−9.3, −3.6];
-  4M vs itself control −1.0 [−3.8, +1.7]), so the 4M league model stays the best. The first mover wins about 90%
-  between equal models.
+  Its head-to-head strength against the 4M model is **unknown**: the head-to-head runs so far (seg4 vs 4M margin
+  −6.3, 4M vs itself −1.0) had a handicapped tribe 1 and are invalid as strength measures (see below).
+- **League training to date was against handicapped opponents.** Kevin found that league snapshot opponents, and
+  tribe 1 in `tools/evaluate_combat_h2h.py`, could never capture a village while they had one city (fix in PR
+  [#33](https://github.com/MTB4TW/polyAI/pull/33), CHANGELOG 089). League win rates from training are inflated, and
+  the ~90% first-mover win rate seen in head-to-head was mostly this bug: with the fix the first mover between
+  equal models scores about 68% (sampled). Results against SimpleAgent are unaffected, because Java plays SimpleAgent.
 - From-scratch ablations with the privileged critic: fog memory 91.5% and outcome-only reward 62.8%, both below the
   privileged-critic run; one seed of each had a collapsed critic, which led to the PopArt and flat-critic fixes.
   The star-hoarding penalty (96.0%) is a **one-seed diagnostic**.

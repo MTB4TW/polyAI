@@ -26,5 +26,6 @@
   "wandb_run": "mpjhan02",
   "wandb_track": 1,
   "wandb_upload": 0,
-  "baseline": "combat_pcritic_t1_league_swap_4m"
+  "baseline": "combat_pcritic_t1_league_swap_4m",
+  "league_caveat": "Trained against handicapped league snapshots (village-capture bug, CHANGELOG 089, PR #33, found by Kevin): league_stats.json win rates are inflated. The canonical SimpleAgent evaluation is unaffected (Java plays SimpleAgent)."
 }

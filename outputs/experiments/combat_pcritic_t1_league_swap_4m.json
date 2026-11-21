@@ -51,7 +51,8 @@
         16,
         61,
         43
-      ]
+      ],
+      "caveat": "Invalid as a strength measure: run without the league village-capture fix (CHANGELOG 089, commit 70724ab on PR #33, found by Kevin), so tribe 1 (played by combat_selfplay.play_external_turn) could not capture villages while it had one city. The ~90%/5% seat split is mostly this bug; with the fix the first mover's edge between equal models is about 0.68 (sampled). Numbers kept for the record; rerun with the fix needed."
     },
     {
       "evaluation_id": "20261120_combat_pcritic_t1_league_swap_4m_vs_itself_combat_h2h_eval_validation",
@@ -77,8 +78,10 @@
         24,
         69,
         27
-      ]
+      ],
+      "caveat": "Invalid as a strength measure: run without the league village-capture fix (CHANGELOG 089, commit 70724ab on PR #33, found by Kevin), so tribe 1 (played by combat_selfplay.play_external_turn) could not capture villages while it had one city. The ~90%/5% seat split is mostly this bug; with the fix the first mover's edge between equal models is about 0.68 (sampled). Numbers kept for the record; rerun with the fix needed."
     }
   ],
-  "head_to_head_conclusion": "Beats its 8M continuation (seg4) head-to-head by 6.3 points; stays the best combat model."
+  "head_to_head_conclusion": "None: both h2h runs had a handicapped tribe 1, so relative strength of seg4 and the 4M model is unknown until a rerun with the fix. Against SimpleAgent seg4 is -0.7 [-1.3, -0.2] points vs the 4M model.",
+  "league_caveat": "Trained against handicapped league snapshots (village-capture bug, CHANGELOG 089, PR #33, found by Kevin): league_stats.json win rates are inflated. The canonical SimpleAgent evaluation is unaffected (Java plays SimpleAgent)."
 }
