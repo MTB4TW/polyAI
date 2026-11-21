@@ -26,7 +26,8 @@ The play tool on `feat/play-current-models` runs the current league checkpoints.
 ```bash
 cd /home/users/kevlai/polyAI/.claude/worktrees/play
 .venv/bin/python tools/play_vs_agent.py --player alias1 --only-models \
-  --models 'runs/play_models/*.cleanrl_model' --map-pool phase2_pool_1v1_wiki
+  --models 'runs/play_models/*.cleanrl_model' --models 'runs/play_models_older/*.cleanrl_model' \
+  --map-pool phase2_pool_1v1_wiki
 # then, from your laptop, to the login node the server runs on:  ssh -L 8765:127.0.0.1:8765 <you>@rice-0N.farmshare.stanford.edu
 ```
 
@@ -36,6 +37,10 @@ cd /home/users/kevlai/polyAI/.claude/worktrees/play
   frozen on villages while you have fewer than 2 cities, and so on. Against the no-rules checkpoints, you have every
   legal engine action, as the agent does, including roads and promoting veterans.
 - `--map-pool phase2_pool_1v1_wiki`: these runs train on the wiki-parity maps (CHANGELOG 088).
+- `runs/play_models_older/` holds labelled copies of earlier models, for comparison:
+  - Devin's league at 2M, 6M, 8M, 10M and 12M;
+  - the pre-league 2M families (privileged-critic teacher, v2b with privileged critic, cap_all v2b).
+  All play with the rules on and without unit status, as they were trained.
 - `runs/play_models/labels.json` names each copy in the opponent list and the banner. Format:
   `{"<file>": {"name", "group", "step", "note", "order"}}`. Any folder of checkpoints can have one.
 
