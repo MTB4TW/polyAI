@@ -20,6 +20,15 @@ All notable changes to this project are documented in this file.
   - This is the engine's (and the game's) rule: while a city's level-up reward is waiting, nothing else can be
     done, not even ending the turn.
   - The page now says so in a notice and selects that city, so its reward choices are on screen.
+- **Choose your tribe.** The "New game" panel has "Your tribe" and "Agent's tribe" (Bardur, Imperius, Xin-xi, Oumaji
+  or any), next to the seat.
+  - Tribe 0 moves first. A pool map with that pairing is used when there is one: Bardur first against Imperius,
+    Xin-xi or Oumaji.
+  - Otherwise a new 11x11 Drylands map is generated for those tribes in those seats, since a tribe shapes the
+    terrain and resources. It uses `core.levelgen.GenerateLevelCli`, the pools' generator, and goes to
+    `runs/generated_maps/`.
+  - Records store the tribes and the map path, and `--verify-record` replays generated maps.
+  - A tribe cannot play itself.
 - **Saved games recorded against a checkpoint with unit status, optional rules or extra actions failed
   `--verify-record`.** The replay environment ignored those settings; it now restores them from the record.
 

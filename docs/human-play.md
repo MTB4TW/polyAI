@@ -37,6 +37,8 @@ cd /home/users/kevlai/polyAI/.claude/worktrees/play
   frozen on villages while you have fewer than 2 cities, and so on. Against the no-rules checkpoints, you have every
   legal engine action, as the agent does, including roads and promoting veterans.
 - `--map-pool phase2_pool_1v1_wiki`: these runs train on the wiki-parity maps (CHANGELOG 088).
+- **Tribes:** pick yours and the agent's in the "New game" panel. Bardur moving first against Imperius, Xin-xi or Oumaji uses
+  a pool map. Any other pairing or seat generates a map for those tribes (`runs/generated_maps/`).
 - `runs/play_models_older/` holds labelled copies of earlier models, for comparison:
   - Devin's league at 2M, 6M, 8M, 10M and 12M;
   - the pre-league 2M families (privileged-critic teacher, v2b with privileged critic, cap_all v2b).

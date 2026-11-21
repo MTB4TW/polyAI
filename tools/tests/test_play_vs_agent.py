@@ -322,5 +322,21 @@ class CuratedLabelTests(unittest.TestCase):
         self.assertIsNone(models[1].public()["name"])  # unlabelled checkpoints keep the old label
 
 
+class TribeChoiceTests(unittest.TestCase):
+    def test_tribe_names(self):
+        self.assertIsNone(P._tribe_choice("any"))
+        self.assertIsNone(P._tribe_choice(None))
+        self.assertEqual(P._tribe_choice("xin-xi"), "XIN_XI")
+        with self.assertRaises(ValueError):
+            P._tribe_choice("LUXIDOOR")  # not in these maps' tribe set
+
+    @unittest.skipUnless(os.environ.get("POLYVISION_RUN_JAVA_TESTS") == "1", "requires Java")
+    def test_generated_map_puts_the_tribes_in_their_seats(self):
+        from tools.combat_eval_core import map_tribes
+        m = P.generate_map("OUMAJI", "IMPERIUS", 424242)
+        self.assertEqual((m.our_tribe, m.opponent_tribe), ("OUMAJI", "IMPERIUS"))
+        self.assertEqual(list(map_tribes(Path(m.path))), ["OUMAJI", "IMPERIUS"])
+
+
 if __name__ == "__main__":
     unittest.main()

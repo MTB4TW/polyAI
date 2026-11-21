@@ -126,7 +126,11 @@
         <label for="seatsel">Your seat</label>
         <select id="seatsel"><option value="second">Second (tribe 1, SimpleAgent's seat in evaluation)</option>
           <option value="first">First (tribe 0, the agent's usual seat)</option><option value="random">Random</option></select>
-        <label for="mapsel">Map</label><select id="mapsel"><option value="">Random validation map</option></select>
+        <label for="tribesel">Your tribe</label><select id="tribesel"><option value="any">Any</option><option value="BARDUR">Bardur</option><option value="IMPERIUS">Imperius</option><option value="XIN_XI">Xin-xi</option><option value="OUMAJI">Oumaji</option></select>
+        <label for="agenttribesel">Agent's tribe</label><select id="agenttribesel"><option value="any">Any</option><option value="BARDUR">Bardur</option><option value="IMPERIUS">Imperius</option><option value="XIN_XI">Xin-xi</option><option value="OUMAJI">Oumaji</option></select>
+        <span></span><span class="sub">Pool maps pair Bardur (moving first) with Imperius, Xin-xi or Oumaji. Any other choice of
+          tribes and seat gets a new map made by the same generator for those tribes.</span>
+        <label for="mapsel">Map</label><select id="mapsel"><option value="">Random map for the tribes and seat above</option></select>
         <label for="seedin">Seed</label><input id="seedin" type="number" placeholder="random" aria-label="Episode seed">
         <label for="sampled">Agent</label><label><input type="checkbox" id="sampled"> samples its moves (default: always its top choice)</label>
         <label for="search">Search</label><label><input type="checkbox" id="search"> uses the tactical search (policy + search, like <code>ppo_search</code>)</label>
@@ -498,6 +502,7 @@ $("newgame").onclick = async () => {
   const seed = $("seedin").value.trim();
   $("newgame").disabled = true; $("status").textContent = "Loading the model…";
   const ok = await post("/api/new", { model: $("modelsel").value, seat: $("seatsel").value, sampled: $("sampled").checked,
+                                      your_tribe: $("tribesel").value, agent_tribe: $("agenttribesel").value,
                                       search: $("search").checked,
                                       map: $("mapsel").value || null, seed: seed ? parseInt(seed, 10) : null });
   $("newgame").disabled = false;

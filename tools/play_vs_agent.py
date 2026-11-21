@@ -950,7 +950,7 @@ class GameSession:
                   "agent": self.agent.name, "agent_search": bool(getattr(self.agent, "search", False)),
                   "agent_search_moves": int(getattr(self.agent, "search_moves", 0)),
                   "model": model, "agent_tribe": self.agent_tribe, "human_tribe": self.human,
-                  "settings": self.settings, "tribe0_outcome": "abandoned" if self.outcome == "aborted" else self.outcome,
+                  "tribes": self.state.get("tribes"), "settings": self.settings, "tribe0_outcome": "abandoned" if self.outcome == "aborted" else self.outcome,
                   "human_result": "abandoned" if self.outcome == "aborted" else self.result,
                   "turns": self._round(), "actions": self.history}
         self.record_path = base.with_suffix(".json")
@@ -1049,7 +1049,7 @@ class Server:
 
     def new_game(self, model_key: Optional[str] = None, map_name: Optional[str] = None,
                  episode_seed: Optional[int] = None, seat: str = "second", sampled: bool = False,
-                 search: bool = False) -> GameSession:
+                 search: bool = False, your_tribe: Optional[str] = None, agent_tribe: Optional[str] = None) -> GameSession:
         with self.lock:
             if self.session is not None:
                 self.session.abort()
@@ -1059,17 +1059,32 @@ class Server:
                 info = self.by_key.get(model_key)
                 if info is None:
                     raise ValueError("Unknown model")
+            if seat == "random":
+                seat = self.rng.choice(["first", "second"])
+            if seat not in ("first", "second"):
+                raise ValueError("seat must be first, second or random")
+            your_tribe, agent_tribe = _tribe_choice(your_tribe), _tribe_choice(agent_tribe)
+            if your_tribe and your_tribe == agent_tribe:
+                raise ValueError("Choose two different tribes: the engine cannot play a tribe against itself")
             if map_name:
                 matches = [m for m in self.maps if m.filename == Path(map_name).name]
                 if not matches:
                     raise ValueError(f"{map_name} is not in the pool")
                 game_map = matches[0]
+            elif your_tribe or agent_tribe:
+                # Tribe 0 moves first. A pool map with this pairing if there is one, else a new map generated for it
+                # (the tribes shape the terrain and resources, so the map has to be made for them).
+                want0, want1 = (your_tribe, agent_tribe) if seat == "first" else (agent_tribe, your_tribe)
+                fits = [m for m in self.maps if (want0 is None or m.our_tribe == want0)
+                        and (want1 is None or m.opponent_tribe == want1)]
+                if fits:
+                    game_map = self.rng.choice(fits)
+                else:
+                    t0 = want0 or self.rng.choice([t for t in PLAYABLE_TRIBES if t != want1])
+                    t1 = want1 or self.rng.choice([t for t in PLAYABLE_TRIBES if t != t0])
+                    game_map = generate_map(t0, t1, self.rng.randrange(100000, 999999))
             else:
                 game_map = self.rng.choice(self.maps)
-            if seat == "random":
-                seat = self.rng.choice(["first", "second"])
-            if seat not in ("first", "second"):
-                raise ValueError("seat must be first, second or random")
             seed = int(episode_seed) if episode_seed is not None else self.rng.randrange(1, 2**31 - 1)
             settings = self._prepare(info, sampled, search)
             self.session = GameSession(self.env, self.agent, game_map, seed, settings, self.record_dir, self.player,
@@ -1132,7 +1147,7 @@ class Server:
                     try:
                         server.new_game(body.get("model") or None, body.get("map") or None, body.get("seed"),
                                         str(body.get("seat") or "second"), bool(body.get("sampled")),
-                                        bool(body.get("search")))
+                                        bool(body.get("search")), body.get("your_tribe"), body.get("agent_tribe"))
                     except (ValueError, TypeError) as exc:
                         return self._json(400, {"error": str(exc)})
                     except Exception as exc:  # e.g. a checkpoint that does not fit this environment
@@ -1184,6 +1199,42 @@ def load_maps(pool: str):
     return maps
 
 
+PLAYABLE_TRIBES = ("BARDUR", "IMPERIUS", "XIN_XI", "OUMAJI")
+GENERATED_MAP_DIR = REPO_ROOT / "runs" / "generated_maps"
+
+
+def _tribe_choice(name: Optional[str]) -> Optional[str]:
+    """A tribe name from the page ("any" or empty: no preference)."""
+    t = str(name or "").strip().upper().replace("-", "_")
+    if t in ("", "ANY"):
+        return None
+    if t not in PLAYABLE_TRIBES:
+        raise ValueError(f"tribe must be one of {', '.join(PLAYABLE_TRIBES)} or any")
+    return t
+
+
+def generate_map(tribe0: str, tribe1: str, seed: int):
+    """A new 11x11 Drylands map with tribe0 moving first, made by the same generator as the pools
+    (core.levelgen.GenerateLevelCli, as tools/generate_phase2_maps.py). Kept in runs/generated_maps/ so records
+    replay."""
+    import shutil
+    import subprocess
+
+    from tools.combat_eval_core import CombatMap
+    from tools.phase1_eval_core import sha256_file
+
+    GENERATED_MAP_DIR.mkdir(parents=True, exist_ok=True)
+    out = GENERATED_MAP_DIR / f"map_2p_gen_{seed:06d}_{tribe0.lower()}_vs_{tribe1.lower()}.csv"
+    jdks = sorted((REPO_ROOT / ".runtime").glob("jdk-*"))
+    java = str(jdks[-1] / "bin" / "java") if jdks else (shutil.which("java") or "java")
+    tribes_dir = REPO_ROOT / "pol_env" / "Tribes"
+    res = subprocess.run([java, "-cp", "out:lib/json.jar", "core.levelgen.GenerateLevelCli", str(seed), "11",
+                          str(out), "1.0", "DRYLANDS", tribe0, tribe1], cwd=tribes_dir, capture_output=True, text=True)
+    if res.returncode != 0 or not out.is_file():
+        raise RuntimeError(f"Map generation failed: {res.stderr.strip()[-300:]}")
+    return CombatMap(out.name, str(out.resolve()), sha256_file(out), int(seed), tribe0, tribe1)
+
+
 def parse_args():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--models", action="append", default=[],
@@ -1220,7 +1271,15 @@ def verify(record_path: Path, pool: str, rebuild: bool = False) -> bool:
     s = record.get("settings", {})
     env, _ = make_env(None, pool, s.get("rules", "tribes_2020"), int(s.get("max_turns", 20)), recorded=s)
     try:
-        game_map = [m for m in load_maps(pool) if m.filename == record["map"]][0]
+        found = [m for m in load_maps(pool) if m.filename == record["map"]]
+        if found:
+            game_map = found[0]
+        else:  # a map generated for a tribe choice: its file is kept next to the records' runs/ folder
+            from tools.combat_eval_core import CombatMap
+            from tools.phase1_eval_core import sha256_file
+            path = Path(record["map_path"])
+            t = record.get("tribes") or [None, None]
+            game_map = CombatMap(path.name, str(path), sha256_file(path), 0, t[0], t[1])
         outcome, history, session = replay_record(env, record, game_map)
         session.player = record.get("player", "")
         if rebuild:
