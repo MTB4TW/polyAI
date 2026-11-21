@@ -2,6 +2,117 @@
 
 All notable changes to this project are documented in this file.
 
+## [Phase2-Combat_League_Seat_Swap-094] - (2026-11-16)
+
+### Problem
+- In the 2M league run `combat_pcritic_s2_league_warm_2m` (job 1989784) the learner beat its frozen opponents
+  95-98% of the time all run, so prioritised self-play had nothing to weight. Every training map has the learner
+  as tribe 0 (Bardur, moving first), while a snapshot always played tribe 1: a different tribe and start, moving
+  second, a seat it never trained in. Diagnostic (12 validation maps, 1 game each): pcritic seed 1 against its own
+  snapshot won 9 of 12 from seat 0. The snapshots were weak, not broken.
+- The league also logged nothing per opponent (each env worker keeps its PFSP counts in memory), so the weighting
+  could not be checked, and the pool kept the newest `MAX_SNAPSHOTS` files by mtime, which drops the fixed
+  opponents (the oldest files) once a long run has saved enough checkpoints.
+
+### Scope (combat league only, `POLYVISION_COMBAT_LEAGUE=1`; Phase 1 and evaluation unchanged)
+- Seat swap, `POLYVISION_COMBAT_LEAGUE_SWAP_PROB` (default 0; `cluster/combat_selfplay_v2.env` sets 0.5 through
+  `LEAGUE_SWAP_PROB`): with that probability per game the learner plays tribe 1 on the same map and the opponent
+  (SimpleAgent or a snapshot) plays tribe 0 and moves first.
+  - Java: `PythonEnv.setControlledTribe(int)` / `getControlledTribe()` / `playOpponentTurn()`. With controlled
+    tribe 0 (always outside swapped league games) `stepByIndex` plays the Java opponent exactly as before.
+  - `TribesGymEnv` (`gym_env.py`) relabels every observation (fogged and full), legal action, score list, active
+    tribe and `combatStateJson` so the learner is still tribe 0; the wrapper's encoder, action mask, reward,
+    outcome, shaping terms and end-of-game diagnostics run unchanged. `java_tribe_id()` maps back for the few
+    direct engine reads. Fog is the learner's own (Java's POV is the active tribe).
+  - Turn order and limit: in seat 1 the opponent's first turn is played in the reset, and its turn after the
+    learner's last END_TURN is skipped, so each side plays `MAX_TURNS` turns in either seat, and the game ends with
+    the learner's view at the start of its next turn, as in seat 0. The `tick` the learner sees is the round
+    number in both seats.
+  - Snapshots play whichever seat is free (`play_external_turn` uses the engine's ids, `relabel=False`). Their
+    turn count is now the number of turns they have finished, as the learner's own count is: one less than the
+    wrapper's when moving second. Before, a tribe-1 snapshot saw the learner's count (one ahead of what it saw
+    in training).
+  - The seat is drawn from the league's RNG only when the probability is above 0, so existing league configs
+    sample exactly as before.
+- Logging, aggregated over all env workers in `ppo.py` (`combat_selfplay.LeagueStatsTracker`), every ~200 league
+  games: `league/pick_share/<opp>`, `league/snapshot_pick_share/<opp>`, `league/win_rate/<opp>` and
+  `league/pfsp_weight/<opp>` (what (1-p)^2 gives on the pooled results) over the last 1000 games,
+  `league/games/<opp>` cumulative, `league/win_rate_seat{0,1}`, `league/seat{0,1}_share`. Opponent names: `simple`,
+  `self/model_checkpoint_N`, or the source run's experiment name. Also `runs/<run>/league_stats.json`
+  (cumulative table). End-of-game infos gain `combat_end_raw_learner_seat`, `combat_end_raw_win_seat{0,1}` and
+  `combat_end_raw_win_vs_{simple,snapshot}_seat{0,1}` (logged as `combat_end_raw/...` like the other end_raw keys).
+- `POLYVISION_COMBAT_LEAGUE_MAX_SELF` (default 0 = old behaviour; `LEAGUE_MAX_SELF` in the env file): if > 0,
+  every `LEAGUE_GLOB` opponent stays in the pool and only the newest N own checkpoints are kept.
+- `tools/evaluate_combat.py` now clears `POLYVISION_COMBAT_LEAGUE*` (as the head-to-head evaluator does), so an
+  evaluation launched from a shell with league settings is still the learner as tribe 0 against SimpleAgent.
+- `--init-from` with `--privileged-critic`: a critic saved before value normalisation (CHANGELOG 080; every run so
+  far, including the teacher seeds) now loads into a normalised critic with statistics mean 0, std 1 marked as
+  initialised, so V(s) is exactly as saved and PopArt rescales from there. The reverse folds the statistics into
+  the output layer.
+- No contract bump: what a checkpoint sees in seat 0 is unchanged, seat-1 inputs use the same encoding, and the
+  evaluators never enable the league.
+
+### Validation
+- `tools/tests/test_combat_seat_swap.py`:
+  - Pure tests: seat sampling, including the RNG left untouched at 0; `swap_combat_state`; in-place swap; the
+    `MAX_SELF` pool and opponent labels; tracker aggregation.
+  - Live engine (`POLYVISION_RUN_JAVA_TESTS=1`): reset in seat 1 gives the learner's units and tribe as tribe 0
+    with a non-empty mask that contains END_TURN. Each side plays exactly 3 turns with `MAX_TURNS=3`. Taking the
+    enemy capital from seat 1 is a win with the positive win reward; losing the capital is a loss with a negative
+    reward. Seat 0 is unchanged.
+- `tools/tests/test_privileged_critic.py`: a critic saved before value normalisation loads with V(s) unchanged,
+  including across the first statistics update, and the fold back. `tools/run_core_ci_checks.py` passes, and so do
+  the live-engine combat tests (`test_combat_selfplay`, `_seat_swap`, `_h2h`, `_integration`, `_eval`,
+  `_fog_memory`, `_reward_shaping`, `_shaping_terms`, `test_privileged_critic`).
+- Diagnostic, 12 validation maps, 1 game each: the 2M league model (argmax) from seat 1 won 3 of 12 against the
+  pcritic seed 1 snapshot (10 of 12 from seat 0) and 6 of 12 against SimpleAgent (11 of 12 from seat 0).
+- Smoke league on the Mac (diagnostic; 49k steps, 8 envs, swap 0.5, warm from the 2M league model, opponents:
+  pcritic seed 1 plus the run's own snapshots every 8k steps; `--old-logprob-recompute-tol 1e-3` because the Mac
+  fails the 1e-5 recompute check at the first update, as in CHANGELOG 080). It ran to the end. Over the last 100
+  games: win rate against snapshots 0.66 (0.98 from seat 0, 0.25 from seat 1), against SimpleAgent 0.85 (0.95 /
+  0.70), learner in seat 1 in 48% of games. `league/*` and `league_stats.json` were written.
+
+## [Eval-Combat_Head_To_Head-093] - (2026-11-16)
+
+### Scope
+- New `tools/evaluate_combat_h2h.py` (+ `cluster/eval_combat_h2h_farmshare.sbatch`): checkpoint A against
+  checkpoint B, for when SimpleAgent no longer separates models (the privileged-critic runs win 95%+ against it).
+  Every `eval_validation` map is played `--repeats-per-map` times in both seat orders (A as tribe 0 with B as
+  tribe 1, and the reverse) with the canonical evaluator's episode seeds. Reported from A's point of view: win /
+  loss / timeout per seat and overall, the margin (A's win rate minus B's) and the seat gap, with bootstrap CIs
+  over maps. Writes `outputs/evaluations/<id>/` (config, episodes, per-map rates, summary). A full run (120 maps,
+  5 replicates, 2 seats, seed 42, `--mode sampled`) is labelled `h2h-canonical`; `eval_test` needs
+  `--confirm-test`.
+- The tribe-1 player is driven like a self-play league snapshot (CHANGELOG 074: external opponent hook,
+  relabelled own-POV observation). `SnapshotOpponent` gains a `deterministic` attribute (default False, so the
+  league is unchanged) for `--mode argmax`.
+- Caveat: every eval map has Bardur as tribe 0, so in the swapped seat A plays the opponent's tribe and moves
+  second, which no model was trained for. Both models face this equally; the per-seat rates show its size.
+- Evaluation tooling only: no environment, reward, observation, action or training change.
+
+### Validation
+- `tools/tests/test_combat_h2h.py`: schedule (both seats, canonical episode seeds), outcome flipping, summary and
+  margin, canonical label, test-pool refusal, and a live run of a tiny checkpoint against itself (league
+  environment variables are ignored). `tools/run_core_ci_checks.py` passes.
+
+## [Train-Privileged_Critic_Warm_Start-092] - (2026-11-15)
+
+### Scope
+- `ppo.py --privileged-critic --init-from X` now loads the privileged critic saved next to the source checkpoint
+  (`X.privileged_critic.pt`, `load_privileged_critic_for_init` in `privileged_critic.py`) instead of always
+  starting a fresh one. It prints `[PRIVILEGED_CRITIC] init: loaded saved critic from ...`; if the file is
+  missing, the critic starts fresh as before and a line says so. Loading is strict: missing or unexpected keys
+  (e.g. `--norm-obs` differing from the source run) and mismatched shapes raise an error.
+- The sidecar records `"privileged_critic_init": "loaded" | "fresh"` on warm starts with the flag.
+- Why: earlier warm starts needed `--critic-warmup-steps 150000` only because the critic was new; a warm start
+  from a privileged-critic run can now use `--critic-warmup-steps 0`.
+- No contract version change: the policy checkpoint keys and what the policy sees and does are unchanged.
+
+### Validation
+- `tools/tests/test_privileged_critic.py`: loader unit test (missing file stays fresh; saved critic loaded exactly,
+  normaliser included; missing keys and mismatched shapes raise) and a tiny warm-start training run from a
+  privileged-critic checkpoint (loaded) and from a plain one (fresh).
+
 ## [Phase2-Combat_Star_Hoard_Penalty-081] - (2026-11-15)
 
 ### Scope

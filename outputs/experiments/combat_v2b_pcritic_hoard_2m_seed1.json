@@ -1,0 +1,21 @@
+{
+  "name": "combat_v2b_pcritic_hoard_2m_seed1",
+  "network_arch": "spatial_resnet_composed",
+  "total_timesteps": 2000000,
+  "seed": 1,
+  "env_file": "cluster/combat_star_hoard_v2.env",
+  "rules": "polytopia_2_15",
+  "extra_ppo_args": "--privileged-critic",
+  "submitted_by": "devinlai",
+  "git_commit": "9ebae6c (claude/combat-spend-stars-9c191c, PR #26; STAR_HOARD 0.02 above 10 stars)",
+  "model_path": "runs/Tribes-v0__combat_v2b_pcritic_hoard_2m_seed1__1__1794889611/combat_v2b_pcritic_hoard_2m_seed1.cleanrl_model (Farmshare ~/polyAI-wt/hoard)",
+  "evaluation_id": "20261116_combat_v2b_pcritic_hoard_2m_seed1_combat_eval_validation_canonical",
+  "evaluated_on": "Farmshare (cluster/eval_combat_farmshare.sbatch)",
+  "train_job": "1991346",
+  "eval_job": "1991347",
+  "wandb_run": "2q00gp87",
+  "wandb_track": 1,
+  "wandb_upload": 0,
+  "baseline": "combat_v2b_pcritic_2m_seed1 (same settings without the penalty)",
+  "note": "Diagnostic: 1 seed only; seeds 2 and 3 not run by choice."
+}

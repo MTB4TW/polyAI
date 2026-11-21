@@ -1,0 +1,28 @@
+{
+  "name": "combat_pcritic_s2_league_warm_2m",
+  "network_arch": "spatial_resnet_composed",
+  "total_timesteps": 2000000,
+  "seed": 1,
+  "env_file": "cluster/combat_selfplay_v2.env",
+  "rules": "polytopia_2_15",
+  "extra_ppo_args": "--privileged-critic --critic-warmup-steps 0 --learning-rate 2.5e-4 --target-kl 0.02 --ent-coef 0.01 --init-from <combat_v2b_pcritic_2m_seed2.cleanrl_model>",
+  "league": {
+    "init_from": "combat_v2b_pcritic_2m_seed2 (policy and privileged critic)",
+    "fixed_opponents": "3 combat_cap_all_v2b_2m seeds, combat_v2b_pcritic_2m seeds 1 and 3",
+    "LEAGUE_SWAP_PROB": "none (before the seat swap: snapshots always tribe 1)",
+    "LEAGUE_SIMPLE_PROB": 0.5,
+    "LEAGUE_MAX_SNAPSHOTS": 25,
+    "LEAGUE_SNAPSHOT_EVERY": 100000
+  },
+  "submitted_by": "devinlai",
+  "git_commit": "fd9704a (claude/combat-critic-init-96179a)",
+  "model_path": "runs/Tribes-v0__combat_pcritic_s2_league_warm_2m__1__1794840824/combat_pcritic_s2_league_warm_2m.cleanrl_model (Farmshare ~/polyAI-wt/league2)",
+  "evaluation_id": "20261116_combat_pcritic_s2_league_warm_2m_combat_eval_validation_canonical",
+  "evaluated_on": "Farmshare (cluster/eval_combat_farmshare.sbatch)",
+  "train_job": "1989784",
+  "eval_job": "1989786",
+  "wandb_run": "tshecpce",
+  "wandb_track": 1,
+  "wandb_upload": 0,
+  "baseline": "combat_v2b_pcritic_2m_seed2 (its init)"
+}

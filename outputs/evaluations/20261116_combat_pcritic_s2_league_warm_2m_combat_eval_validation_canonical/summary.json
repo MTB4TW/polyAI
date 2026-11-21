@@ -1,0 +1,164 @@
+{
+  "bootstrap": {
+    "samples": 5000,
+    "unit": "map"
+  },
+  "canonical": true,
+  "evaluation_id": "20261116_combat_pcritic_s2_league_warm_2m_combat_eval_validation_canonical",
+  "evaluation_schema_version": "polyvision-combat-evaluation-v1",
+  "max_turns": 20,
+  "paired": {
+    "ppo_argmax_vs_random_legal": {
+      "ci95": [
+        0.9400000000000001,
+        0.985
+      ],
+      "maps": 120,
+      "maps_better": 119,
+      "maps_equal": 1,
+      "maps_worse": 0,
+      "mean_difference": 0.9650000000000001,
+      "metric": "win"
+    },
+    "ppo_sampled_vs_random_legal": {
+      "ci95": [
+        0.9433333333333334,
+        0.98
+      ],
+      "maps": 120,
+      "maps_better": 120,
+      "maps_equal": 0,
+      "maps_worse": 0,
+      "mean_difference": 0.9633333333333333,
+      "metric": "win"
+    }
+  },
+  "policies": {
+    "ppo_argmax": {
+      "by_matchup": {
+        "BARDUR vs IMPERIUS": {
+          "loss_rate": 0.0,
+          "maps": 40,
+          "timeout_rate": 0.005,
+          "win_rate": 0.9949999999999999
+        },
+        "BARDUR vs OUMAJI": {
+          "loss_rate": 0.02,
+          "maps": 40,
+          "timeout_rate": 0.02,
+          "win_rate": 0.9600000000000002
+        },
+        "BARDUR vs XIN_XI": {
+          "loss_rate": 0.0,
+          "maps": 40,
+          "timeout_rate": 0.05,
+          "win_rate": 0.95
+        }
+      },
+      "games": 600,
+      "loss_rate": 0.006666666666666667,
+      "loss_rate_ci95": [
+        0.0,
+        0.015000000000000003
+      ],
+      "maps": 120,
+      "mean_win_turn": 8.783132530120483,
+      "median_win_turn": 8.0,
+      "timeout_rate": 0.025,
+      "timeout_rate_ci95": [
+        0.01,
+        0.045
+      ],
+      "win_rate": 0.9683333333333334,
+      "win_rate_ci95": [
+        0.9433333333333335,
+        0.9883333333333333
+      ]
+    },
+    "ppo_sampled": {
+      "by_matchup": {
+        "BARDUR vs IMPERIUS": {
+          "loss_rate": 0.01,
+          "maps": 40,
+          "timeout_rate": 0.005,
+          "win_rate": 0.9850000000000001
+        },
+        "BARDUR vs OUMAJI": {
+          "loss_rate": 0.01,
+          "maps": 40,
+          "timeout_rate": 0.025,
+          "win_rate": 0.9650000000000001
+        },
+        "BARDUR vs XIN_XI": {
+          "loss_rate": 0.015000000000000003,
+          "maps": 40,
+          "timeout_rate": 0.034999999999999996,
+          "win_rate": 0.95
+        }
+      },
+      "games": 600,
+      "loss_rate": 0.011666666666666665,
+      "loss_rate_ci95": [
+        0.0033333333333333335,
+        0.020000000000000004
+      ],
+      "maps": 120,
+      "mean_win_turn": 9.127586206896552,
+      "median_win_turn": 9.0,
+      "timeout_rate": 0.021666666666666667,
+      "timeout_rate_ci95": [
+        0.008333333333333333,
+        0.03666666666666667
+      ],
+      "win_rate": 0.9666666666666667,
+      "win_rate_ci95": [
+        0.9466666666666668,
+        0.9833333333333333
+      ]
+    },
+    "random_legal": {
+      "by_matchup": {
+        "BARDUR vs IMPERIUS": {
+          "loss_rate": 0.19,
+          "maps": 40,
+          "timeout_rate": 0.805,
+          "win_rate": 0.005
+        },
+        "BARDUR vs OUMAJI": {
+          "loss_rate": 0.18,
+          "maps": 40,
+          "timeout_rate": 0.8150000000000001,
+          "win_rate": 0.005
+        },
+        "BARDUR vs XIN_XI": {
+          "loss_rate": 0.175,
+          "maps": 40,
+          "timeout_rate": 0.825,
+          "win_rate": 0.0
+        }
+      },
+      "games": 600,
+      "loss_rate": 0.18166666666666667,
+      "loss_rate_ci95": [
+        0.14666666666666664,
+        0.22166666666666668
+      ],
+      "maps": 120,
+      "mean_win_turn": 14.0,
+      "median_win_turn": 14.0,
+      "timeout_rate": 0.8150000000000001,
+      "timeout_rate_ci95": [
+        0.775,
+        0.8516666666666667
+      ],
+      "win_rate": 0.0033333333333333335,
+      "win_rate_ci95": [
+        0.0,
+        0.008333333333333333
+      ]
+    }
+  },
+  "pool": "eval_validation",
+  "primary_metric": "win rate against SimpleAgent (per-map mean over replicates, mean over maps)",
+  "rules": "polytopia_2_15"
+}

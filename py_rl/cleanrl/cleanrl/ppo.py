@@ -1765,6 +1765,7 @@ if __name__ == "__main__":
     ).to(device)
     return_normalizer = ReturnNormalizer(args.num_envs, args.gamma) if args.norm_returns else None
     privileged_critic = None
+    privileged_critic_loaded = False
     if args.privileged_critic:
         from py_rl.cleanrl.cleanrl.privileged_critic import (
             PRIVILEGED_CRITIC_VERSION, FlatCriticGuard, PrivilegedCritic, reinitialize_critic,
@@ -1779,6 +1780,10 @@ if __name__ == "__main__":
         print(f"[PRIVILEGED_CRITIC] value_norm={bool(args.privileged_critic_value_norm)} "
               f"flat_check: patience={int(args.privileged_critic_flat_patience)} action={args.privileged_critic_flat_action}")
         print(f"[PRIVILEGED_CRITIC] {sum(p.numel() for p in privileged_critic.parameters())} critic parameters")
+        if args.init_from:
+            from py_rl.cleanrl.cleanrl.privileged_critic import load_privileged_critic_for_init
+            # Load the source run's critic when it saved one (then no --critic-warmup-steps is needed).
+            privileged_critic_loaded = load_privileged_critic_for_init(privileged_critic, args.init_from, map_location=device)
     trainable_params = list(agent.parameters()) + (list(privileged_critic.parameters()) if privileged_critic is not None else [])
     optimizer = optim.Adam(trainable_params, lr=args.learning_rate, eps=1e-5)
     # --critic-warmup-steps: everything except the critic head stays frozen during the warm-up.
@@ -1859,6 +1864,14 @@ if __name__ == "__main__":
     combat_outcome_500 = {}
     combat_ema = {}
     COMBAT_EMA_ALPHA = 2.0 / 101.0
+
+    # Self-play league: per-opponent picks and results over all env workers (combat_selfplay.LeagueStatsTracker).
+    league_stats = None
+    league_stats_path = os.path.join(run_dir, "league_stats.json")
+    if _env_flag_bool("POLYVISION_COMBAT_LEAGUE", default=False):
+        from pol_env.Tribes.py.combat_selfplay import LeagueStatsTracker
+        league_stats = LeagueStatsTracker(power=float(os.environ.get("POLYVISION_COMBAT_LEAGUE_PFSP_POWER", "2")))
+    league_games_since_log = 0
 
     def combat_track(key, value):
         combat_breakdown_windows.setdefault(key, deque(maxlen=100)).append(float(value))
@@ -2026,6 +2039,8 @@ if __name__ == "__main__":
     if privileged_critic is not None:
         # Training-only: the policy checkpoint is unaffected; recorded so the run's lineage is visible.
         action_interface_meta["privileged_critic"] = PRIVILEGED_CRITIC_VERSION
+        if args.init_from:
+            action_interface_meta["privileged_critic_init"] = "loaded" if privileged_critic_loaded else "fresh"
     writer.add_text("meta/action_interface", json.dumps(action_interface_meta, sort_keys=True, default=str))
 
     overlap_stepper = None
@@ -2204,6 +2219,18 @@ if __name__ == "__main__":
                             # Share of the game's total |reward| that came from this component.
                             combat_track(f"reward_share/{comp_name}", abs(comp_value) / total_abs if total_abs > 0 else 0.0)
                         combat_track("reward_component/total", sum(comps.values()))
+                if league_stats is not None:
+                    league_games_since_log += sum(int(league_stats.add(row)) for row in final_infos)
+                    # Every ~200 league games: dozens of per-opponent keys, so not on every finished game.
+                    if league_games_since_log >= 200:
+                        league_games_since_log = 0
+                        for name, value in league_stats.scalars().items():
+                            log_scalar(name, value, global_step)
+                        try:
+                            with open(league_stats_path, "w") as fh:
+                                json.dump({"global_step": int(global_step), "opponents": league_stats.table()}, fh, indent=1)
+                        except OSError:
+                            pass
                 for outcome, window500 in combat_outcome_500.items():
                     log_scalar(f"combat_outcome/{outcome}_rate_last500", float(np.mean(window500)), global_step)
                 for metric_key, metric_window in combat_breakdown_windows.items():

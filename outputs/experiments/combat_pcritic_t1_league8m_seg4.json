@@ -1,0 +1,85 @@
+{
+  "name": "combat_pcritic_t1_league8m_seg4",
+  "network_arch": "spatial_resnet_composed",
+  "total_timesteps": 2000000,
+  "seed": 1,
+  "env_file": "cluster/combat_selfplay_v2.env",
+  "rules": "polytopia_2_15",
+  "extra_ppo_args": "--privileged-critic --critic-warmup-steps 0 --learning-rate 2.5e-4 --target-kl 0.02 --ent-coef 0.01 --init-from <combat_pcritic_t1_league8m_seg3.cleanrl_model> --no-anneal-lr",
+  "league": {
+    "init_from": "combat_pcritic_t1_league8m_seg3",
+    "segment": "4 of 4 (8M after the 4M run, 12M in total)",
+    "fixed_opponents": "3 combat_cap_all_v2b_2m seeds, 3 combat_v2b_pcritic_2m seeds, 3 combat_pcritic_teacher_2m seeds (incl. the init) + combat_pcritic_t1_league_swap_4m final, combat_pcritic_t1_league_swap_4m model_checkpoint_2000000, seg1 final, seg1 model_checkpoint_1000000, seg2 final, seg2 model_checkpoint_1000000, seg3 final, seg3 model_checkpoint_1000000",
+    "LEAGUE_SWAP_PROB": 0.5,
+    "LEAGUE_SIMPLE_PROB": 0,
+    "LEAGUE_MAX_SELF": 20,
+    "LEAGUE_SNAPSHOT_EVERY": 200000,
+    "driver": "cluster/combat_league_segment.sh (copied from Farmshare logs/league8m_segment.sh)"
+  },
+  "submitted_by": "devinlai",
+  "git_commit": "fa32201 (claude/combat-critic-init-96179a)",
+  "model_path": "runs/Tribes-v0__combat_pcritic_t1_league8m_seg4__1__1795136548/combat_pcritic_t1_league8m_seg4.cleanrl_model (Farmshare ~/polyAI-wt/league3)",
+  "evaluation_id": "20261118_combat_pcritic_t1_league8m_seg4_combat_eval_validation_canonical",
+  "evaluated_on": "Farmshare (cluster/eval_combat_farmshare.sbatch)",
+  "train_job": "1995235",
+  "eval_job": "1995240",
+  "wandb_run": "408y4599",
+  "wandb_track": 1,
+  "wandb_upload": 0,
+  "baseline": "combat_pcritic_t1_league_swap_4m",
+  "head_to_head": [
+    {
+      "evaluation_id": "20261120_combat_pcritic_t1_league8m_seg4_vs_league_swap_4m_combat_h2h_eval_validation",
+      "job": "2000912",
+      "a": "combat_pcritic_t1_league8m_seg4",
+      "b": "combat_pcritic_t1_league_swap_4m",
+      "mode": "sampled",
+      "a_win": 0.437,
+      "a_win_ci95": [
+        0.419,
+        0.453
+      ],
+      "b_win": 0.5,
+      "timeout": 0.063,
+      "a_win_tribe0": 0.855,
+      "a_win_tribe1": 0.018,
+      "margin_a_minus_b": -0.063,
+      "margin_ci95": [
+        -0.093,
+        -0.036
+      ],
+      "maps_a_ahead_level_b_ahead": [
+        16,
+        61,
+        43
+      ]
+    },
+    {
+      "evaluation_id": "20261120_combat_pcritic_t1_league_swap_4m_vs_itself_combat_h2h_eval_validation",
+      "job": "2000913",
+      "a": "combat_pcritic_t1_league_swap_4m",
+      "b": "combat_pcritic_t1_league_swap_4m (control)",
+      "mode": "sampled",
+      "a_win": 0.481,
+      "a_win_ci95": [
+        0.466,
+        0.495
+      ],
+      "b_win": 0.491,
+      "timeout": 0.028,
+      "a_win_tribe0": 0.908,
+      "a_win_tribe1": 0.053,
+      "margin_a_minus_b": -0.01,
+      "margin_ci95": [
+        -0.038,
+        0.017
+      ],
+      "maps_a_ahead_level_b_ahead": [
+        24,
+        69,
+        27
+      ]
+    }
+  ],
+  "head_to_head_conclusion": "Weaker than combat_pcritic_t1_league_swap_4m head-to-head (margin -6.3 points); not a new best model."
+}
