@@ -25,5 +25,60 @@
   "wandb_run": "xas5c932",
   "wandb_track": 1,
   "wandb_upload": 0,
-  "baseline": "combat_pcritic_teacher_2m_seed1 (its init)"
+  "baseline": "combat_pcritic_teacher_2m_seed1 (its init)",
+  "head_to_head": [
+    {
+      "evaluation_id": "20261120_combat_pcritic_t1_league8m_seg4_vs_league_swap_4m_combat_h2h_eval_validation",
+      "job": "2000912",
+      "a": "combat_pcritic_t1_league8m_seg4",
+      "b": "combat_pcritic_t1_league_swap_4m",
+      "mode": "sampled",
+      "a_win": 0.437,
+      "a_win_ci95": [
+        0.419,
+        0.453
+      ],
+      "b_win": 0.5,
+      "timeout": 0.063,
+      "a_win_tribe0": 0.855,
+      "a_win_tribe1": 0.018,
+      "margin_a_minus_b": -0.063,
+      "margin_ci95": [
+        -0.093,
+        -0.036
+      ],
+      "maps_a_ahead_level_b_ahead": [
+        16,
+        61,
+        43
+      ]
+    },
+    {
+      "evaluation_id": "20261120_combat_pcritic_t1_league_swap_4m_vs_itself_combat_h2h_eval_validation",
+      "job": "2000913",
+      "a": "combat_pcritic_t1_league_swap_4m",
+      "b": "combat_pcritic_t1_league_swap_4m (control)",
+      "mode": "sampled",
+      "a_win": 0.481,
+      "a_win_ci95": [
+        0.466,
+        0.495
+      ],
+      "b_win": 0.491,
+      "timeout": 0.028,
+      "a_win_tribe0": 0.908,
+      "a_win_tribe1": 0.053,
+      "margin_a_minus_b": -0.01,
+      "margin_ci95": [
+        -0.038,
+        0.017
+      ],
+      "maps_a_ahead_level_b_ahead": [
+        24,
+        69,
+        27
+      ]
+    }
+  ],
+  "head_to_head_conclusion": "Beats its 8M continuation (seg4) head-to-head by 6.3 points; stays the best combat model."
 }

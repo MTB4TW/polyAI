@@ -87,8 +87,10 @@ SimpleAgent. Win rates are for deterministic play (`ppo_argmax`).
   `combat_v2b_pcritic_2m` is marked as the current combat reference in the experiment record.
 - The league model is one seed.
 - An 8M continuation of the league model (four chained 2M segments) brought no further gain against SimpleAgent:
-  −0.2 to −1.7 points per segment against the 4M model. SimpleAgent is at its ceiling for these models. A
-  head-to-head of the continuation against the 4M model is **pending**.
+  −0.2 to −1.7 points per segment against the 4M model. SimpleAgent is at its ceiling for these models.
+  Head-to-head the continuation is **weaker** than the 4M model (A wins 43.7%, B 50.0%, margin −6.3 [−9.3, −3.6];
+  4M vs itself control −1.0 [−3.8, +1.7]), so the 4M league model stays the best. The first mover wins about 90%
+  between equal models.
 - From-scratch ablations with the privileged critic: fog memory 91.5% and outcome-only reward 62.8%, both below the
   privileged-critic run; one seed of each had a collapsed critic, which led to the PopArt and flat-critic fixes.
   The star-hoarding penalty (96.0%) is a **one-seed diagnostic**.
