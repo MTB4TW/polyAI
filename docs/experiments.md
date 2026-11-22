@@ -74,6 +74,26 @@ Baselines on the same 250 validation maps: visible greedy 7.93, random legal 6.6
 | 2026-11-15 | combat_v2b_s1_pcritic_warm_2m | 2M | 1, 2 (3 pending) | Devin (Claude agent) | `outputs/evaluations/20261115_combat_v2b_s1_pcritic_warm_2m_seed{1,2}_combat_eval_validation_canonical` | 84.3% (80.0 [74.7, 85.0], 88.5 [84.0, 92.5]) | 3.5% | 12.3% | 84.3% (81.0, 87.7) | Warm start from v2b seed 1 with `--privileged-critic --critic-warmup-steps 150000 --learning-rate 1e-4 --target-kl 0.015 --ent-coef 0.005`. Paired vs v2b seed 1: win −4.5 [−10.5, +1.3] and +4.0 [−1.3, +9.3] points, so no measurable change; the warm start keeps the policy near its source. Seed 3 trained (job 1986036) but its evaluation (job 1987832) had not run when this was recorded. Commit `11bcd1c`, W&B `ewyc9la3`, `ywdiu3qi` (seed 3 `4cll3jee`). |
 | 2026-11-14 | combat_cap_all_v2b_2m | 2M | 1, 2, 3 | Devin | `outputs/evaluations/20261114_combat_cap_all_v2b_2m_seed{1,2,3}_combat_eval_validation_canonical` | **76.1%** (84.5 [79.5, 89.3], 73.5 [67.7, 79.2], 70.2 [64.3, 75.7]) | 5.3% | 18.7% | 48.7% (65.3, 40.0, 40.8) | 2.15 rules, `spatial_resnet_composed`, `cluster/combat_cap_all_v2.env` (win 60, loss −15, timeout −10, early win 60, rider potential). First canonical combat result; no earlier checkpoint exists to pair against (Kevin's cap_all checkpoints are not shared; the 2.15 cap_all runs saved none). Paired vs `random_legal` (0.3%): +84.2, +73.2, +69.8 points, no map worse. Training-game diagnostic (last 500 games, final 250k steps): 60.2 / 37.0 / 37.2% win. W&B `eeocxup2`, `97zognmo`, `5m7758zh`. |
 
+### Overnight sweep from the riders final, halfway (1.0M of 2M; 2026-11-22, Kevin's Claude agent; diagnostic)
+
+- Setup: every run warm-starts from the riders final, except `sweep_norules_t13`, which starts from the no-rules final.
+- Each changes one setting. "t13" / "t14" mean `POLYVISION_COMBAT_REWARD_TIMEOUT` −13 / −14 (default −10; loss −15).
+- Measured head to head against the riders final: 480 games each, sampled, wiki pool.
+
+| Run (step 1.0M) | Change | Win | Timeout | Loss | Score | Margin |
+|---|---|---:|---:|---:|---:|---|
+| `sweep_riders_t13_seed2` | t13, seed 2 | 30.4% | 45.4% | 24.2% | 0.531 | [+0.01, +0.12] |
+| `sweep_riders_control` | none | 29.8% | 44.8% | 25.4% | 0.522 | [−0.02, +0.11] |
+| `sweep_riders_t13_city2` | t13, city reward 2 | 30.0% | 43.5% | 26.5% | 0.518 | [−0.03, +0.09] |
+| `sweep_riders_t14` | t14 | 26.9% | 45.8% | 27.3% | 0.498 | [−0.06, +0.05] |
+| `sweep_riders_t13` | t13 | 25.8% | 46.0% | 28.1% | 0.489 | [−0.08, +0.03] |
+| `sweep_norules_t13` | t13, from no-rules final | 24.6% | 47.7% | 27.7% | 0.484 | [−0.09, +0.03] |
+| `sweep_riders_t13_lr1e4` | t13, LR 1e-4 | 25.0% | 41.5% | 33.5% | 0.457 | [−0.15, −0.02] |
+
+- After 1M steps no change beats the unchanged control, and the timeout penalty has not reduced timeouts (41–48%).
+- The lower learning rate is worse.
+- Folders: `outputs/evaluations/20261122_sweep_*_vs_riders_final_wiki_h2h_diagnostic`.
+
 ### Final league checkpoints (2026-11-21, Kevin's Claude agent; `phase2_pool_1v1_wiki`)
 
 Against SimpleAgent (eval_validation of the wiki pool, 120 maps × 5, seed 42; canonical for that pool):
