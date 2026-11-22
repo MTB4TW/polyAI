@@ -74,6 +74,30 @@ Baselines on the same 250 validation maps: visible greedy 7.93, random legal 6.6
 | 2026-11-15 | combat_v2b_s1_pcritic_warm_2m | 2M | 1, 2 (3 pending) | Devin (Claude agent) | `outputs/evaluations/20261115_combat_v2b_s1_pcritic_warm_2m_seed{1,2}_combat_eval_validation_canonical` | 84.3% (80.0 [74.7, 85.0], 88.5 [84.0, 92.5]) | 3.5% | 12.3% | 84.3% (81.0, 87.7) | Warm start from v2b seed 1 with `--privileged-critic --critic-warmup-steps 150000 --learning-rate 1e-4 --target-kl 0.015 --ent-coef 0.005`. Paired vs v2b seed 1: win −4.5 [−10.5, +1.3] and +4.0 [−1.3, +9.3] points, so no measurable change; the warm start keeps the policy near its source. Seed 3 trained (job 1986036) but its evaluation (job 1987832) had not run when this was recorded. Commit `11bcd1c`, W&B `ewyc9la3`, `ywdiu3qi` (seed 3 `4cll3jee`). |
 | 2026-11-14 | combat_cap_all_v2b_2m | 2M | 1, 2, 3 | Devin | `outputs/evaluations/20261114_combat_cap_all_v2b_2m_seed{1,2,3}_combat_eval_validation_canonical` | **76.1%** (84.5 [79.5, 89.3], 73.5 [67.7, 79.2], 70.2 [64.3, 75.7]) | 5.3% | 18.7% | 48.7% (65.3, 40.0, 40.8) | 2.15 rules, `spatial_resnet_composed`, `cluster/combat_cap_all_v2.env` (win 60, loss −15, timeout −10, early win 60, rider potential). First canonical combat result; no earlier checkpoint exists to pair against (Kevin's cap_all checkpoints are not shared; the 2.15 cap_all runs saved none). Paired vs `random_legal` (0.3%): +84.2, +73.2, +69.8 points, no map worse. Training-game diagnostic (last 500 games, final 250k steps): 60.2 / 37.0 / 37.2% win. W&B `eeocxup2`, `97zognmo`, `5m7758zh`. |
 
+### Final league checkpoints (2026-11-21, Kevin's Claude agent; `phase2_pool_1v1_wiki`)
+
+Against SimpleAgent (eval_validation of the wiki pool, 120 maps × 5, seed 42; canonical for that pool):
+
+| Checkpoint | argmax W / T / L | sampled W / T / L | Folder |
+|---|---|---|---|
+| rules on, best (2.0M) | 99.7 / 0.0 / 0.3% | 98.7 / 0.8 / 0.5% | `outputs/evaluations/20261121_ruleson_best_2m_combat_eval_validation_wiki_canonical` |
+| no rules, final (8M) | 96.0 / 2.7 / 1.3% | 94.0 / 5.5 / 0.5% | `outputs/evaluations/20261121_norules_final_8m_combat_eval_validation_wiki_canonical` |
+| riders branch, final (8M total) | 99.3 / 0.7 / 0.0% | 98.3 / 1.7 / 0.0% | `outputs/evaluations/20261121_riders_final_8m_combat_eval_validation_wiki_canonical` |
+| Devin's league, 12M (rules on, old maps) | 98.5 / 1.3 / 0.2% | 95.0 / 4.8 / 0.2% | `outputs/evaluations/20261121_devin_league_12m_combat_eval_validation_wiki_canonical` |
+
+Head to head (480 games, sampled; diagnostic):
+
+| A vs B | A win | Timeout | A loss | A score | Margin | Folder |
+|---|---:|---:|---:|---:|---|---|
+| riders final vs Devin's 12M | 61.3% | 26.5% | 12.3% | 0.745 | [+0.42, +0.55] | `outputs/evaluations/20261121_riders_final_vs_devin_league_12m_wiki_h2h_diagnostic` |
+| riders final vs no-rules final | 27.3% | 49.2% | 23.5% | 0.519 | [−0.02, +0.09] | `outputs/evaluations/20261121_riders_final_vs_norules_final_wiki_h2h_diagnostic` |
+
+- SimpleAgent is at the ceiling for all four checkpoints.
+- The riders final beats Devin's newest checkpoint clearly. B plays under A's settings, with no wrapper rules, which costs a rules-trained model about 8 points (above).
+- Against the no-rules final it is even. The riders branch was ahead at equal training (5.8M), and the no-rules run caught up by 8M.
+- W&B: clean runs uploaded from the TensorBoard logs (group `league-2026-11`): `lwfxh78t` (rules on), `g69cysyd` (no rules), `2nm9j5r5` (riders).
+- Checkpoint artifacts: `league_us_wiki_8m-best-2m`, `league_us_wiki_norules_8m-final`, `league_us_wiki_norules_riders_4m-final`.
+
 ### League runs in progress: head to head against their starting checkpoint (diagnostic, 2026-11-19, Kevin's Claude agent)
 
 - Starting checkpoint (B): Devin's league8m segment 1 at 1.2M. The pool is `phase2_pool_1v1_wiki` eval_validation:
