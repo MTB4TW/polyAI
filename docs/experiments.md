@@ -113,6 +113,15 @@ Later checkpoints against earlier ones of the same run (480 games each, sampled,
 - The rules-on run has not improved since 2.0M: 2.8M more steps gave no measurable gain.
 - The no-rules run (road reward from 2.38M) is still improving.
 
+Riders branch against the plain no-rules run at equal training (both from the no-rules run's 4.0M; 480 games):
+
+| A vs B | A win | B win | Timeout | A score | Margin | Folder |
+|---|---:|---:|---:|---:|---|---|
+| riders 1.8M (5.8M total) vs no rules 5.8M | 31.7% | 14.6% | 53.7% | 0.585 | [+0.12, +0.23] | `outputs/evaluations/20261120_riders_1800000_vs_norules_5800000_wiki_h2h_diagnostic` |
+
+- The Riding / Rider / Roads rewards (CHANGELOG 091) made the branch stronger.
+- More than half of these games time out.
+
 ### Wrapper rules switched off at evaluation time (diagnostic, 2026-11-18, Kevin's Claude agent)
 
 This switches off the optional wrapper rules (CHANGELOG 090) for a checkpoint trained with them on. The checkpoint is
