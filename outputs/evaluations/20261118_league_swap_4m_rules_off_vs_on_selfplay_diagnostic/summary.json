@@ -1,0 +1,35 @@
+{
+  "diagnostic": true,
+  "checkpoint": "combat_pcritic_t1_league_swap_4m (Devin)",
+  "pool": "phase2_pool_1v1/train (map index by episode)",
+  "description": "The same checkpoint on both sides, both sampling; one side with every optional wrapper rule off (POLYVISION_COMBAT_RULES_OFF=all), the other with all on. Each side plays both seats and both code paths (wrapper and league hook, with the CHANGELOG 089 village-capture fix). Score: win 1, timeout 0.5, loss 0.",
+  "games": 800,
+  "rules_off_score": 0.4194,
+  "approx_95ci": [
+    0.3882,
+    0.4505
+  ],
+  "cells": {
+    "rules_off_via_hook_moves_first": {
+      "games": 200,
+      "rules_off_score": 0.625
+    },
+    "rules_off_via_hook_moves_second": {
+      "games": 200,
+      "rules_off_score": 0.23
+    },
+    "rules_off_via_wrapper_moves_first": {
+      "games": 200,
+      "rules_off_score": 0.62
+    },
+    "rules_off_via_wrapper_moves_second": {
+      "games": 200,
+      "rules_off_score": 0.2025
+    }
+  },
+  "reference_same_rules": {
+    "moves_first": 0.685,
+    "moves_second": 0.32,
+    "source": "CHANGELOG 089 parity check (400 games)"
+  }
+}

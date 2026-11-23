@@ -45,6 +45,11 @@ export LEAGUE_SNAPSHOT_EVERY=200000
 export EXTRA_PPO_ARGS="--privileged-critic --critic-warmup-steps 0 --learning-rate 2.5e-4 --target-kl 0.02 --ent-coef 0.01"
 source cluster/combat_selfplay_v2.env
 export EXTRA_PPO_ARGS="$EXTRA_PPO_ARGS --no-anneal-lr"
+# OVERRIDE_ENV="K=V K=V": settings applied after the shared env files, which set the reward weights
+# unconditionally (e.g. OVERRIDE_ENV="POLYVISION_COMBAT_REWARD_ROAD=0.3 POLYVISION_COMBAT_REWARD_ROADS_TECH=1").
+for kv in ${OVERRIDE_ENV:-}; do export "$kv"; echo "[LEAGUE_US] override: $kv"; done
+# EXTRA_PPO_ARGS_APPEND="--learning-rate 1e-4": trainer arguments added last (the last value of a flag wins).
+export EXTRA_PPO_ARGS="$EXTRA_PPO_ARGS ${EXTRA_PPO_ARGS_APPEND:-}"
 
 export AUTO_RESUME=${AUTO_RESUME:-1}
 export TRAIN_SCRIPT=cluster/league_unit_status_wiki.sbatch

@@ -2,6 +2,97 @@
 
 All notable changes to this project are documented in this file.
 
+## [Phase2-Combat_Roads_Reward-091] - (2026-11-19)
+
+### Problem
+- With road building offered (`POLYVISION_COMBAT_EXTRA_ACTIONS`, CHANGELOG 090), the no-rules league run built
+  almost no roads by 2.3M steps: 0.00–0.02 per game. It never researched Roads: 0% of games, against 0–8% in the
+  rules-on run.
+- The road potential (`ROAD`, 0.05 per road tile in territory) only pays once a road exists, so it gives no reason
+  to research the tech first.
+
+### Change
+- New opt-in event term `roads_tech` (`POLYVISION_COMBAT_REWARD_ROADS_TECH`, default 0): a one-time bonus when the
+  learner researches ROADS.
+- The road potential is unchanged. A run raises `POLYVISION_COMBAT_REWARD_ROAD` to make roads worth building. It
+  is a potential, so a road that is lost takes its reward back and road churn cannot be farmed.
+- Defaults are unchanged, and observations and actions are unchanged, so no contract bump.
+- Test: `tools/tests/test_combat_shaping_terms.py` (`test_roads_tech_bonus`).
+- Also opt-in:
+  - `riding_tech` (`POLYVISION_COMBAT_REWARD_RIDING_TECH`): a one-time bonus for researching RIDING, which unlocks
+    Riders and leads to ROADS.
+  - `POLYVISION_COMBAT_UNUSED_TECH_EXEMPT` (comma-separated techs, default none): techs exempt from the
+    `unused_tech` penalty on the turn they are researched. A road or a Rider often has to wait for stars.
+- Why: at 3.4M steps the no-rules run researched RIDING in 50% of games, at about turn 13; ROADS in 0%; built 0
+  roads; and fielded 8.8 Warriors against 0.6 Riders. With ROADS costing about 6 stars, `tech_cost` 0.05 and
+  `unused_tech` 0.5 left the roads bonus about +0.2 net.
+- Test: `test_riding_tech_bonus_and_unused_tech_exemption`.
+
+
+## [Phase2-Combat_Optional_Wrapper_Rules_And_Actions-090] - (2026-11-18)
+
+### Scope
+- `POLYVISION_COMBAT_RULES_OFF` (combat only; comma-separated names, `all` or `none`) switches off the wrapper's
+  hard-coded rules on the learner's choices.
+- The rules are listed in `environment_contract.COMBAT_OPTIONAL_RULES`:
+  - `village_capture_freeze`: with fewer than 2 cities, a unit on a capturable village is frozen and captures at
+    END_TURN.
+  - `village_forced_moves`: with fewer than 2 cities, only moves onto a visible village are legal when one exists.
+    This removes attacks, spawns, research and END_TURN.
+  - `village_progress_moves`: otherwise, with villages visible, only the closest unit's moves towards them are legal.
+  - `unit2_backtrack`: a Phase 1 relic; on turns 1–2, unit 2 may not step back to its previous tile.
+  - `city_wall_mask`: the CITY_WALL level-up choice is never offered.
+  - `fishing_mask`: Fishing is masked on Drylands.
+- The default is unchanged: every rule is on, and Phase 1 is untouched (setting it outside combat is an error).
+- Switching any rule off changes what a checkpoint may do. The environment version gains
+  `+wrapper_rules_off_<names>`, placed before the game-rules suffix.
+  - Observations and the action catalog are unchanged, so `--init-from` warm-starts as before.
+- League snapshots trained with other rules play under the run's rules: `SnapshotOpponent` matches the rules-off
+  part of the version.
+- Evaluators:
+  - `tools/evaluate_combat.py` follows the checkpoint by default.
+  - `--rules-off` overrides it, and the evaluation is then labelled a diagnostic (`rules-override-diagnostic`,
+    `canonical: false`). Its config records `wrapper_rules_off` and `wrapper_rules_override`.
+  - `tools/evaluate_combat_h2h.py` follows checkpoint A.
+  - `cluster/eval_combat_farmshare.sbatch` accepts `EXTRA_EVAL_ARGS`.
+- `POLYVISION_COMBAT_EXTRA_ACTIONS` (combat only; comma-separated families or `all`) offers engine actions the
+  wrapper never offered:
+  - `BUILD_ROAD`: roads are rewarded but were never available.
+  - `MAKE_VETERAN`: the only promotion the engine has. Without it, units with 3 kills never became veterans.
+  - `DISBAND`, `BURN_FOREST`, `DESTROY`, `HEAL_OTHERS`, `CONVERT`, `DECLARE_WAR` and `SEND_STARS`.
+- How the extra families are added:
+  - Each gets a block of global ids after every existing block, so the ids of older checkpoints are unchanged.
+    The order is `COMBAT_EXTRA_ACTION_FAMILIES`.
+  - Tile families have one id per tile, `CONVERT` one per source x target tile, `DECLARE_WAR` one per target
+    tribe, and `SEND_STARS` one per target tribe and star amount 1–14.
+  - The environment version gains `+extra_actions_<names>`, and `action_space_n` and the catalog fingerprint grow.
+- Engine: `PythonEnv` now reports the tiles of these actions (burn forest, destroy, disband, heal others,
+  convert), and the target tribe and amount of declare war and send stars.
+- Warm start: the composed network matches action types by name, so `--init-from` copies every old type and the
+  new families start fresh.
+- League snapshots with fewer extra families still play: `combat_selfplay.fewer_extra_actions` translates ids
+  into their catalog and never offers them a family they have not seen.
+- Evaluators set the extra families from the checkpoint.
+- Remaining rules, on purpose:
+  - BOAT, SHIP, BATTLESHIP, SUPERUNIT and DAGGER are never trained, because none can be on Drylands or from a
+    city.
+  - `UPGRADE_BOAT` / `UPGRADE_SHIP` and `CLIMB_MOUNTAIN` are never offered by the engine in these games.
+- `POLYVISION_COMBAT_LEAGUE_OWN_RULES_PROB` (default 0) sets the share of snapshot games in which the snapshot keeps
+  the wrapper rules it trained with, instead of playing under the run's.
+  - Example: in a rules-off run, an old opponent sometimes still plays the scripted village rules.
+  - Only snapshots trained with other rules are affected, and the league's random stream is untouched at 0.
+  - Those games are logged under `<opponent>@own_rules` (`league/...`, `league_stats.json`), and
+    `combat_end_raw/opponent_own_rules` counts them.
+- `tools/evaluate_combat_h2h.py`:
+  - A and B must be trained for the same game: the same turn limit and game rules. They may differ in unit status,
+    optional wrapper rules and extra action families; B plays under A's settings through
+    `combat_selfplay.SnapshotOpponent`'s adapters.
+  - Tribe 0 now also plays through `SnapshotOpponent.act`. Before, it used `PPOPolicy` on the raw observation, so a
+    checkpoint on an older contract got the wrong inputs in seat 0.
+  - Sampling in seat 0 now uses `SnapshotOpponent`'s per-game generator. Results match earlier head-to-heads in
+    distribution, not game for game.
+- Tests: `tools/tests/test_combat_optional_rules.py`.
+
 ## [Phase2-Combat_League_Opponent_Village_Capture-089] - (2026-11-18)
 
 ### Problem

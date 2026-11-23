@@ -1,0 +1,165 @@
+{
+  "bootstrap": {
+    "samples": 5000,
+    "unit": "map"
+  },
+  "by_seat": {
+    "a_tribe0": {
+      "by_matchup": {
+        "BARDUR vs IMPERIUS": {
+          "loss_rate": 0.15,
+          "maps": 40,
+          "timeout_rate": 0.25,
+          "win_rate": 0.6
+        },
+        "BARDUR vs OUMAJI": {
+          "loss_rate": 0.2,
+          "maps": 40,
+          "timeout_rate": 0.1625,
+          "win_rate": 0.6375
+        },
+        "BARDUR vs XIN_XI": {
+          "loss_rate": 0.1625,
+          "maps": 40,
+          "timeout_rate": 0.2,
+          "win_rate": 0.6375
+        }
+      },
+      "games": 240,
+      "loss_rate": 0.17083333333333334,
+      "loss_rate_ci95": [
+        0.12083333333333333,
+        0.21666666666666667
+      ],
+      "maps": 120,
+      "mean_win_turn": 13.926666666666666,
+      "median_win_turn": 14.0,
+      "timeout_rate": 0.20416666666666666,
+      "timeout_rate_ci95": [
+        0.14583333333333334,
+        0.26666666666666666
+      ],
+      "win_rate": 0.625,
+      "win_rate_ci95": [
+        0.5541666666666667,
+        0.6916666666666667
+      ]
+    },
+    "a_tribe1": {
+      "by_matchup": {
+        "BARDUR vs IMPERIUS": {
+          "loss_rate": 0.2125,
+          "maps": 40,
+          "timeout_rate": 0.325,
+          "win_rate": 0.4625
+        },
+        "BARDUR vs OUMAJI": {
+          "loss_rate": 0.4875,
+          "maps": 40,
+          "timeout_rate": 0.1625,
+          "win_rate": 0.35
+        },
+        "BARDUR vs XIN_XI": {
+          "loss_rate": 0.25,
+          "maps": 40,
+          "timeout_rate": 0.2625,
+          "win_rate": 0.4875
+        }
+      },
+      "games": 240,
+      "loss_rate": 0.31666666666666665,
+      "loss_rate_ci95": [
+        0.25416666666666665,
+        0.38333333333333336
+      ],
+      "maps": 120,
+      "mean_win_turn": 14.586538461538462,
+      "median_win_turn": 15.0,
+      "timeout_rate": 0.25,
+      "timeout_rate_ci95": [
+        0.19583333333333333,
+        0.30416666666666664
+      ],
+      "win_rate": 0.43333333333333335,
+      "win_rate_ci95": [
+        0.37083333333333335,
+        0.49166666666666664
+      ]
+    }
+  },
+  "canonical": false,
+  "evaluation_id": "20261119_progress_ruleson_1000000_vs_seg1_1200000_wiki_h2h_diagnostic",
+  "evaluation_schema_version": "polyvision-combat-h2h-v1",
+  "margin_a_minus_b_win": {
+    "ci95": [
+      0.2125,
+      0.3541666666666667
+    ],
+    "maps": 120,
+    "maps_better": 78,
+    "maps_equal": 22,
+    "maps_worse": 20,
+    "mean_difference": 0.28541666666666665,
+    "metric": "rate"
+  },
+  "max_turns": 20,
+  "mode": "sampled",
+  "model_a": "/home/users/kevlai/polyAI/.claude/worktrees/rules/runs/progress_ckpts/ruleson_1000000.cleanrl_model",
+  "model_b": "/home/users/kevlai/polyAI/.claude/worktrees/league-us/runs/init_league8m_seg1_1200000/model_checkpoint_1200000.cleanrl_model",
+  "overall": {
+    "by_matchup": {
+      "BARDUR vs IMPERIUS": {
+        "loss_rate": 0.18125,
+        "maps": 40,
+        "timeout_rate": 0.2875,
+        "win_rate": 0.53125
+      },
+      "BARDUR vs OUMAJI": {
+        "loss_rate": 0.34375,
+        "maps": 40,
+        "timeout_rate": 0.1625,
+        "win_rate": 0.49375
+      },
+      "BARDUR vs XIN_XI": {
+        "loss_rate": 0.20625,
+        "maps": 40,
+        "timeout_rate": 0.23125,
+        "win_rate": 0.5625
+      }
+    },
+    "games": 480,
+    "loss_rate": 0.24375,
+    "loss_rate_ci95": [
+      0.20416666666666666,
+      0.2833333333333333
+    ],
+    "maps": 120,
+    "mean_win_turn": 14.196850393700787,
+    "median_win_turn": 14.0,
+    "timeout_rate": 0.22708333333333333,
+    "timeout_rate_ci95": [
+      0.18541666666666667,
+      0.2708333333333333
+    ],
+    "win_rate": 0.5291666666666667,
+    "win_rate_ci95": [
+      0.48541666666666666,
+      0.5729166666666666
+    ]
+  },
+  "pool": "eval_validation",
+  "primary_metric": "A's win rate against B over both seats (per-map mean, mean over maps)",
+  "rules": "polytopia_2_15",
+  "seat_gap_a_win_tribe0_minus_tribe1": {
+    "ci95": [
+      0.1,
+      0.28343749999999845
+    ],
+    "maps": 120,
+    "maps_better": 61,
+    "maps_equal": 33,
+    "maps_worse": 26,
+    "mean_difference": 0.19166666666666668,
+    "metric": "win"
+  }
+}

@@ -115,5 +115,27 @@ class DeferredVillageCaptureTests(unittest.TestCase):
         self.assertEqual(stepped, [])
 
 
+class OwnRulesTests(unittest.TestCase):
+    def league(self, prob):
+        return S.CombatLeague(environ={"POLYVISION_COMBAT_LEAGUE_OWN_RULES_PROB": str(prob)},
+                              rng=np.random.default_rng(0))
+
+    def test_off_by_default_and_never_for_a_snapshot_with_the_runs_rules(self):
+        from types import SimpleNamespace
+        old = SimpleNamespace(trained_rules_off=frozenset())
+        self.assertIsNone(self.league(0).choose_rules(old, frozenset({"fishing_mask"})))
+        same = SimpleNamespace(trained_rules_off=frozenset({"fishing_mask"}))
+        self.assertIsNone(self.league(1).choose_rules(same, frozenset({"fishing_mask"})))
+
+    def test_share_of_games_with_the_snapshots_own_rules(self):
+        from types import SimpleNamespace
+        old = SimpleNamespace(trained_rules_off=frozenset())
+        league = self.league(0.5)
+        picks = [league.choose_rules(old, frozenset({"village_forced_moves"})) for _ in range(2000)]
+        own = [p for p in picks if p is not None]
+        self.assertTrue(all(p == frozenset() for p in own))  # all its rules on
+        self.assertAlmostEqual(len(own) / len(picks), 0.5, delta=0.04)
+
+
 if __name__ == "__main__":
     unittest.main()

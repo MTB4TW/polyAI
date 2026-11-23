@@ -53,6 +53,9 @@ EVAL_ARGS=(--model-path "$MODEL_PATH" --pool eval_validation --repeats-per-map 5
 if [ -n "${EVAL_ID:-}" ]; then
     EVAL_ARGS+=(--evaluation-id "$EVAL_ID")
 fi
+# Extra evaluator arguments, e.g. EXTRA_EVAL_ARGS="--rules-off all" (a diagnostic when it overrides the checkpoint).
+read -r -a EXTRA <<< "${EXTRA_EVAL_ARGS:-}"
+EVAL_ARGS+=(${EXTRA[@]+"${EXTRA[@]}"})
 
 python tools/evaluate_combat.py "${EVAL_ARGS[@]}"
 
