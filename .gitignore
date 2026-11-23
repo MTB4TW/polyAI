@@ -25,3 +25,4 @@ pol_env/Tribes/game_moves_*.json
 tools/polytopia_harvester/harvester_config.json
 data/polytopia_maps/
 logs/resume_*.txt
+logs/*.log
