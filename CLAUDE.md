@@ -6,6 +6,8 @@ work on it (Kevin and Devin), each with their own agent, sharing the GitHub repo
 
 ## Where things are
 
+- **Current state of the combat league work (Nov 2026): `docs/HANDOFF.md`** (PR stack, models, results, open threads)
+
 - Trainer: `py_rl/cleanrl/cleanrl/ppo.py` (`--network-arch mlp | spatial_resnet | spatial_resnet_local | spatial_resnet_composed`)
 - Networks: MLP `Agent` in `ppo.py`, ResNet in `py_rl/cleanrl/cleanrl/spatial_agent.py`, selected by `agent_factory.py`
 - Environment wrapper and contract: `pol_env/Tribes/py/register_env.py`, `pol_env/Tribes/py/environment_contract.py`
