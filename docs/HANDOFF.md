@@ -156,3 +156,16 @@ nohup .venv/bin/python tools/play_vs_agent.py --player human1 --only-models \
 - The no-rules agents sometimes choose DECLARE_WAR, which is harmless but useless. Consider dropping DECLARE_WAR and
   SEND_STARS from `POLYVISION_COMBAT_EXTRA_ACTIONS`.
 - Timeouts / economy / army mix (§4) is the research question for the next runs.
+- **Unfinished at handoff (2026-11-22): the 8 final sweep head-to-heads** (SLURM jobs 2013326–2013333, names
+  `h2hf_sweep_*`, each sweep `*_final` vs the riders final, 480 games, queued on Priority). When `squeue -u kevlai`
+  no longer lists them:
+  1. Read each `rules/outputs/evaluations/20261122_sweep_*_final_vs_riders_final_wiki_h2h_diagnostic/` and report
+     W/T/L, score (timeout = ½) and margin per variant.
+  2. Add a section "Overnight sweep … final" to `docs/experiments.md` on `feat/combat-optional-rules` (rules
+     worktree), commit the eight evaluation folders, push.
+  3. Merge `origin/feat/combat-optional-rules` into this branch, replace the "Final (2M) results" line in §4.7 with
+     the result, push.
+  If a job failed, its log is in the rules worktree `logs/`; resubmit it with
+  `rules/runs/tools_scratch/submit_sweep_final_h2h.sh sweep_riders_control` (variants: `sweep_norules_t13`,
+  `sweep_riders_{control,t13,t14,t13_city2,t13_ent02,t13_lr1e4,t13_seed2}`). `runs/` is not in git, so this script
+  lives only on Farmshare.
